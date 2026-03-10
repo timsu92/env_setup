@@ -1,0 +1,17 @@
+# ansible-lint configuration
+# Docs: https://ansible.readthedocs.io/projects/lint/configuring/
+
+profile: production  # min | basic | moderate | safety | shared | production
+
+exclude_paths:
+  - .venv/
+  - docs/
+  - bootstrap/
+  - bin/
+
+warn_list:
+  - yaml[truthy]        # allow yes/no in YAML booleans
+  - yaml[line-length]   # allow long lines in YAML files
+  - name[template]      # allow Jinja2 in task names
+
+skip_list: []

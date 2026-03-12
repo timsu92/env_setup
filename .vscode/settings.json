@@ -1,4 +1,5 @@
 {
   "ansible.python.activationScript": ".venv/bin/activate",
   "ansible.validation.lint.enabled": true,
+  "ansible.python.interpreterPath": ".venv/bin/python",
 }

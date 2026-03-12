@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# bin/setup-container
+# Provision this Docker container (local Ansible execution).
+# Must be run INSIDE the container.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+echo "==> Running container bootstrap ..."
+bash "${REPO_ROOT}/bootstrap/container/bootstrap.sh" "$@"

@@ -1,0 +1,12 @@
+[Interface]
+PrivateKey = {{ _wg_privatekey.content | b64decode | trim }}
+Address = {{ wireguard_address }}
+DNS = {{ wireguard_dns }}
+MTU = {{ wireguard_mtu }}
+
+[Peer]
+PublicKey = {{ wireguard_server_pubkey }}
+PresharedKey = {{ _wg_psk.content | b64decode | trim }}
+AllowedIPs = {{ wireguard_allowedips }}
+Endpoint = {{ wireguard_endpoint }}
+PersistentKeepalive = {{ wireguard_keepalive }}

@@ -1,0 +1,7 @@
+---
+- name: Reload and enable qemu-guest-agent
+  ansible.builtin.service:
+    name: qemu-guest-agent
+    enabled: true
+    state: restarted
+    daemon_reload: true

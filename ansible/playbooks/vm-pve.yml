@@ -1,0 +1,19 @@
+---
+# Profile: Proxmox VM — base setup
+# Target: vm inventory group (push model via SSH)
+# Run: bin/setup-vm --host <IP>
+- name: Provision Proxmox VM base
+  hosts: vm
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: apt_nycu_mirror
+    - role: common_base
+    - role: apt_cacher_ng
+    - role: vim
+    - role: git
+    - role: zsh
+    - role: tmux
+    - role: nfs_client
+    - role: proxmox_guest

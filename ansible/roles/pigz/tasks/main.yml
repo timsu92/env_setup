@@ -1,0 +1,20 @@
+---
+# pigz: install pigz (parallel gzip)
+# Source: docs/其他/pigz.md
+- name: Install pigz
+  ansible.builtin.apt:
+    name: pigz
+    state: present
+
+- name: Replace gzip with pigz symlink
+  block:
+    - name: Rename original gzip binary
+      ansible.builtin.command:
+        cmd: mv /bin/gzip /bin/gzip.bak
+        creates: /bin/gzip.bak
+
+    - name: Create pigz symlink at /bin/gzip
+      ansible.builtin.file:
+        src: /usr/bin/pigz
+        dest: /bin/gzip
+        state: link

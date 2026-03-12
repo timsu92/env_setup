@@ -1,0 +1,93 @@
+---
+# zsh: install zsh, deploy dotfiles, install zplug and starship
+# Sources: docs/zsh/*
+
+- name: Install zsh
+  ansible.builtin.apt:
+    name: zsh
+    state: present
+
+- name: Set zsh as default shell for {{ setup_user }}
+  ansible.builtin.user:
+    name: "{{ setup_user }}"
+    shell: /bin/zsh
+
+- name: Ensure ~/.zfunc directory exists
+  ansible.builtin.file:
+    path: "{{ setup_user_home }}/.zfunc"
+    state: directory
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+
+- name: Deploy ~/.zshrc
+  ansible.builtin.template:
+    src: zshrc.j2
+    dest: "{{ setup_user_home }}/.zshrc"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
+- name: Deploy ~/.myzsh.zsh
+  ansible.builtin.template:
+    src: myzsh.zsh.j2
+    dest: "{{ setup_user_home }}/.myzsh.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Install zplug prerequisites
+  ansible.builtin.apt:
+    name:
+      - curl
+      - git
+    state: present
+
+- name: Install zplug
+  ansible.builtin.shell:
+    cmd: >
+      curl -sL --proto-redir -all,https
+      https://raw.githubusercontent.com/zplug/installer/master/installer.zsh | zsh
+    creates: "{{ setup_user_home }}/.zplug/init.zsh"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+    TERM: xterm
+
+- name: Deploy ~/.myzsh_zplug.zsh
+  ansible.builtin.template:
+    src: zplug.zsh.j2
+    dest: "{{ setup_user_home }}/.myzsh_zplug.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Install starship prompt
+  ansible.builtin.shell:
+    cmd: curl -sS https://starship.rs/install.sh | sh -s -- --yes
+    creates: /usr/local/bin/starship
+
+- name: Ensure ~/.config directory exists
+  ansible.builtin.file:
+    path: "{{ setup_user_home }}/.config"
+    state: directory
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Deploy ~/.config/starship.toml
+  ansible.builtin.template:
+    src: starship.toml.j2
+    dest: "{{ setup_user_home }}/.config/starship.toml"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+  become: true
+  become_user: "{{ setup_user }}"

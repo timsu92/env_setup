@@ -1,0 +1,13 @@
+---
+# Profile: Docker container (local execution)
+# Target: localhost inside the container
+- name: Provision Docker container
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: common_base
+    - role: vim
+    - role: git

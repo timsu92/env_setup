@@ -1,0 +1,24 @@
+---
+# Profile: WSL daily driver
+# Target: localhost (local execution inside WSL)
+# Run: bin/setup-vm --profile wsl
+- name: Provision WSL daily driver
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: apt_nycu_mirror
+    - role: common_base
+    - role: apt_cacher_ng
+    - role: pigz
+    - role: dns_over_tls
+    - role: vim
+    - role: git
+    - role: tmux
+    - role: zsh
+    - role: docker_rootful
+    - role: docker_rootless
+    - role: xpra
+    - role: wsl_my_documents

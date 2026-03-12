@@ -1,0 +1,47 @@
+---
+# proxmox_guest: prepare a Proxmox VM/LXC as a standard guest machine
+# Source: docs/proxmox/2. 一般使用機器.md
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - vim
+      - htop
+      - mosh
+      - sudo
+      - qemu-guest-agent
+    state: present
+
+- name: Create systemd drop-in for qemu-guest-agent (enable at boot)
+  ansible.builtin.file:
+    path: /etc/systemd/system/qemu-guest-agent.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy qemu-guest-agent systemd override
+  ansible.builtin.copy:
+    src: qemu-ga-override.conf
+    dest: /etc/systemd/system/qemu-guest-agent.service.d/override.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload and enable qemu-guest-agent
+
+- name: Ensure qemu-guest-agent is enabled and started
+  ansible.builtin.service:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Create user {{ proxmox_new_username }}
+  ansible.builtin.user:
+    name: "{{ proxmox_new_username }}"
+    shell: "{{ proxmox_new_user_shell }}"
+    create_home: true
+    groups: "{{ proxmox_new_user_groups | join(',') }}"
+    append: true
+    state: present
+  ignore_errors: true  # some groups (cdrom, floppy, etc.) may not exist in LXC

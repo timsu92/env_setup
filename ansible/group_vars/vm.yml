@@ -1,0 +1,9 @@
+---
+# Proxmox VM group vars (push model)
+# We SSH as root, but configure user "tim" as the regular working user.
+setup_user: tim
+setup_user_home: /home/tim
+
+# User created by the proxmox_guest role
+proxmox_new_username: tim
+proxmox_new_user_shell: /bin/zsh

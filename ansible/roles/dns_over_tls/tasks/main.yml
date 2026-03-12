@@ -1,0 +1,12 @@
+---
+# dns_over_tls: configure systemd-resolved with DNS-over-TLS
+# Source: docs/Linux系統/DNS over TLS.md
+
+- name: Deploy /etc/systemd/resolved.conf
+  ansible.builtin.copy:
+    src: resolved.conf
+    dest: /etc/systemd/resolved.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart systemd-resolved

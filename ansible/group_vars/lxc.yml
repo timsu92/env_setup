@@ -1,0 +1,7 @@
+---
+# Proxmox LXC group vars (push model)
+setup_user: tim
+setup_user_home: /home/tim
+
+proxmox_new_username: tim
+proxmox_new_user_shell: /bin/zsh

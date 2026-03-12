@@ -1,0 +1,12 @@
+---
+# Global defaults — override per group or host as needed.
+
+# The user whose home directory and dotfiles will be configured.
+# - For local runs (WSL/container/devcontainer): defaults to current user.
+# - For push model (PVE VM/LXC): override to "tim" in group_vars/vm.yml.
+setup_user: "{{ ansible_user_id }}"
+setup_user_home: "{{ '/root' if setup_user == 'root' else '/home/' + setup_user }}"
+
+# Git identity
+git_user_name: "timsu92"
+git_user_email: "33785401+timsu92@users.noreply.github.com"

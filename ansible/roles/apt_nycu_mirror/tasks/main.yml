@@ -1,0 +1,55 @@
+---
+# apt_nycu_mirror: configure apt to use NYCU (交通大學) mirror
+# Source: docs/apt/設定nycu mirror.md
+
+- name: Set NYCU mirror for Ubuntu
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/nycu.list
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_distribution_release }} main universe restricted multiverse
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_distribution_release }}-updates main universe restricted multiverse
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_distribution_release }}-backports main universe restricted multiverse
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_distribution_release }}-security main universe restricted multiverse
+  when: ansible_distribution == "Ubuntu"
+
+- name: Set apt pin priority for NYCU Ubuntu mirror
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/nycu
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      Package: *
+      Pin: origin "ubuntu.cs.nycu.edu.tw"
+      Pin-Priority: 501
+  when: ansible_distribution == "Ubuntu"
+
+- name: Set NYCU mirror for Debian
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/nycu.list
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://debian.cs.nycu.edu.tw/debian/ {{ ansible_distribution_release }} main non-free-firmware
+      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://debian.cs.nycu.edu.tw/debian/ {{ ansible_distribution_release }}-updates main non-free-firmware
+  when: ansible_distribution == "Debian"
+
+- name: Set apt pin priority for NYCU Debian mirror
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/nycu
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      Package: *
+      Pin: origin "debian.cs.nycu.edu.tw"
+      Pin-Priority: 501
+  when: ansible_distribution == "Debian"
+
+- name: Update apt cache after mirror change
+  ansible.builtin.apt:
+    update_cache: true

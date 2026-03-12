@@ -1,0 +1,13 @@
+---
+# wsl_my_documents: create ~/documents symlink to Windows Documents folder
+# Source: docs/其他/我的文件.md
+
+- name: Create ~/documents symlink pointing to Windows Documents
+  ansible.builtin.file:
+    src: "/mnt/c/Users/{{ wsl_windows_username }}/Documents"
+    dest: "{{ setup_user_home }}/documents"
+    state: link
+    owner: "{{ setup_user }}"
+    force: false
+  become: true
+  become_user: "{{ setup_user }}"

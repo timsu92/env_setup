@@ -1,0 +1,14 @@
+---
+# Profile: Devcontainer
+# Target: localhost (local execution inside container)
+# Run: bin/setup-devcontainer
+- name: Provision devcontainer
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: common_base
+    - role: vim
+    - role: git

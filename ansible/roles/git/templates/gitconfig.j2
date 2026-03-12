@@ -1,0 +1,24 @@
+[user]
+	name = {{ git_user_name }}
+	email = {{ git_user_email }}
+
+[init]
+	defaultBranch = main
+
+[core]
+	autocrlf = false
+	editor = vim
+	quotepath = false
+
+[rebase]
+	autosquash = true
+
+[alias]
+	adog  = log --all --decorate --oneline --graph
+	c     = commit
+	ca    = commit --amend --no-edit
+	a     = add
+	st    = status
+	stp   = stash push
+	stpo  = stash pop
+	p     = push

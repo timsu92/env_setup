@@ -1,0 +1,25 @@
+---
+# ap_cacher_ng: configure apt-cacher-ng auto-detection proxy
+# This installs a proxy-detect script so the machine will automatically use
+# an apt-cacher-ng mirror when available (useful inside the Proxmox network).
+
+- name: Install netcat (used by proxy detection script)
+  ansible.builtin.apt:
+    name: netcat-openbsd
+    state: present
+
+- name: Deploy apt proxy detection script
+  ansible.builtin.copy:
+    src: apt-proxy-detect.sh
+    dest: /usr/local/bin/apt-proxy-detect.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure apt to use proxy auto-detection
+  ansible.builtin.copy:
+    src: 00aptproxy
+    dest: /etc/apt/apt.conf.d/00aptproxy
+    owner: root
+    group: root
+    mode: "0644"

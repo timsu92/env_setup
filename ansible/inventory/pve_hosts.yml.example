@@ -1,0 +1,29 @@
+# Example inventory for Proxmox push model.
+# Copy this to pve_hosts.yml, fill in real IPs/hostnames, then use with:
+#   ansible-playbook -i inventory/pve_hosts.yml playbooks/vm-pve.yml
+all:
+  children:
+    vm:
+      hosts:
+        pve-vm-01:
+          ansible_host: 192.168.1.10
+          ansible_user: root
+          # WireGuard client config (used by wireguard_client role).
+          # The role generates keys on the host and prints PublicKey + PresharedKey
+          # at the end of the play — add them to the server's [Peer] block.
+          wireguard_address: "10.140.113.2/24, fdcc:fade:beee:deed:feed:beef:0:2/112"
+          wireguard_server_pubkey: "<server-public-key>"
+          wireguard_endpoint: "..."
+          # wireguard_allowedips: "..."  # optional, see role defaults
+          # NFS mounts for this host (used by nfs_client role).
+          # Remove or leave empty if no NFS mounts are needed.
+          nfs_mounts:
+            - src: "192.168.1.1:/mnt/shared_data"
+              dest: /mnt/data
+              opts: "defaults,nofail,_netdev,soft,timeo=30,retrans=5"
+    lxc:
+      hosts:
+        pve-lxc-01:
+          ansible_host: 192.168.1.20
+          ansible_user: root
+          nfs_mounts: []  # no NFS mounts for this LXC

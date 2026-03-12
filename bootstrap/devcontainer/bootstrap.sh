@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# bootstrap/devcontainer/bootstrap.sh
+# Install Ansible locally inside the devcontainer and run the devcontainer profile.
+# Designed to be called from a VS Code dotfiles repo or devcontainer lifecycle script.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+echo "==> Updating apt cache ..."
+apt-get update -q
+
+echo "==> Installing Python3, pip3, and git ..."
+apt-get install -y python3 python3-pip git
+
+echo "==> Installing Ansible ..."
+pip3 install --break-system-packages ansible 2>/dev/null || pip3 install ansible
+
+echo "==> Running devcontainer profile ..."
+cd "${REPO_ROOT}/ansible"
+ansible-playbook -c local -i inventory/local.yml playbooks/devcontainer.yml "$@"
+
+echo "==> Done."

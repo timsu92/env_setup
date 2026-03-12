@@ -1,0 +1,4 @@
+---
+# Docker container group vars (local execution)
+# May run as root inside the container — no sudo needed.
+ansible_connection: local

@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# bin/setup-vm
+# Provision a Proxmox VM (push model from controller) or WSL (local model).
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ANSIBLE_DIR="${REPO_ROOT}/ansible"
+
+usage() {
+  cat <<EOF
+Usage: $0 [OPTIONS]
+
+Options:
+  --host <IP>          Target VM IP/hostname (required for PVE push mode)
+  --profile <name>     Profile to run: wsl | pve | pve-daily  (default: wsl)
+  --inventory <file>   Inventory file (default: inventory/pve_hosts.yml)
+  -e <extra_vars>      Extra vars passed to ansible-playbook
+  -h, --help           Show this help
+
+Examples:
+  $0                             # provision local WSL machine
+  $0 --host 192.168.1.10        # provision PVE VM at given IP (base profile)
+  $0 --host 192.168.1.10 --profile pve-daily
+EOF
+  exit 1
+}
+
+PROFILE="wsl"
+HOST=""
+INVENTORY="inventory/pve_hosts.yml"
+EXTRA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --host)      HOST="$2"; shift 2 ;;
+    --profile)   PROFILE="$2"; shift 2 ;;
+    --inventory) INVENTORY="$2"; shift 2 ;;
+    -e)          EXTRA_ARGS+=(-e "$2"); shift 2 ;;
+    -h|--help)   usage ;;
+    *) echo "Unknown option: $1"; usage ;;
+  esac
+done
+
+cd "${ANSIBLE_DIR}"
+
+case "$PROFILE" in
+  wsl)
+    echo "==> Provisioning WSL daily driver (local) ..."
+    ansible-playbook -c local -i inventory/local.yml playbooks/vm-daily-wsl.yml "${EXTRA_ARGS[@]}"
+    ;;
+  pve)
+    [[ -z "$HOST" ]] && { echo "ERROR: --host required for pve profile"; usage; }
+    echo "==> Provisioning Proxmox VM at ${HOST} (base profile) ..."
+    ansible-playbook -i "${INVENTORY}" -l "${HOST}" playbooks/vm-pve.yml "${EXTRA_ARGS[@]}"
+    ;;
+  pve-daily)
+    [[ -z "$HOST" ]] && { echo "ERROR: --host required for pve-daily profile"; usage; }
+    echo "==> Provisioning Proxmox VM at ${HOST} (daily-driver profile) ..."
+    ansible-playbook -i "${INVENTORY}" -l "${HOST}" playbooks/vm-daily-pve.yml "${EXTRA_ARGS[@]}"
+    ;;
+  *)
+    echo "ERROR: unknown profile '${PROFILE}'"; usage ;;
+esac
+
+echo "==> Done."

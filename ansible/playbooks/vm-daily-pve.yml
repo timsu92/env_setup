@@ -1,0 +1,18 @@
+---
+# Profile: Proxmox VM — daily driver (extends vm-pve)
+# Target: vm inventory group (push model via SSH)
+# Run: bin/setup-vm --host <IP> --profile pve-daily
+- import_playbook: vm-pve.yml
+
+- name: Provision Proxmox VM additional tools
+  hosts: vm
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: pigz
+    - role: docker_rootful
+    - role: docker_rootless
+    - role: helm
+    - role: xpra
+    - role: wireguard_client

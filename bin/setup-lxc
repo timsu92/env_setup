@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# bin/setup-lxc
+# Provision a Proxmox LXC container (push model from controller).
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ANSIBLE_DIR="${REPO_ROOT}/ansible"
+
+usage() {
+  cat <<EOF
+Usage: $0 --host <IP> [OPTIONS]
+
+Options:
+  --host <IP>          Target LXC IP/hostname (required)
+  --inventory <file>   Inventory file (default: inventory/pve_hosts.yml)
+  -e <extra_vars>      Extra vars passed to ansible-playbook
+  -h, --help           Show this help
+
+Example:
+  $0 --host 192.168.1.20
+EOF
+  exit 1
+}
+
+HOST=""
+INVENTORY="inventory/pve_hosts.yml"
+EXTRA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --host)      HOST="$2"; shift 2 ;;
+    --inventory) INVENTORY="$2"; shift 2 ;;
+    -e)          EXTRA_ARGS+=(-e "$2"); shift 2 ;;
+    -h|--help)   usage ;;
+    *) echo "Unknown option: $1"; usage ;;
+  esac
+done
+
+[[ -z "$HOST" ]] && { echo "ERROR: --host is required"; usage; }
+
+cd "${ANSIBLE_DIR}"
+echo "==> Provisioning Proxmox LXC at ${HOST} ..."
+ansible-playbook -i "${INVENTORY}" -l "${HOST}" playbooks/lxc-pve.yml "${EXTRA_ARGS[@]}"
+echo "==> Done."

@@ -1,0 +1,3 @@
+---
+# Windows username whose Documents folder to link
+wsl_windows_username: tim

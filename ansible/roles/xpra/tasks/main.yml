@@ -1,0 +1,36 @@
+---
+# xpra: install xpra remote desktop server/client
+# Source: docs/Linux系統/xpra.md
+
+- name: Install prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - wget
+      - software-properties-common
+    state: present
+
+- name: Download xpra GPG key
+  ansible.builtin.get_url:
+    url: https://xpra.org/xpra.asc
+    dest: /usr/share/keyrings/xpra.asc
+    mode: "0644"
+
+- name: Add xpra apt repository
+  ansible.builtin.shell:
+    cmd: >
+      . /etc/os-release && wget -q -P /etc/apt/sources.list.d/
+      https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/${VERSION_CODENAME}/{{ repo }}.sources
+    creates: /etc/apt/sources.list.d/xpra.sources
+
+- name: Enable Ubuntu universe repository
+  ansible.builtin.apt_repository:
+    repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_distribution_release }} universe"
+    state: present
+  when: ansible_distribution == "Ubuntu"
+
+- name: Install xpra
+  ansible.builtin.apt:
+    name: xpra
+    state: present
+    update_cache: true

@@ -1,0 +1,18 @@
+---
+# Profile: Proxmox LXC
+# Target: lxc inventory group (push model via SSH)
+# Run: bin/setup-lxc --host <IP>
+- name: Provision Proxmox LXC
+  hosts: lxc
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: apt_nycu_mirror
+    - role: common_base
+    - role: apt_cacher_ng
+    - role: vim
+    - role: git
+    - role: zsh
+    - role: tmux
+    - role: proxmox_guest

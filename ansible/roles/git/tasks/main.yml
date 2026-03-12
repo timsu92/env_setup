@@ -1,0 +1,18 @@
+---
+# git: install git and configure global settings
+# Sources: docs/git/*
+
+- name: Install git
+  ansible.builtin.apt:
+    name: git
+    state: present
+
+- name: Deploy ~/.gitconfig
+  ansible.builtin.template:
+    src: gitconfig.j2
+    dest: "{{ setup_user_home }}/.gitconfig"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0664"
+  become: true
+  become_user: "{{ setup_user }}"

@@ -1,0 +1,47 @@
+---
+# docker_rootless: configure rootless Docker for setup_user
+# Source: docs/docker/docker engine (rootless).md
+#         docs/docker/開機時執行docker.md
+# Depends on: docker_rootful role (provides docker-ce-rootless-extras)
+
+- name: Install rootless Docker prerequisites
+  ansible.builtin.apt:
+    name:
+      - uidmap
+      - dbus-user-session
+    state: present
+
+- name: Disable and stop rootful Docker daemon
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - docker.service
+    - docker.socket
+  ignore_errors: true  # may already be disabled
+
+- name: Remove /var/run/docker.sock if present
+  ansible.builtin.file:
+    path: /var/run/docker.sock
+    state: absent
+
+- name: Get UID of {{ setup_user }}
+  ansible.builtin.command: id -u {{ setup_user }}
+  register: docker_rootless_uid
+  changed_when: false
+
+- name: Run dockerd-rootless-setuptool.sh install
+  ansible.builtin.shell:
+    cmd: dockerd-rootless-setuptool.sh install
+    creates: "{{ setup_user_home }}/.config/systemd/user/docker.service"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ docker_rootless_uid.stdout }}"
+
+- name: Enable linger for {{ setup_user }} (rootless docker auto-start)
+  ansible.builtin.command: loginctl enable-linger {{ setup_user }}
+  changed_when: false
+  ignore_errors: true  # may fail in containers without systemd

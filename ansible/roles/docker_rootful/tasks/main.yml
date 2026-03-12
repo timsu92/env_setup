@@ -1,0 +1,64 @@
+---
+# docker_rootful: install Docker Engine (rootful mode)
+# Source: docs/docker/docker engine (rootful).md
+
+- name: Remove legacy docker packages
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-doc
+      - docker-compose
+      - docker-compose-v2
+      - podman-docker
+      - containerd
+      - runc
+    state: absent
+    purge: true
+
+- name: Install prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+    state: present
+
+- name: Create /etc/apt/keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Docker GPG key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Get dpkg architecture
+  ansible.builtin.command: dpkg --print-architecture
+  register: dpkg_arch
+  changed_when: false
+
+- name: Add Docker apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/ubuntu
+      {{ ansible_distribution_release }} stable
+    filename: docker
+    state: present
+
+- name: Install Docker Engine packages
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: true

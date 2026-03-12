@@ -1,0 +1,3 @@
+---
+# Devcontainer group vars (local execution)
+ansible_connection: local

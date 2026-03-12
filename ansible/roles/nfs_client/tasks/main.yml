@@ -1,0 +1,32 @@
+---
+# nfs_client: install NFS client utilities and configure mounts
+# Source: docs/Linux系統/nfs.md
+#
+# Configure mounts via inventory (host_vars or group_vars):
+#   nfs_mounts:
+#     - src: "<SERVER_IP>:/mnt/shared_data"
+#       dest: /mnt/data
+#       opts: "defaults,nofail,_netdev,soft,timeo=30,retrans=5"
+
+- name: Install nfs-common
+  ansible.builtin.apt:
+    name: nfs-common
+    state: present
+
+- name: Create NFS mount point directories
+  ansible.builtin.file:
+    path: "{{ item.dest }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ nfs_mounts }}"
+
+- name: Configure NFS mounts in /etc/fstab
+  ansible.posix.mount:
+    src: "{{ item.src }}"
+    path: "{{ item.dest }}"
+    fstype: nfs
+    opts: "{{ item.opts | default('defaults,nofail,_netdev,soft,timeo=30,retrans=5') }}"
+    state: mounted
+  loop: "{{ nfs_mounts }}"

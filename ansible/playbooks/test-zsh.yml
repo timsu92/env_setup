@@ -1,0 +1,17 @@
+---
+# Test playbook: zsh role
+- name: Test zsh role
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Install zsh (test pre-req)
+      ansible.builtin.apt:
+        update_cache: true
+        name: [curl, git, zsh, vim]
+        state: present
+
+  roles:
+    - role: zsh

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# bin/setup-devcontainer
+# Provision this devcontainer (local Ansible execution).
+# Must be run INSIDE the devcontainer.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+echo "==> Running devcontainer bootstrap ..."
+bash "${REPO_ROOT}/bootstrap/devcontainer/bootstrap.sh" "$@"

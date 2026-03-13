@@ -28,7 +28,10 @@
 
 - name: Run vimrc install.sh
   ansible.builtin.command:
-    cmd: bash install.sh
+    cmd: >-
+      bash -lc
+      '. "{{ setup_user_home }}/.nvm/nvm.sh" &&
+      bash install.sh'
     chdir: "{{ vim_repo_dest }}"
   become: true
   become_user: "{{ setup_user }}"

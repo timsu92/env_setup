@@ -1,5 +1,4 @@
----
-# zsh: install zsh, deploy dotfiles, install zplug and starship
+# zsh: install zsh and deploy modular loaders/snippets
 # Sources: docs/zsh/*
 
 - name: Install zsh
@@ -12,82 +11,39 @@
     name: "{{ setup_user }}"
     shell: /bin/zsh
 
-- name: Ensure ~/.zfunc directory exists
+- name: Ensure zsh config directories exist
   ansible.builtin.file:
-    path: "{{ setup_user_home }}/.zfunc"
+    path: "{{ item }}"
     state: directory
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: "0755"
+  loop:
+    - "{{ setup_user_home }}/.config"
+    - "{{ setup_user_home }}/.config/zsh"
+    - "{{ setup_user_home }}/.config/zsh/non-interactive"
+    - "{{ setup_user_home }}/.config/zsh/interactive"
 
-- name: Deploy ~/.zshrc
-  ansible.builtin.template:
-    src: zshrc.j2
+- name: Deploy ~/.zshenv loader
+  ansible.builtin.copy:
+    src: zshenv
+    dest: "{{ setup_user_home }}/.zshenv"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
+- name: Deploy ~/.zshrc loader
+  ansible.builtin.copy:
+    src: zshrc
     dest: "{{ setup_user_home }}/.zshrc"
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: "0644"
 
-- name: Deploy ~/.myzsh.zsh
-  ansible.builtin.template:
-    src: myzsh.zsh.j2
-    dest: "{{ setup_user_home }}/.myzsh.zsh"
+- name: Deploy zsh interactive snippets
+  ansible.builtin.copy:
+    src: interactive/
+    dest: "{{ setup_user_home }}/.config/zsh/interactive/"
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
-    mode: "0644"
-  become: true
-  become_user: "{{ setup_user }}"
-
-- name: Install zplug prerequisites
-  ansible.builtin.apt:
-    name:
-      - curl
-      - git
-    state: present
-
-- name: Install zplug
-  ansible.builtin.shell:
-    cmd: >
-      curl -sL --proto-redir -all,https
-      https://raw.githubusercontent.com/zplug/installer/master/installer.zsh | zsh
-    creates: "{{ setup_user_home }}/.zplug/init.zsh"
-  become: true
-  become_user: "{{ setup_user }}"
-  environment:
-    HOME: "{{ setup_user_home }}"
-    TERM: xterm
-
-- name: Deploy ~/.myzsh_zplug.zsh
-  ansible.builtin.template:
-    src: zplug.zsh.j2
-    dest: "{{ setup_user_home }}/.myzsh_zplug.zsh"
-    owner: "{{ setup_user }}"
-    group: "{{ setup_user }}"
-    mode: "0644"
-  become: true
-  become_user: "{{ setup_user }}"
-
-- name: Install starship prompt
-  ansible.builtin.shell:
-    cmd: curl -sS https://starship.rs/install.sh | sh -s -- --yes
-    creates: /usr/local/bin/starship
-
-- name: Ensure ~/.config directory exists
-  ansible.builtin.file:
-    path: "{{ setup_user_home }}/.config"
-    state: directory
-    owner: "{{ setup_user }}"
-    group: "{{ setup_user }}"
-    mode: "0755"
-  become: true
-  become_user: "{{ setup_user }}"
-
-- name: Deploy ~/.config/starship.toml
-  ansible.builtin.template:
-    src: starship.toml.j2
-    dest: "{{ setup_user_home }}/.config/starship.toml"
-    owner: "{{ setup_user }}"
-    group: "{{ setup_user }}"
-    mode: "0644"
-  become: true
-  become_user: "{{ setup_user }}"
+    mode: preserve

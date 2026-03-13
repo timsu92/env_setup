@@ -1,0 +1,17 @@
+---
+# node: install Node.js via nvm
+# Sources: docs/js/node.md
+
+- name: Install Node.js via nvm
+  ansible.builtin.shell:
+    cmd: >
+      . "{{ setup_user_home }}/.nvm/nvm.sh" &&
+      nvm install {{ node_install_args }}
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+  register: node_install_result
+  changed_when: >-
+    'is already installed' not in node_install_result.stdout and
+    'is already installed' not in node_install_result.stderr

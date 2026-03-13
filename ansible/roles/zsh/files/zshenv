@@ -1,0 +1,30 @@
+# managed by Ansible: non-interactive zsh loader
+
+typeset -ga _zsh_module_errors
+
+_load_zsh_modules() {
+  emulate -L zsh
+  setopt extendedglob
+
+  local phase="$1"
+  local module
+
+  for module in ${HOME}/.config/zsh/${phase}/*.zsh(Non); do  # N: nullglob, o: ascending sorting, n: numeric sorting
+    if ! source "$module"; then
+      _zsh_module_errors+=("$module")
+    fi
+  done
+}
+
+_report_zsh_module_errors() {
+  emulate -L zsh
+
+  (( ${#_zsh_module_errors[@]} == 0 )) && return 0
+
+  print -u2 "zsh modules failed to load:"
+  printf '  %s\n' "${_zsh_module_errors[@]}" >&2
+  _zsh_module_errors=()
+}
+
+_load_zsh_modules non-interactive
+_report_zsh_module_errors

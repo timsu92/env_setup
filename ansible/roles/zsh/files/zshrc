@@ -1,0 +1,6 @@
+# managed by Ansible: interactive zsh loader
+
+[[ -o interactive ]] || return 0
+
+_load_zsh_modules interactive
+_report_zsh_module_errors

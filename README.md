@@ -56,11 +56,15 @@ Roles implement individual capabilities. Each role encapsulates everything neede
 | `git` | git + global config (~/.gitconfig) |
 | `vim` | vim editor |
 | `tmux` | tmux + ~/.tmux.conf |
-| `zsh` | zsh + zplug + starship + dotfiles |
+| `zsh` | zsh core + modular loader |
+| `nvm` | nvm install + zsh nvm snippets |
+| `node` | Node.js install via nvm |
+| `zplug` | zplug + plugin snippets |
+| `starship` | starship + prompt snippet |
 | `docker_rootful` | Docker Engine (rootful) |
 | `docker_rootless` | Docker Engine (rootless mode) |
 | `helm` | Helm (k8s package manager) |
-| `wireguard_client` | WireGuard client tools |
+| `wireguard_client` | WireGuard client config deployment + key output for server peer |
 | `nfs_client` | NFS client |
 | `dns_over_tls` | systemd-resolved DNS-over-TLS |
 | `xpra` | Xpra remote desktop |
@@ -111,12 +115,43 @@ bin/setup-lxc --host 192.168.1.20
 bin/setup-container
 ```
 
+This profile uses Vim minimal mode (`vim_profile: minimal`): only apt install vim.
+
 ### Devcontainer
 
 ```bash
 # Inside the devcontainer:
 bin/setup-devcontainer
 ```
+
+This profile uses Vim full mode (`vim_profile: full`): vim + vimrc repo + install.sh + nvm/node dependency chain.
+
+---
+
+## Zsh Module Loading Model
+
+The zsh setup is modular and split into two phases:
+
+- `~/.zshenv` loads `~/.config/zsh/non-interactive/*.zsh(Non)`
+- `~/.zshrc` (interactive shells only) loads `~/.config/zsh/interactive/*.zsh(Non)`
+
+Loader behavior:
+
+- Uses `Non` glob qualifier to keep numeric ascending order and safely skip when no files exist.
+- Records failed module files and prints them to stderr after each phase.
+
+Recommended ordering convention:
+
+- `0x`: zsh core setup (must run first)
+- `1x`: env vars and PATH
+- `6x`: normal app/plugin setup
+- `9x`: late hooks / final overrides
+
+Examples in this repo:
+
+- `00-zsh-core.zsh` in `interactive` for base shell settings
+- `60-zplug-init.zsh` then `69-zplug-settings.zsh` for plugin manager init and plugin settings
+- `95-zplug-load.zsh` for late zplug initialization to load all plugins
 
 ---
 
@@ -126,8 +161,7 @@ bin/setup-devcontainer
 
 1. Create `ansible/roles/<role_name>/tasks/main.yml`
 2. Optionally add `defaults/main.yml`, `templates/`, `files/`, `handlers/main.yml`
-3. Reference docs from `docs/` in comments
-4. Add the role to relevant playbooks in `ansible/playbooks/`
+3. Add the role to relevant playbooks in `ansible/playbooks/`
 
 ### Adding a new profile
 
@@ -155,6 +189,5 @@ For PVE VM/LXC, `setup_user` is overridden to `tim` in `group_vars/vm.yml` and `
 
 ## Notes
 
-- **WireGuard keys**: not managed here. Install wireguard-tools, then configure `/etc/wireguard/wg0.conf` manually.
-- **WSL fractional scaling**: requires editing `%USERPROFILE%\.wslgconfig` on Windows — the role prints a reminder.
+- **WireGuard keys**: checkout `ansible/inventory/pve_hosts.yml.example` for example inventory vars needed to set up a WireGuard client.
 - **proxmox_guest user creation**: some groups (cdrom, floppy, etc.) may not exist in LXC; errors for those are ignored.

@@ -15,9 +15,13 @@
     - role: pigz
     - role: dns_over_tls
     - role: vim
+      vars:
+        vim_profile: minimal
     - role: git
     - role: tmux
     - role: zsh
+    - role: zplug
+    - role: starship
     - role: docker_rootful
     - role: docker_rootless
     - role: xpra

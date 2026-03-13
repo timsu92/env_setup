@@ -1,0 +1,37 @@
+---
+# starship: install prompt and zsh integration
+# Sources: docs/zsh/starship.md
+
+- name: Install starship prerequisites
+  ansible.builtin.apt:
+    name: curl
+    state: present
+
+- name: Install starship prompt
+  ansible.builtin.shell:
+    cmd: curl -sS https://starship.rs/install.sh | sh -s -- --yes
+    creates: /usr/local/bin/starship
+
+- name: Ensure ~/.config directory exists
+  ansible.builtin.file:
+    path: "{{ setup_user_home }}/.config"
+    state: directory
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+
+- name: Deploy starship config
+  ansible.builtin.copy:
+    src: starship.toml
+    dest: "{{ setup_user_home }}/.config/starship.toml"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
+- name: Deploy starship zsh snippet
+  ansible.builtin.copy:
+    src: interactive/60-starship.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/interactive/60-starship.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

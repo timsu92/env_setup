@@ -1,0 +1,5 @@
+---
+vim_profile: full
+vim_repo_url: https://github.com/timsu92/vimrc
+vim_repo_version: HEAD
+vim_repo_dest: "{{ setup_user_home }}/vimrc"

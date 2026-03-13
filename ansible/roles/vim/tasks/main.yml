@@ -1,6 +1,39 @@
----
-# vim: install vim
+# vim: install vim, optionally deploy full vimrc setup
 - name: Install vim
   ansible.builtin.apt:
     name: vim
     state: present
+
+- name: Install vim full profile prerequisites
+  ansible.builtin.apt:
+    name: git
+    state: present
+  when: vim_profile == 'full'
+
+- name: Install Node.js for full vim profile
+  ansible.builtin.include_role:
+    name: node
+  when: vim_profile == 'full'
+
+- name: Checkout vimrc repository
+  ansible.builtin.git:
+    repo: "{{ vim_repo_url }}"
+    dest: "{{ vim_repo_dest }}"
+    version: "{{ vim_repo_version }}"
+    update: true
+  become: true
+  become_user: "{{ setup_user }}"
+  register: vimrc_repo_checkout
+  when: vim_profile == 'full'
+
+- name: Run vimrc install.sh
+  ansible.builtin.command:
+    cmd: bash install.sh
+    chdir: "{{ vim_repo_dest }}"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+  when:
+    - vim_profile == 'full'
+    - vimrc_repo_checkout.changed

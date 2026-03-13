@@ -12,7 +12,11 @@
     - role: common_base
     - role: apt_cacher_ng
     - role: vim
+      vars:
+        vim_profile: minimal
     - role: git
     - role: zsh
+    - role: zplug
+    - role: starship
     - role: tmux
     - role: proxmox_guest

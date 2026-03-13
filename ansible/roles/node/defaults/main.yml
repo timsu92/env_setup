@@ -1,0 +1,2 @@
+---
+node_install_args: "--lts --latest-npm"

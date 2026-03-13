@@ -11,4 +11,6 @@
   roles:
     - role: common_base
     - role: vim
+      vars:
+        vim_profile: full
     - role: git

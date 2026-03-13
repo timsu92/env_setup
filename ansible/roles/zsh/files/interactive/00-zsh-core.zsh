@@ -1,19 +1,18 @@
-# default zshrc
-
+# Set up the prompt
 autoload -Uz promptinit
 promptinit
 
 setopt histignorealldups sharehistory
 
-# Use emacs keybindings
+# Use emacs keybindings even if our EDITOR is set to vi
 bindkey -e
 
-# History
+# Keep 1000 lines of history within the shell and save it to ~/.zsh_history:
 HISTSIZE=1000
 SAVEHIST=1000
 HISTFILE=~/.zsh_history
 
-# Completion system
+# Use modern completion system
 autoload -Uz compinit bashcompinit
 compinit && bashcompinit
 
@@ -31,12 +30,36 @@ zstyle ':completion:*' menu select=long
 zstyle ':completion:*' select-prompt %SScrolling active: current selection at %p%s
 zstyle ':completion:*' use-compctl false
 zstyle ':completion:*' verbose true
-
 zstyle ':completion:*:*:kill:*:processes' list-colors '=(#b) #([0-9]#)*=0=01;31'
 zstyle ':completion:*:kill:*' command 'ps -u $USER -o pid,%cpu,tty,cputime,cmd'
 
-# Load personal customizations
-. ~/.myzsh.zsh
 
-# Starship prompt
-eval "$(starship init zsh)"
+# enable color support of ls and also add handy aliases
+if [[ -x /usr/bin/dircolors ]]; then
+  test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+  alias ls='ls --color=auto'
+  alias ll='ls -alF --color=auto'
+  alias la='ls -AF --color=auto'
+  alias grep='grep --color=auto'
+  alias fgrep='fgrep --color=auto'
+  alias egrep='egrep --color=auto'
+else
+  alias ll='ls -alF'
+  alias la='ls -AF'
+fi
+
+fg() {
+  if [[ $# -eq 1 && $1 = - ]]; then
+    builtin fg %-
+  else
+    builtin fg %"$@"
+  fi
+}
+
+bg() {
+  if [[ $# -eq 1 && $1 = - ]]; then
+    builtin bg %-
+  else
+    builtin bg %"$@"
+  fi
+}

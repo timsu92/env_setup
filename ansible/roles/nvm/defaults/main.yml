@@ -1,0 +1,3 @@
+---
+nvm_version: v0.40.4
+nvm_install_dir: "{{ setup_user_home }}/.nvm"

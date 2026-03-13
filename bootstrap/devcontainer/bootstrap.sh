@@ -6,6 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+export ANSIBLE_CONFIG="${REPO_ROOT}/ansible.cfg"
 
 echo "==> Updating apt cache ..."
 apt-get update -q

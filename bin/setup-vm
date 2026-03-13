@@ -5,6 +5,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ANSIBLE_DIR="${REPO_ROOT}/ansible"
+export ANSIBLE_CONFIG="${REPO_ROOT}/ansible.cfg"
 
 usage() {
   cat <<EOF

@@ -18,3 +18,4 @@
         src: /usr/bin/pigz
         dest: /bin/gzip
         state: link
+  when: not ansible_check_mode

@@ -36,4 +36,5 @@
     HOME: "{{ setup_user_home }}"
   when:
     - vim_profile == 'full'
+    - not ansible_check_mode
     - vimrc_repo_checkout.changed

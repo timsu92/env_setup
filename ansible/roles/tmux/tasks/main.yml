@@ -8,7 +8,7 @@
     state: present
 
 - name: Deploy ~/.tmux.conf
-  ansible.builtin.template:
+  ansible.builtin.copy:
     src: tmux.conf
     dest: "{{ setup_user_home }}/.tmux.conf"
     owner: "{{ setup_user }}"

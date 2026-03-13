@@ -20,6 +20,19 @@
     PROFILE: /dev/null
     BASH_ENV: /dev/null
 
+- name: Ensure zsh snippet directories exist for nvm
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+  loop:
+    - "{{ setup_user_home }}/.config"
+    - "{{ setup_user_home }}/.config/zsh"
+    - "{{ setup_user_home }}/.config/zsh/non-interactive"
+    - "{{ setup_user_home }}/.config/zsh/interactive"
+
 - name: Deploy nvm non-interactive zsh snippet
   ansible.builtin.copy:
     src: non-interactive/10-nvm.zsh

@@ -6,6 +6,8 @@
   connection: local
   gather_facts: true
   become: true
+  vars_files:
+    - ../group_vars/container.yml
 
   roles:
     - role: common_base

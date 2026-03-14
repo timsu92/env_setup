@@ -11,6 +11,7 @@
   become_user: "{{ setup_user }}"
   environment:
     HOME: "{{ setup_user_home }}"
+    NVM_DIR: "{{ setup_user_home }}/.nvm"
   register: node_install_result
   changed_when: >-
     'is already installed' not in node_install_result.stdout and

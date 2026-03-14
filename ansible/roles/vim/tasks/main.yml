@@ -37,6 +37,7 @@
   become_user: "{{ setup_user }}"
   environment:
     HOME: "{{ setup_user_home }}"
+    NVM_DIR: "{{ setup_user_home }}/.nvm"
   when:
     - vim_profile == 'full'
     - not ansible_check_mode

@@ -24,5 +24,4 @@ bin/setup-devcontainer
 ## Notes
 - No SSH port needed
 - Works without `postCreateCommand` in devcontainer.json
-- Devcontainer profile is intentionally minimal (currently just installs git)
 - Extend `ansible/playbooks/devcontainer.yml` to add more roles

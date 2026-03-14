@@ -1,3 +1,5 @@
 ---
 # Devcontainer group vars (local execution)
 ansible_connection: local
+setup_user: "{{ default(ansible_user_id, true) }}"
+setup_user_home: "{{ lookup('pipe', 'getent passwd ' ~ setup_user ~ ' | cut -d: -f6 || true') | default('/root' if setup_user == 'root' else '/home/' + setup_user, true) }}"

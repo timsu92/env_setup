@@ -2,3 +2,5 @@
 # Docker container group vars (local execution)
 # May run as root inside the container — no sudo needed.
 ansible_connection: local
+setup_user: "{{ default(ansible_user_id, true) }}"
+setup_user_home: "{{ lookup('pipe', 'getent passwd ' ~ setup_user ~ ' | cut -d: -f6 || true') | default('/root' if setup_user == 'root' else '/home/' + setup_user, true) }}"

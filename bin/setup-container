@@ -7,5 +7,38 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+resolve_home() {
+	local user="$1"
+	local home
+	home="$(getent passwd "$user" | cut -d: -f6)"
+	if [[ -n "$home" ]]; then
+		printf '%s\n' "$home"
+	elif [[ "$user" == "root" ]]; then
+		printf '/root\n'
+	else
+		printf '/home/%s\n' "$user"
+	fi
+}
+
+CALLER_USER="$(id -un)"
+CALLER_HOME="$(resolve_home "$CALLER_USER")"
+EXTRA_ANSIBLE_VARS=(
+	-e "setup_user=${CALLER_USER}"
+	-e "setup_user_home=${CALLER_HOME}"
+)
+
+if [[ "$EUID" -ne 0 ]]; then
+	if command -v sudo >/dev/null 2>&1; then
+		echo "==> Running container bootstrap with sudo ..."
+		sudo bash "${REPO_ROOT}/bootstrap/container/bootstrap.sh" "${EXTRA_ANSIBLE_VARS[@]}" "$@"
+		exit $?
+	else
+		echo "Requires root privileges to setup using Ansible."
+		echo "Please run this script with sudo or as root."
+		exit 1
+	fi
+fi
+
 echo "==> Running container bootstrap ..."
-bash "${REPO_ROOT}/bootstrap/container/bootstrap.sh" "$@"
+bash "${REPO_ROOT}/bootstrap/container/bootstrap.sh" "${EXTRA_ANSIBLE_VARS[@]}" "$@"
+exit $?

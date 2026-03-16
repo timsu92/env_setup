@@ -33,13 +33,16 @@
 - name: Install zplug plugins
   ansible.builtin.shell:
     cmd: >
-      zsh -lc 'source ~/.config/zsh/interactive/60-zplug-init.zsh'
+      script -qfc "source ~/.config/zsh/interactive/60-zplug-init.zsh" /dev/null
+    creates: "{{ setup_user_home }}/.zplug/repos"
+    executable: /bin/zsh
   become: true
   become_user: "{{ setup_user }}"
   environment:
     HOME: "{{ setup_user_home }}"
     TERM: xterm-256color
     LANG: C.UTF-8
+    ZPLUG_SKIP_PROMPT: "1"
   register: zplug_install_result
   changed_when: >-
     'Installed packages' in zplug_install_result.stdout or

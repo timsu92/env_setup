@@ -3,12 +3,10 @@
 typeset -ga _zsh_module_errors
 
 _load_zsh_modules() {
-  emulate -L zsh
-  setopt extendedglob
-
   local phase="$1"
   local module
 
+  # Source modules in the current shell so prompt/hooks/options they define persist.
   for module in ${HOME}/.config/zsh/${phase}/*.zsh(Non); do  # N: nullglob, o: ascending sorting, n: numeric sorting
     if ! source "$module"; then
       _zsh_module_errors+=("$module")

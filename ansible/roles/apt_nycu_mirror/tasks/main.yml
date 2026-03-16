@@ -9,11 +9,11 @@
     group: root
     mode: "0644"
     content: |
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_distribution_release }} main universe restricted multiverse
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_distribution_release }}-updates main universe restricted multiverse
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_distribution_release }}-backports main universe restricted multiverse
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_distribution_release }}-security main universe restricted multiverse
-  when: ansible_distribution == "Ubuntu"
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }} main universe restricted multiverse
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-updates main universe restricted multiverse
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-backports main universe restricted multiverse
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-security main universe restricted multiverse
+  when: ansible_facts["distribution"] == "Ubuntu"
 
 - name: Set apt pin priority for NYCU Ubuntu mirror
   ansible.builtin.copy:
@@ -25,7 +25,7 @@
       Package: *
       Pin: origin "ubuntu.cs.nycu.edu.tw"
       Pin-Priority: 501
-  when: ansible_distribution == "Ubuntu"
+  when: ansible_facts["distribution"] == "Ubuntu"
 
 - name: Set NYCU mirror for Debian
   ansible.builtin.copy:
@@ -34,9 +34,9 @@
     group: root
     mode: "0644"
     content: |
-      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://debian.cs.nycu.edu.tw/debian/ {{ ansible_distribution_release }} main non-free-firmware
-      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://debian.cs.nycu.edu.tw/debian/ {{ ansible_distribution_release }}-updates main non-free-firmware
-  when: ansible_distribution == "Debian"
+      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }} main non-free-firmware
+      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }}-updates main non-free-firmware
+  when: ansible_facts["distribution"] == "Debian"
 
 - name: Set apt pin priority for NYCU Debian mirror
   ansible.builtin.copy:
@@ -48,7 +48,7 @@
       Package: *
       Pin: origin "debian.cs.nycu.edu.tw"
       Pin-Priority: 501
-  when: ansible_distribution == "Debian"
+  when: ansible_facts["distribution"] == "Debian"
 
 - name: Update apt cache after mirror change
   ansible.builtin.apt:

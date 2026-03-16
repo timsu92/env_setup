@@ -9,8 +9,13 @@
       - htop
       - mosh
       - sudo
-      - qemu-guest-agent
     state: present
+
+- name: Install qemu-guest-agent on non-LXC guests
+  ansible.builtin.apt:
+    name: qemu-guest-agent
+    state: present
+  when: ansible_facts["virtualization_type"] != 'lxc'
 
 - name: Create systemd drop-in for qemu-guest-agent (enable at boot)
   ansible.builtin.file:
@@ -19,6 +24,7 @@
     owner: root
     group: root
     mode: "0755"
+  when: ansible_facts["virtualization_type"] != 'lxc'
 
 - name: Deploy qemu-guest-agent systemd override
   ansible.builtin.copy:
@@ -28,6 +34,7 @@
     group: root
     mode: "0644"
   notify: Reload and enable qemu-guest-agent
+  when: ansible_facts["virtualization_type"] != 'lxc'
 
 - name: Ensure qemu-guest-agent is enabled and started
   ansible.builtin.service:
@@ -35,6 +42,7 @@
     enabled: true
     state: started
     daemon_reload: true
+  when: ansible_facts["virtualization_type"] != 'lxc'
 
 - name: Create user {{ proxmox_new_username }}
   ansible.builtin.user:

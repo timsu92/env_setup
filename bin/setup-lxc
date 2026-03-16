@@ -12,13 +12,13 @@ usage() {
 Usage: $0 --host <IP> [OPTIONS]
 
 Options:
-  --host <IP>          Target LXC IP/hostname (required)
+  --host <HOST>        Target LXC in ansible/inventory/pve_hosts.yml (required)
   --inventory <file>   Inventory file (default: inventory/pve_hosts.yml)
   -e <extra_vars>      Extra vars passed to ansible-playbook
   -h, --help           Show this help
 
 Example:
-  $0 --host 192.168.1.20
+  $0 --host pve-lxc-01
 EOF
   exit 1
 }

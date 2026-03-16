@@ -10,6 +10,7 @@
   roles:
     - role: apt_nycu_mirror
     - role: common_base
+    - role: proxmox_guest
     - role: apt_cacher_ng
     - role: vim
       vars:
@@ -20,4 +21,3 @@
     - role: starship
     - role: tmux
     - role: nfs_client
-    - role: proxmox_guest

@@ -91,10 +91,15 @@ bin/setup-vm --profile wsl
 cp ansible/inventory/pve_hosts.yml.example ansible/inventory/pve_hosts.yml
 # Edit and add your VM under the 'vm' group
 
-# 2. Base setup
+# 2. Resend hostname to DNS server if needed (optional, only if ansible_host is a resolvable hostname that needs to be updated in DNS)
+# Mostly, VMs use systemd-networkd with DHCP, so the command below is usable
+# Run the command on the VM itself:
+sudo networkctl reconfigure eth0
+
+# 3. Base setup
 bin/setup-vm --host pve-vm-01
 
-# 3. Full daily-driver setup
+# 4. Full daily-driver setup
 bin/setup-vm --host pve-vm-01 --profile pve-daily
 ```
 

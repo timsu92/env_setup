@@ -12,21 +12,21 @@ usage() {
 Usage: $0 [OPTIONS]
 
 Options:
-  --host <IP>          Target VM IP/hostname (required for PVE push mode)
-  --profile <name>     Profile to run: wsl | pve | pve-daily  (default: wsl)
+  --host <HOST>        Target VM in ansible/inventory/pve_hosts.yml
+  --profile <name>     Profile to run: wsl | pve | pve-daily
   --inventory <file>   Inventory file (default: inventory/pve_hosts.yml)
   -e <extra_vars>      Extra vars passed to ansible-playbook
   -h, --help           Show this help
 
 Examples:
-  $0                             # provision local WSL machine
-  $0 --host 192.168.1.10        # provision PVE VM at given IP (base profile)
-  $0 --host 192.168.1.10 --profile pve-daily
+  $0                                       # provision local WSL machine
+  $0 --host pve-vm-01                      # provision Proxmox VM (base profile)
+  $0 --host pve-vm-01 --profile pve-daily  # provision Proxmox VM (daily-use profile)
 EOF
   exit 1
 }
 
-PROFILE="wsl"
+PROFILE=""
 HOST=""
 INVENTORY="inventory/pve_hosts.yml"
 EXTRA_ARGS=()
@@ -42,6 +42,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$HOST" && -z "$PROFILE" ]]; then
+  PROFILE="pve"
+elif [[ -z "$PROFILE" ]]; then
+  PROFILE="wsl"
+fi
+
 cd "${ANSIBLE_DIR}"
 
 case "$PROFILE" in
@@ -56,7 +62,7 @@ case "$PROFILE" in
     ;;
   pve-daily)
     [[ -z "$HOST" ]] && { echo "ERROR: --host required for pve-daily profile"; usage; }
-    echo "==> Provisioning Proxmox VM at ${HOST} (daily-driver profile) ..."
+    echo "==> Provisioning Proxmox VM at ${HOST} (daily-use profile) ..."
     ansible-playbook -i "${INVENTORY}" -l "${HOST}" playbooks/vm-daily-pve.yml "${EXTRA_ARGS[@]}"
     ;;
   *)

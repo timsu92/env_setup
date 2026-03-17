@@ -89,13 +89,13 @@ bin/setup-vm --profile wsl
 ```bash
 # 1. Copy and configure inventory
 cp ansible/inventory/pve_hosts.yml.example ansible/inventory/pve_hosts.yml
-# Edit and add your VM's IP under the 'vm' group
+# Edit and add your VM under the 'vm' group
 
 # 2. Base setup
-bin/setup-vm --host 192.168.1.10 --profile pve
+bin/setup-vm --host pve-vm-01
 
 # 3. Full daily-driver setup
-bin/setup-vm --host 192.168.1.10 --profile pve-daily
+bin/setup-vm --host pve-vm-01 --profile pve-daily
 ```
 
 ### Proxmox LXC
@@ -105,7 +105,7 @@ bin/setup-vm --host 192.168.1.10 --profile pve-daily
 bash bootstrap/proxmox-lxc/bootstrap.sh 192.168.1.20
 
 # Provision
-bin/setup-lxc --host 192.168.1.20
+bin/setup-lxc --host pve-lxc-01
 ```
 
 ### Docker container

@@ -7,7 +7,7 @@ Proxmox VMs use the **Ansible push model** — provisioning runs from a controll
 The Ansible controller needs:
 - Ansible installed (`pip install ansible` or distro package)
 - SSH access to the target VM
-- The target VM's IP/hostname added to `ansible/inventory/pve_hosts.yml`
+- The target VM added to `ansible/inventory/pve_hosts.yml`
 
 The target VM needs:
 - SSH server running (`openssh-server`)
@@ -26,11 +26,11 @@ For Proxmox VMs, no bootstrap script is needed on the controller side beyond ens
 ```bash
 # 1. Copy and fill in the inventory
 cp ansible/inventory/pve_hosts.yml.example ansible/inventory/pve_hosts.yml
-# Edit pve_hosts.yml with the VM's IP and hostname
+# Edit pve_hosts.yml with the VM inventory entry
 
 # 2. Run the base VM profile
-bin/setup-vm --host <IP>
+bin/setup-vm --host pve-vm-01
 
 # 3. Or run the full daily-driver profile
-bin/setup-vm --host <IP> --profile pve-daily
+bin/setup-vm --host pve-vm-01 --profile pve-daily
 ```

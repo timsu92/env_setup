@@ -1,7 +1,7 @@
 ---
 # Profile: Proxmox VM — daily driver (extends vm-pve)
 # Target: vm inventory group (push model via SSH)
-# Run: bin/setup-vm --host <IP> --profile pve-daily
+# Run: bin/setup-vm --host pve-vm-01 --profile pve-daily
 - import_playbook: vm-pve.yml
 
 - name: Provision Proxmox VM additional tools

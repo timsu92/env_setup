@@ -16,3 +16,4 @@
     - role: helm
     - role: xpra
     - role: wireguard_client
+    - role: sshd

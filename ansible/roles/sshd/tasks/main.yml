@@ -1,0 +1,28 @@
+---
+# Configure a sensible sshd
+
+- name: Install openssh-server
+  ansible.builtin.apt:
+    name: openssh-server
+    state: present
+
+- name: Deploy sshd_config override
+  ansible.builtin.copy:
+    src: 80-best_practices.conf
+    dest: /etc/ssh/sshd_config.d/80-best_practices.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload sshd
+
+- name: Setup fail2ban
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+
+- name: Ensure fail2ban is enabled and started
+  ansible.builtin.service:
+    name: fail2ban
+    state: started
+    enabled: true

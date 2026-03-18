@@ -62,3 +62,6 @@
       - docker-compose-plugin
     state: present
     update_cache: true
+
+- name: Install shell completions for Docker
+  ansible.builtin.include_tasks: shell_comp.yml

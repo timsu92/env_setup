@@ -1,0 +1,8 @@
+---
+# Shell completions for docker
+
+- name: Install zsh completion package
+  ansible.builtin.shell:
+    cmd: >
+      docker completion zsh > "{{ setup_user_home }}/.config/zsh/completions/_docker"
+    creates: "{{ setup_user_home }}/.config/zsh/completions/_docker"

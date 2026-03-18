@@ -13,3 +13,4 @@
     - "{{ setup_user_home }}/.config/zsh"
     - "{{ setup_user_home }}/.config/zsh/non-interactive"
     - "{{ setup_user_home }}/.config/zsh/interactive"
+    - "{{ setup_user_home }}/.config/zsh/completions"

@@ -11,7 +11,7 @@
 
 - name: Install nvm
   ansible.builtin.shell:
-    cmd: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_version }}/install.sh | bash
+    cmd: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_version }}/install.sh | bash  # noqa: command-instead-of-module
     creates: "{{ nvm_install_dir }}/nvm.sh"
   become: true
   become_user: "{{ setup_user }}"

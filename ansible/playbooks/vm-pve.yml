@@ -21,3 +21,4 @@
     - role: starship
     - role: tmux
     - role: nfs_client
+    - role: sshd

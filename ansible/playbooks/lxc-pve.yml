@@ -20,3 +20,4 @@
     - role: zplug
     - role: starship
     - role: tmux
+    - role: sshd

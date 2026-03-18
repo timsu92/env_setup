@@ -11,19 +11,6 @@
     name: "{{ setup_user }}"
     shell: /bin/zsh
 
-- name: Ensure zsh config directories exist
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    owner: "{{ setup_user }}"
-    group: "{{ setup_user }}"
-    mode: "0755"
-  loop:
-    - "{{ setup_user_home }}/.config"
-    - "{{ setup_user_home }}/.config/zsh"
-    - "{{ setup_user_home }}/.config/zsh/non-interactive"
-    - "{{ setup_user_home }}/.config/zsh/interactive"
-
 - name: Deploy ~/.zshenv loader
   ansible.builtin.copy:
     src: zshenv

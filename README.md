@@ -20,10 +20,13 @@ A modular, idempotent provisioning project for my personal environments using An
 ```
 ansible/
 ├─ ansible.cfg               # Ansible configuration
+├─ .ansible-lint             # Ansible-lint configuration
+├─ playbook_vars/
+│  └─ local.yml              # shared vars for local execution profiles
 ├─ inventory/
-│  ├─ local.yml              # localhost for local execution
-│  └─ pve_hosts.yml.example  # template for remote PVE hosts
-├─ group_vars/               # per-group variable overrides
+│  ├─ local.yml              # localhost for local execution profiles
+│  ├─ pve_hosts.yml.example  # template for remote PVE hosts
+│  └─ group_vars/            # inventory-scoped group variables
 ├─ playbooks/                # profiles (one per target environment)
 └─ roles/                    # reusable capability roles
 
@@ -171,7 +174,7 @@ Examples in this repo:
 ### Adding a new profile
 
 1. Create `ansible/playbooks/<profile-name>.yml`
-2. Choose `hosts: localhost` (local) or a named inventory group (push)
+2. Choose a named inventory group for the target environment
 3. List roles in execution order
 4. Add a corresponding entry to `bin/` if needed
 
@@ -179,7 +182,7 @@ Examples in this repo:
 
 ## Key variables
 
-Defined in `ansible/group_vars/all.yml`, overridable per group or host:
+Defined in `ansible/inventory/group_vars/all.yml`, overridable per group or host:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -188,7 +191,7 @@ Defined in `ansible/group_vars/all.yml`, overridable per group or host:
 | `git_user_name` | `timsu92` | git global user.name |
 | `git_user_email` | `33785401+...` | git global user.email |
 
-For PVE VM/LXC, `setup_user` is overridden to `tim` in `group_vars/vm.yml` and `group_vars/lxc.yml`.
+For PVE VM/LXC, `setup_user` is overridden to `tim` in `inventory/group_vars/vm.yml` and `inventory/group_vars/lxc.yml`.
 
 ---
 

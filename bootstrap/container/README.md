@@ -5,8 +5,9 @@ Docker containers use the **Ansible local model** — Ansible is installed insid
 ## How it works
 
 The bootstrap script:
-1. Installs `ansible` via apt
-2. Runs `ansible-playbook -c local` with the container profile
+1. Installs `python3`, `pip3`, and `git` (if absent)
+2. Installs `ansible` via pip
+3. Runs `ansible-playbook -c local -i inventory/local.yml` with the container profile
 
 ## Running
 

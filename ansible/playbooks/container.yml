@@ -7,7 +7,7 @@
   gather_facts: true
   become: true
   vars_files:
-    - ../group_vars/container.yml
+    - ../playbook_vars/local.yml
 
   roles:
     - role: common_base

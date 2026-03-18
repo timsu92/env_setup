@@ -11,7 +11,6 @@ The Ansible controller needs:
 The target LXC needs:
 - SSH server running: `apt install openssh-server`
 - Your SSH public key installed: `ssh-copy-id root@<LXC_IP>`
-- Python 3 available (the bootstrap script will install it if missing)
 
 ## Steps
 

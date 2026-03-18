@@ -7,6 +7,8 @@
   connection: local
   gather_facts: true
   become: true
+  vars_files:
+    - ../playbook_vars/local.yml
 
   roles:
     - role: apt_nycu_mirror

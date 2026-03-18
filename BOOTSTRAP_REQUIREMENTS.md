@@ -84,7 +84,7 @@ Provisioning runs locally inside the container via `ansible-playbook -c local`.
 `bootstrap/container/bootstrap.sh` (run inside the container) will:
 1. Install `python3`, `pip3`, `git` via apt
 2. Install `ansible` via pip
-3. Run `ansible-playbook -c local playbooks/container.yml`
+3. Run `ansible-playbook -c local -i inventory/local.yml playbooks/container.yml`
 
 ---
 
@@ -106,7 +106,7 @@ Provisioning runs locally inside the devcontainer.
 `bootstrap/devcontainer/bootstrap.sh` (run inside the devcontainer) will:
 1. Install `python3`, `pip3`, `git` via apt if absent
 2. Install `ansible` via pip
-3. Run `ansible-playbook -c local playbooks/devcontainer.yml`
+3. Run `ansible-playbook -c local -i inventory/local.yml playbooks/devcontainer.yml`
 
 ### Usage
 

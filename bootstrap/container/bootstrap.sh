@@ -11,8 +11,11 @@ export ANSIBLE_CONFIG="${REPO_ROOT}/ansible.cfg"
 echo "==> Updating apt cache ..."
 apt-get update -q
 
+echo "==> Installing Python3, pip3, and git ..."
+apt-get install -y python3 python3-pip git
+
 echo "==> Installing Ansible ..."
-apt-get install -yqq ansible
+pip3 install --break-system-packages ansible 2>/dev/null || pip3 install ansible
 
 echo "==> Running container profile ..."
 cd "${REPO_ROOT}/ansible"

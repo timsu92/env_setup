@@ -7,7 +7,7 @@ all:
       hosts:
         pve-vm-01:
           ansible_host: 192.168.1.10  # target host to setup
-          ansible_user: root  # don't modify, used to install apps
+          ansible_user: tim  # user name used to ssh into
           # WireGuard client config (used by wireguard_client role).
           # The role generates keys on the host and prints PublicKey + PresharedKey
           # at the end of the play — add them to the server's [Peer] block.
@@ -25,5 +25,5 @@ all:
       hosts:
         pve-lxc-01:
           ansible_host: 192.168.1.20  # target host to setup
-          ansible_user: root  # don't modify, used to install apps
+          ansible_user: root  # user name used to ssh into
           nfs_mounts: []  # no NFS mounts for this LXC

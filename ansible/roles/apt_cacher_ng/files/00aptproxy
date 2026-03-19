@@ -1,1 +1,10 @@
+// Route ordinary HTTP repositories through apt-cacher-ng when available.
 Acquire::http::Proxy-Auto-Detect "/usr/local/bin/apt-proxy-detect.sh";
+
+// Do not proxy requests to apt-cacher-ng itself. This is required when a
+// sources.list entry already points at apt-cacher-ng, e.g.
+// http://apt-cacher-ng:3142/HTTPS///mirror.example.invalid/repo/ .
+// Without this bypass, APT proxies the request back into apt-cacher-ng and
+// apt-cacher-ng rejects it with "confusing proxy mode".
+Acquire::http::Proxy::apt-cacher-ng "DIRECT";
+Acquire::https::Proxy::apt-cacher-ng "DIRECT";

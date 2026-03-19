@@ -1,6 +1,13 @@
 ---
 # apt_nycu_mirror: configure apt to use NYCU (交通大學) mirror
 # Source: docs/apt/設定nycu mirror.md
+#
+# Repositories intentionally point at apt-cacher-ng using the special
+# /HTTPS/// upstream form. This makes apt-cacher-ng fetch from the NYCU mirror
+# over HTTPS while still being able to cache the objects locally.
+#
+# Because APT sees apt-cacher-ng as the immediate origin in this mode, pinning
+# must target "apt-cacher-ng" instead of the upstream mirror hostname.
 
 - name: Set NYCU mirror for Ubuntu
   ansible.builtin.copy:
@@ -9,10 +16,10 @@
     group: root
     mode: "0644"
     content: |
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }} main universe restricted multiverse
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-updates main universe restricted multiverse
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-backports main universe restricted multiverse
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-security main universe restricted multiverse
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://HTTPS///ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }} main universe restricted multiverse
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://HTTPS///ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-updates main universe restricted multiverse
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://HTTPS///ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-backports main universe restricted multiverse
+      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://HTTPS///ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-security main universe restricted multiverse
   when: ansible_facts["distribution"] == "Ubuntu"
 
 - name: Set apt pin priority for NYCU Ubuntu mirror
@@ -23,7 +30,7 @@
     mode: "0644"
     content: |
       Package: *
-      Pin: origin "ubuntu.cs.nycu.edu.tw"
+      Pin: origin "apt-cacher-ng"
       Pin-Priority: 501
   when: ansible_facts["distribution"] == "Ubuntu"
 
@@ -34,8 +41,8 @@
     group: root
     mode: "0644"
     content: |
-      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }} main non-free-firmware
-      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }}-updates main non-free-firmware
+      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://HTTPS///debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }} main non-free-firmware
+      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://HTTPS///debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }}-updates main non-free-firmware
   when: ansible_facts["distribution"] == "Debian"
 
 - name: Set apt pin priority for NYCU Debian mirror
@@ -46,7 +53,7 @@
     mode: "0644"
     content: |
       Package: *
-      Pin: origin "debian.cs.nycu.edu.tw"
+      Pin: origin "apt-cacher-ng"
       Pin-Priority: 501
   when: ansible_facts["distribution"] == "Debian"
 

@@ -6,6 +6,15 @@
     name: openssh-server
     state: present
 
+# Fix strange bug "Missing privilege separation directory: /run/sshd"
+- name: Create /run/sshd directory
+  ansible.builtin.file:
+    path: /run/sshd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Deploy sshd_config override
   ansible.builtin.copy:
     src: 80-best_practices.conf

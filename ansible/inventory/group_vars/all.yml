@@ -10,3 +10,14 @@ setup_user_home: "{{ '/root' if setup_user == 'root' else '/home/' + setup_user 
 # Git identity
 git_user_name: "timsu92"
 git_user_email: "33785401+timsu92@users.noreply.github.com"
+
+# APT repository routing
+# When enabled, HTTPS-based apt repositories are rewritten to apt-cacher-ng's
+# /HTTPS/// form so apt-cacher-ng fetches upstream over HTTPS and can cache the
+# objects. Hosts without apt-cacher-ng keep using the original upstream URLs.
+apt_cacher_ng_enabled: false
+apt_cacher_ng_host: apt-cacher-ng
+apt_cacher_ng_port: 3142
+apt_https_repo_prefix: >-
+  {{ ('http://' ~ apt_cacher_ng_host ~ ':' ~ apt_cacher_ng_port ~ '/HTTPS///')
+     if apt_cacher_ng_enabled else 'https://' }}

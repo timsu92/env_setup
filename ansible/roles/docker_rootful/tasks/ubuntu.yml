@@ -46,7 +46,7 @@
   ansible.builtin.apt_repository:
     repo: >-
       deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/docker.asc]
-      https://download.docker.com/linux/ubuntu
+      {{ apt_https_repo_prefix }}download.docker.com/linux/ubuntu
       {{ ansible_facts["distribution_release"] }} stable
     filename: docker
     state: present

@@ -49,7 +49,7 @@
     mode: "0644"
     content: |
       Types: deb
-      URIs: https://download.docker.com/linux/debian
+      URIs: {{ apt_https_repo_prefix }}download.docker.com/linux/debian
       Suites: {{ ansible_facts["distribution_release"] }}
       Components: stable
       Signed-By: /etc/apt/keyrings/docker.asc

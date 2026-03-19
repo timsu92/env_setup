@@ -16,11 +16,17 @@
     mode: "0644"
 
 - name: Add xpra apt repository
-  ansible.builtin.shell:
-    cmd: >
-      . /etc/os-release && wget -q -P /etc/apt/sources.list.d/
-      https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/${VERSION_CODENAME}/{{ repo }}.sources
-    creates: /etc/apt/sources.list.d/xpra.sources
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/{{ ansible_facts['distribution_release'] }}/{{ repo }}.sources"
+    dest: /etc/apt/sources.list.d/xpra.sources
+    mode: "0644"
+
+- name: Rewrite xpra deb822 repository to apt-cacher-ng HTTPS backend form
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list.d/xpra.sources
+    regexp: '(?m)^URIs:\s+https://(.*)$'
+    replace: 'URIs: {{ apt_https_repo_prefix }}\1'
+  when: apt_cacher_ng_enabled
 
 - name: Enable Ubuntu universe repository
   ansible.builtin.apt_repository:

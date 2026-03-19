@@ -10,6 +10,12 @@
 # After the play runs, this role prints the client PublicKey and PresharedKey
 # so you can add them to the server's [Peer] block.
 
+- name: Dependency for wg-quick DNS setup on Ubuntu 22.04
+  ansible.builtin.apt:
+    name: openresolv
+    state: present
+  when: ansible_facts["distribution"] == "Ubuntu" and ansible_facts["distribution_version"] == "22.04"
+
 - name: Install wireguard-tools
   ansible.builtin.apt:
     name: wireguard

@@ -8,8 +8,8 @@
   become: true
 
   roles:
-    - role: apt_nycu_mirror
     - role: apt_cacher_ng
+    - role: apt_nycu_mirror
     - role: common_base
     - role: proxmox_guest
     - role: vim

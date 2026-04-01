@@ -1,0 +1,9 @@
+---
+# Claude Code
+
+- name: Install Claude Code
+  ansible.builtin.shell:
+    cmd: "curl -fsSL https://claude.ai/install.sh | bash"
+    creates: "{{ setup_user_home }}/.local/bin/claude"
+  become: true
+  become_user: "{{ setup_user }}"

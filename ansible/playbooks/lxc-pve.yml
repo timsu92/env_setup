@@ -21,3 +21,4 @@
     - role: starship
     - role: tmux
     - role: sshd
+    - role: claude_code

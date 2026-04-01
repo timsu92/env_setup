@@ -16,3 +16,4 @@
       vars:
         vim_profile: full
     - role: git
+    - role: claude_code

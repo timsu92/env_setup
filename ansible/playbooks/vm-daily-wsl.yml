@@ -27,3 +27,4 @@
     - role: docker_rootless
     - role: xpra
     - role: wsl_my_documents
+    - role: claude_code

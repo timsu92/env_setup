@@ -27,3 +27,4 @@
     - role: tmux
     - role: nfs_client
     - role: sshd
+    - role: claude_code

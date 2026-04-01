@@ -54,7 +54,7 @@ Roles implement individual capabilities. Each role encapsulates everything neede
 | Role | Description |
 |------|-------------|
 | `common_base` | apt update + upgrade |
-| `ap_cacher_ng` | apt-cacher-ng proxy auto-detection |
+| `apt_cacher_ng` | apt-cacher-ng proxy auto-detection |
 | `apt_nycu_mirror` | NYCU apt mirror (Ubuntu + Debian) |
 | `git` | git + global config (~/.gitconfig) |
 | `vim` | vim editor |

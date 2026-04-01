@@ -52,6 +52,11 @@ cd "${ANSIBLE_DIR}"
 
 case "$PROFILE" in
   wsl)
+    # Exit if not running in WSL
+    if [[ $(uname -r | tr '[:upper:]' '[:lower:]') != *"microsoft"* ]]; then
+      echo -e "\033[31mERROR: WSL profile can only be run inside WSL\033[0m"
+      usage
+    fi
     echo "==> Provisioning WSL daily driver (local) ..."
     ansible-playbook -c local -i inventory/local.yml playbooks/vm-daily-wsl.yml "${EXTRA_ARGS[@]}"
     ;;

@@ -23,7 +23,6 @@
     - role: zsh
     - role: zplug
     - role: starship
-    - role: docker_rootful
     - role: docker_rootless
     - role: xpra
     - role: wsl_my_documents

@@ -11,9 +11,6 @@
 
   roles:
     - role: pigz
-    - role: docker_rootful
-    - role: docker_rootless
     - role: helm
     - role: xpra
     - role: wireguard_client
-    - role: claude_code

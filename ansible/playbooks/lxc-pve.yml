@@ -22,3 +22,4 @@
     - role: tmux
     - role: sshd
     - role: claude_code
+    - role: apt_reboot_if_required

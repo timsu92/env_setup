@@ -14,3 +14,4 @@
     - role: helm
     - role: xpra
     - role: wireguard_client
+    - role: apt_reboot_if_required

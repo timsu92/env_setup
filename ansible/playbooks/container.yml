@@ -15,3 +15,4 @@
       vars:
         vim_profile: minimal
     - role: git
+    - role: apt_reboot_if_required

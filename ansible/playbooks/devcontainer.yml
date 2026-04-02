@@ -17,3 +17,4 @@
         vim_profile: full
     - role: git
     - role: claude_code
+    - role: apt_reboot_if_required

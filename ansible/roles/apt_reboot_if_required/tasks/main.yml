@@ -1,0 +1,14 @@
+---
+- name: Check whether apt requires a reboot
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: apt_reboot_if_required_reboot_required_file
+  when: ansible_facts["os_family"] == "Debian"
+
+- name: Reboot when required by apt
+  ansible.builtin.reboot:
+    msg: "Reboot triggered by Ansible because apt reported reboot-required"
+    reboot_timeout: 900
+  when:
+    - ansible_facts["os_family"] == "Debian"
+    - apt_reboot_if_required_reboot_required_file.stat.exists

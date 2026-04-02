@@ -49,3 +49,17 @@
     'Installed packages' in zplug_install_result.stdout or
     'Build package' in zplug_install_result.stdout or
     'No packages to install' not in zplug_install_result.stdout
+
+- name: Ensure Vim plugins are installed
+  # might be zplug's hook-build doesn't work in non-interactive shell, so run the install script directly
+  ansible.builtin.shell:
+    cmd: >
+      bash {{ setup_user_home }}/.zplug/repos/timsu92/vimrc/install.sh
+    creates: "{{ setup_user_home }}/.vim/plugged"
+    executable: /bin/zsh
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+    TERM: xterm-256color
+    LANG: C.UTF-8

@@ -1,0 +1,38 @@
+---
+# fzf: A command-line fuzzy finder
+- name: Collect installed package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Ensure one downloader exists for fzf install script
+  ansible.builtin.package:
+    name: curl
+    state: present
+  when:
+    - "'curl' not in ansible_facts['packages']"
+    - "'wget' not in ansible_facts['packages']"
+
+- name: Install fzf
+  ansible.builtin.git:
+    repo: https://github.com/junegunn/fzf.git
+    dest: "{{ setup_user_home }}/.fzf"
+    depth: 1
+    version: v0.71.0
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Run fzf setup
+  ansible.builtin.command: "{{ setup_user_home }}/.fzf/install --completion --key-bindings --no-update-rc --no-bash --no-fish"
+  args:
+    creates:
+      - "{{ setup_user_home }}/.fzf/bin/fzf"
+      - "{{ setup_user_home }}/.fzf.zsh"
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Deploy fzf interactive zsh snippet
+  ansible.builtin.file:
+    src: "{{ setup_user_home }}/.fzf.zsh"
+    dest: "{{ setup_user_home }}/.config/zsh/interactive/60-fzf-shell-integration.zsh"
+    # mode: "0644" # Why not inherit FZF's permission?  # noqa risky-file-permissions
+    state: hard

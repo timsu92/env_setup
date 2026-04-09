@@ -27,4 +27,5 @@
     - role: xpra
     - role: wsl_my_documents
     - role: claude_code
+    - role: fzf
     - role: apt_reboot_if_required

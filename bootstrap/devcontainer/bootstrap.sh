@@ -17,8 +17,14 @@ apt-get install -y python3 python3-pip git
 echo "==> Installing Ansible ..."
 pip3 install --break-system-packages ansible 2>/dev/null || pip3 install ansible
 
+# Ensure locale for Ansible is UTF-8
+ansible_locale="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
+if [[ -z "$ansible_locale" || ! "$ansible_locale" =~ \.[Uu][Tt][Ff]-?8(@[A-Za-z]+)? ]]; then
+  ansible_locale="C.UTF-8"
+fi
+
 echo "==> Running devcontainer profile ..."
 cd "${REPO_ROOT}/ansible"
-ansible-playbook -c local -i inventory/local.yml playbooks/devcontainer.yml "$@"
+LC_ALL="$ansible_locale" ansible-playbook -c local -i inventory/local.yml playbooks/devcontainer.yml "$@"
 
 echo "==> Done."

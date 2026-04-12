@@ -4,6 +4,14 @@ promptinit
 
 setopt histignorealldups sharehistory
 
+# Ensure that jobs control is enabled
+setopt monitor
+autoload -Uz add-zsh-hook
+ensure_job_control() {
+  setopt monitor
+}
+add-zsh-hook precmd ensure_job_control
+
 # Use emacs keybindings even if our EDITOR is set to vi
 bindkey -e
 

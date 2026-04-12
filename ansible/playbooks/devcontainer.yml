@@ -18,4 +18,5 @@
     - role: git
     - role: claude_code
     - role: fzf
+    - role: htop
     - role: apt_reboot_if_required

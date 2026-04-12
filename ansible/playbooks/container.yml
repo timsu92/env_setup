@@ -15,4 +15,5 @@
       vars:
         vim_profile: minimal
     - role: git
+    - role: htop
     - role: apt_reboot_if_required

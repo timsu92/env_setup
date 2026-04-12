@@ -1,0 +1,21 @@
+---
+- name: Install htop
+  ansible.builtin.package:
+    name: htop
+    state: present
+
+- name: Ensure htop config directory exists
+  ansible.builtin.file:
+    path: "{{ setup_user_home }}/.config/htop"
+    state: directory
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0700"
+
+- name: Deploy htop configuration
+  ansible.builtin.copy:
+    src: htoprc
+    dest: "{{ setup_user_home }}/.config/htop/htoprc"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0600"

@@ -6,10 +6,13 @@
   ansible.builtin.apt:
     name:
       - vim
-      - htop
       - mosh
       - sudo
     state: present
+
+- name: Install htop
+  ansible.builtin.include_role:
+    name: htop
 
 - name: Install qemu-guest-agent on non-LXC guests
   ansible.builtin.apt:

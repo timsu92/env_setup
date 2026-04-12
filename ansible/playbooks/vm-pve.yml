@@ -30,4 +30,5 @@
     - role: claude_code
     - role: docker_rootless
     - role: fzf
+    - role: htop
     - role: apt_reboot_if_required

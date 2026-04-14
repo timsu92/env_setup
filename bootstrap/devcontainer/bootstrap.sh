@@ -18,9 +18,11 @@ echo "==> Installing Ansible ..."
 pip3 install --break-system-packages ansible 2>/dev/null || pip3 install ansible
 
 # Ensure locale for Ansible is UTF-8
-ansible_locale="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
-if [[ -z "$ansible_locale" || ! "$ansible_locale" =~ \.[Uu][Tt][Ff]-?8(@[A-Za-z]+)? ]]; then
-  ansible_locale="C.UTF-8"
+# shellcheck source=../../utils/locale.sh
+source "${REPO_ROOT}/utils/locale.sh"
+if ! ansible_locale="$(get_valid_utf8_locale)"; then
+  echo "Error: No valid UTF-8 locale found. Please ensure a UTF-8 locale is generated and available in the container." >&2
+  exit 1
 fi
 
 echo "==> Running devcontainer profile ..."

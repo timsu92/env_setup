@@ -29,9 +29,8 @@
 - name: Validate expected GitHub CLI key fingerprints
   ansible.builtin.assert:
     that:
-      - item in github_cli_keyring_info.stdout
-    fail_msg: "Missing expected fingerprint in keyring: {{ item }}"
-  loop: "{{ github_cli_expected_gpg_key_fingerprints }}"
+      - "{{ github_cli_expected_gpg_key_fingerprint }} in github_cli_keyring_info.stdout"
+    fail_msg: "Missing expected fingerprint in keyring: {{ github_cli_expected_gpg_key_fingerprint }}"
 
 - name: Detect dpkg architecture for GitHub CLI apt repository
   ansible.builtin.command: dpkg --print-architecture

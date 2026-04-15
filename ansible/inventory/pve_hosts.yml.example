@@ -21,6 +21,7 @@ all:
           wireguard_server_pubkey: "<server-public-key>"
           wireguard_endpoint: "..."
           # wireguard_allowedips: "..."  # optional, see role defaults
+          # wireguard_dns: "1.1.1.1, 2606:4700:4700::1111"  # optional; unset/empty means no DNS line in wg0.conf
           # NFS mounts for this host (used by nfs_client role).
           # Remove or leave empty if no NFS mounts are needed.
           nfs_mounts:

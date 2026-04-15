@@ -14,7 +14,10 @@
   ansible.builtin.apt:
     name: openresolv
     state: present
-  when: ansible_facts["distribution"] == "Ubuntu" and ansible_facts["distribution_version"] == "22.04"
+  when:
+    - ansible_facts["distribution"] == "Ubuntu"
+    - ansible_facts["distribution_version"] == "22.04"
+    - wireguard_dns | default("") | trim | length > 0
 
 - name: Install wireguard-tools
   ansible.builtin.apt:

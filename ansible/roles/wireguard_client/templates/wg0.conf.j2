@@ -1,7 +1,9 @@
 [Interface]
 PrivateKey = {{ _wg_privatekey.content | b64decode | trim }}
 Address = {{ wireguard_address }}
+{% if wireguard_dns | default('') | trim %}
 DNS = {{ wireguard_dns }}
+{% endif %}
 MTU = {{ wireguard_mtu }}
 
 [Peer]

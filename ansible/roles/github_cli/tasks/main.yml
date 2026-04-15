@@ -1,0 +1,53 @@
+---
+# github_cli: install GitHub CLI from the official Debian apt repository
+
+- name: Install github_cli prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - gpg
+    state: present
+
+- name: Ensure apt keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Download GitHub CLI archive keyring
+  ansible.builtin.get_url:
+    url: "{{ github_cli_keyring_url }}"
+    dest: "{{ github_cli_keyring_path }}"
+    mode: "0644"
+    checksum: "{{ github_cli_keyring_checksum }}"
+
+- name: Read key fingerprints from GitHub CLI keyring
+  ansible.builtin.command: gpg --show-keys --with-colons {{ github_cli_keyring_path }}
+  register: github_cli_keyring_info
+  changed_when: false
+
+- name: Validate expected GitHub CLI key fingerprints
+  ansible.builtin.assert:
+    that:
+      - item in github_cli_keyring_info.stdout
+    fail_msg: "Missing expected fingerprint in keyring: {{ item }}"
+  loop: "{{ github_cli_expected_gpg_key_fingerprints }}"
+
+- name: Detect dpkg architecture for GitHub CLI apt repository
+  ansible.builtin.command: dpkg --print-architecture
+  register: github_cli_dpkg_arch
+  changed_when: false
+
+- name: Add GitHub CLI apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ github_cli_dpkg_arch.stdout }} signed-by={{ github_cli_keyring_path }}]
+      {{ github_cli_repo_url }} {{ github_cli_repo_suite }} {{ github_cli_repo_component }}
+    filename: "{{ github_cli_repo_file_name }}"
+    state: present
+
+- name: Install GitHub CLI package
+  ansible.builtin.apt:
+    name: "{{ github_cli_package_name }}"
+    state: present
+    update_cache: true

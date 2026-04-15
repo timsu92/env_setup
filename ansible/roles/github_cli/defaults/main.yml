@@ -1,0 +1,17 @@
+---
+# github_cli: install GitHub CLI from the official apt repository
+
+github_cli_keyring_path: /etc/apt/keyrings/githubcli-archive-keyring.gpg
+github_cli_keyring_url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+github_cli_keyring_checksum: "sha512:ce6b9466dbd2a90b3227e177aa9b8187bd2405b1c29f91d78de83b9699dbbe2af35efd733bf53da622e7a38c59a7bc55539d63a3deae3c9ff9c2bff8af626434"
+
+github_cli_expected_gpg_key_fingerprints:
+  - 2C6106201985B60E6C7AC87323F3D4EA75716059
+  - 7F38BBB59D064DBCB3D84D725612B36462313325
+
+github_cli_repo_url: "{{ apt_https_repo_prefix }}cli.github.com/packages"
+github_cli_repo_suite: stable
+github_cli_repo_component: main
+github_cli_repo_file_name: github-cli
+
+github_cli_package_name: gh

@@ -1,0 +1,15 @@
+---
+- name: Check uv's tool directory
+  ansible.builtin.command:
+    cmd: ~/.local/bin/uv tool dir
+  become: true
+  become_user: "{{ setup_user }}"
+  register: claude_code_uv_tool_dir
+  changed_when: false
+
+- name: Install claude-swap
+  ansible.builtin.command:
+    cmd: ~/.local/bin/uv tool install claude-swap
+    creates: "{{ claude_code_uv_tool_dir.stdout }}/claude-swap"
+  become: true
+  become_user: "{{ setup_user }}"

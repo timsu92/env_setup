@@ -1,0 +1,30 @@
+---
+- name: Download uv installer
+  ansible.builtin.get_url:
+    url: https://astral.sh/uv/install.sh
+    dest: /tmp/uv-install.sh
+    mode: "0700"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+
+- name: Install uv
+  ansible.builtin.command:
+    cmd: sh /tmp/uv-install.sh
+    creates: "{{ setup_user_home }}/.local/bin/uv"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+
+- name: Remove uv installer
+  ansible.builtin.file:
+    path: /tmp/uv-install.sh
+    state: absent
+
+- name: Deploy zsh shell configuration for uv
+  ansible.builtin.copy:
+    src: 15-uv-shell-completion.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/interactive/15-uv-shell-completion.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

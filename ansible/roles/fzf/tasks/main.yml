@@ -1,17 +1,5 @@
 ---
 # fzf: A command-line fuzzy finder
-- name: Collect installed package facts
-  ansible.builtin.package_facts:
-    manager: auto
-
-- name: Ensure one downloader exists for fzf install script
-  ansible.builtin.package:
-    name: curl
-    state: present
-  when:
-    - "'curl' not in ansible_facts['packages']"
-    - "'wget' not in ansible_facts['packages']"
-
 - name: Install fzf
   ansible.builtin.git:
     repo: https://github.com/junegunn/fzf.git

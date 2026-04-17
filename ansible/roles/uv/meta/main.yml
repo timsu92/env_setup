@@ -1,4 +1,4 @@
 ---
 dependencies:
+  - role: zsh_config_dirs
   - role: curl_or_wget
-  - role: zsh

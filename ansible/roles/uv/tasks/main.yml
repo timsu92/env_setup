@@ -1,4 +1,9 @@
 ---
+- name: Check uv existence
+  ansible.builtin.stat:
+    path: "{{ setup_user_home }}/.local/bin/uv"
+  register: uv_installed
+
 - name: Download uv installer
   ansible.builtin.get_url:
     url: https://astral.sh/uv/install.sh
@@ -6,6 +11,7 @@
     mode: "0700"
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
+  when: not uv_installed.stat.exists
 
 - name: Install uv
   ansible.builtin.command:
@@ -20,6 +26,7 @@
   ansible.builtin.file:
     path: /tmp/uv-install.sh
     state: absent
+  when: not uv_installed.stat.exists
 
 - name: Deploy zsh shell configuration for uv
   ansible.builtin.copy:

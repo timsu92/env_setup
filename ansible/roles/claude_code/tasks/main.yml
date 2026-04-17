@@ -1,4 +1,9 @@
 ---
+- name: Check Claude Code existence
+  ansible.builtin.stat:
+    path: "{{ setup_user_home }}/.local/bin/claude"
+  register: claude_code_installed
+
 - name: Download Claude Code's installation script
   ansible.builtin.get_url:
     url: https://claude.ai/install.sh
@@ -6,6 +11,7 @@
     mode: '0700'
   become: true
   become_user: "{{ setup_user }}"
+  when: not claude_code_installed.stat.exists
 
 - name: Install Claude Code
   ansible.builtin.command:
@@ -18,6 +24,7 @@
   ansible.builtin.file:
     path: /tmp/claude_install.sh
     state: absent
+  when: not claude_code_installed.stat.exists
 
 - name: Install claude-swap
   ansible.builtin.include_tasks: claude-swap.yml

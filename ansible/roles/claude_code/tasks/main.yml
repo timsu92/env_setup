@@ -1,9 +1,20 @@
 ---
-# Claude Code
+- name: Download Claude Code's installation script
+  ansible.builtin.get_url:
+    url: https://claude.ai/install.sh
+    dest: /tmp/claude_install.sh
+    mode: '0700'
+  become: true
+  become_user: "{{ setup_user }}"
 
 - name: Install Claude Code
-  ansible.builtin.shell:
-    cmd: "curl -fsSL https://claude.ai/install.sh | bash"
+  ansible.builtin.command:
+    cmd: "bash /tmp/claude_install.sh"
     creates: "{{ setup_user_home }}/.local/bin/claude"
   become: true
   become_user: "{{ setup_user }}"
+
+- name: Remove Claude Code's installation script
+  ansible.builtin.file:
+    path: /tmp/claude_install.sh
+    state: absent

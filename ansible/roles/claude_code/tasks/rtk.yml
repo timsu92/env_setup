@@ -1,0 +1,49 @@
+---
+- name: Check RTK existence
+  ansible.builtin.stat:
+    path: "{{ setup_user_home }}/.local/bin/rtk"
+  register: claude_code_rtk_installed
+
+- name: Download RTK installation script
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh
+    dest: /tmp/install_rtk.sh
+    mode: '0700'
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+  when: not claude_code_rtk_installed.stat.exists
+
+- name: Install RTK
+  ansible.builtin.command:
+    cmd: "sh /tmp/install_rtk.sh"
+    creates: "{{ setup_user_home }}/.local/bin/rtk"
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Remove RTK installation script
+  ansible.builtin.file:
+    path: /tmp/install_rtk.sh
+    state: absent
+  when: not claude_code_rtk_installed.stat.exists
+
+- name: Install RTK for Claude Code / Copilot
+  ansible.builtin.command:
+    cmd: "rtk init -g"
+    creates:
+      - "{{ setup_user_home }}/.claude/hooks/rtk-rewrite.sh"
+      - "{{ setup_user_home }}/.claude/RTK.md"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    PATH: "{{ setup_user_home }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
+
+- name: Install RTK for Codex
+  ansible.builtin.command:
+    cmd: "rtk init -g --codex"
+    creates:
+      - "{{ setup_user_home }}/.codex/RTK.md"
+      - "{{ setup_user_home }}/.codex/AGENTS.md"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    PATH: "{{ setup_user_home }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"

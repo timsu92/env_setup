@@ -28,3 +28,6 @@
 
 - name: Install claude-swap
   ansible.builtin.include_tasks: claude-swap.yml
+
+- name: Install RTK
+  ansible.builtin.include_tasks: rtk.yml

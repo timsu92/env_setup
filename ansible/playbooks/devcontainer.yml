@@ -14,8 +14,11 @@
     - role: common_base
     - role: vim
       vars:
-        vim_profile: full
+        vim_profile: minimal
     - role: git
+    - role: zsh
+    - role: zplug
+    - role: starship
     - role: claude_code
     - role: fzf
     - role: htop

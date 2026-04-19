@@ -23,6 +23,10 @@ source "${REPO_ROOT}/utils/locale.sh"
 if ! ansible_locale="$(get_valid_utf8_locale)"; then
   echo "Error: No valid UTF-8 locale found. Please ensure a UTF-8 locale is generated and available in the container." >&2
   exit 1
+elif [ "${ansible_locale:-}" != "en_US.UTF-8" ] && ! locale_exists "en_US.UTF-8"; then
+  # VSCode sets LANG to en_US.UTF-8 if LANG isn't set in advanced
+  # regardless of locally available locales
+  (generate_en_us_utf8_locale && ansible_locale="en_US.UTF-8") || echo "Warning: Failed to generate en_US.UTF-8 locale, terminals in VS Code may display incorrectly."
 fi
 
 echo "==> Running devcontainer profile ..."

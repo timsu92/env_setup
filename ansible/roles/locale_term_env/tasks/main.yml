@@ -1,0 +1,8 @@
+---
+- name: Configure LANG and TERM for interactive zsh
+  ansible.builtin.template:
+    src: 10-locale-term.zsh.j2
+    dest: "{{ setup_user_home }}/.config/zsh/interactive/10-locale-term.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

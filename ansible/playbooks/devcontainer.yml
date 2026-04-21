@@ -12,6 +12,7 @@
 
   roles:
     - role: common_base
+    - role: locale_term_env
     - role: vim
       vars:
         vim_profile: minimal

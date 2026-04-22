@@ -17,7 +17,7 @@ all:
           # WireGuard client config (used by wireguard_client role).
           # The role generates keys on the host and prints PublicKey + PresharedKey
           # at the end of the play — add them to the server's [Peer] block.
-          wireguard_address: "10.140.113.2/24, fdcc:fade:beee:deed:feed:beef:0:2/112"
+          wireguard_address: "192.168.100.2/24, fd73:9b2a:4c1e:2/112"
           wireguard_server_pubkey: "<server-public-key>"
           wireguard_endpoint: "..."
           # wireguard_allowedips: "..."  # optional, see role defaults

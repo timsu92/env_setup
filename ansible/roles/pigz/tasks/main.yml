@@ -7,6 +7,7 @@
     state: present
 
 - name: Replace gzip with pigz symlink
+  when: not ansible_check_mode
   block:
     - name: Rename original gzip binary
       ansible.builtin.command:
@@ -18,4 +19,3 @@
         src: /usr/bin/pigz
         dest: /bin/gzip
         state: link
-  when: not ansible_check_mode

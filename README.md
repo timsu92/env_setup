@@ -51,29 +51,51 @@ Profiles are top-level Ansible playbooks that represent a complete target enviro
 
 Roles implement individual capabilities. Each role encapsulates everything needed for one tool or service: installation, configuration, and post-install actions.
 
+#### Infrastructure and environment setup
+
 | Role | Description |
 |------|-------------|
 | `common_base` | apt update + upgrade |
 | `apt_cacher_ng` | apt-cacher-ng proxy auto-detection |
 | `apt_nycu_mirror` | NYCU apt mirror (Ubuntu + Debian) |
-| `git` | git + global config (~/.gitconfig) |
-| `vim` | vim editor |
-| `tmux` | tmux + ~/.tmux.conf |
+| `curl_or_wget` | curl/wget bootstrap dependency |
+| `locale_term_env` | locale + terminal environment variables |
+| `pve_cloud_init_dns` | Proxmox cloud-init DNS override |
+| `zsh_config_dirs` | zsh config directory scaffolding |
+
+#### Tools and services
+
+| Role | Description |
+|------|-------------|
+| `git` | git + global config |
+| `tmux` | terminal multiplexer |
 | `zsh` | zsh core + modular loader |
 | `nvm` | nvm install + zsh nvm snippets |
 | `node` | Node.js install via nvm |
+| `uv` | uv installer + shell completions |
 | `zplug` | zplug + plugin snippets |
 | `starship` | starship + prompt snippet |
 | `docker_rootful` | Docker Engine (rootful) |
 | `docker_rootless` | Docker Engine (rootless mode) |
-| `helm` | Helm (k8s package manager) |
 | `wireguard_client` | WireGuard client config deployment + key output for server peer |
 | `nfs_client` | NFS client |
 | `dns_over_tls` | systemd-resolved DNS-over-TLS |
+| `wsl_my_documents` | ~/documents → Windows Documents symlink |
+| `proxmox_guest` | qemu-guest-agent + user creation |
+| `sshd` | SSH server hardening + config |
+
+#### Applications
+
+| Role | Description |
+|------|-------------|
+| `vim` | vim editor |
+| `helm` | Helm (k8s package manager) |
 | `xpra` | Xpra remote desktop |
 | `pigz` | pigz (parallel gzip) |
-| `proxmox_guest` | qemu-guest-agent + user creation |
-| `wsl_my_documents` | ~/documents → Windows Documents symlink |
+| `fzf` | fzf fuzzy finder |
+| `github_cli` | GitHub CLI (gh) |
+| `htop` | htop process viewer |
+| `claude_code` | Claude Code + rtk |
 
 ---
 
@@ -123,16 +145,12 @@ bin/setup-lxc --host pve-lxc-01
 bin/setup-container
 ```
 
-This profile uses Vim minimal mode (`vim_profile: minimal`): only apt install vim.
-
 ### Devcontainer
 
 ```bash
 # Inside the devcontainer:
 bin/setup-devcontainer
 ```
-
-This profile uses Vim full mode (`vim_profile: full`): vim + vimrc repo + install.sh + nvm/node dependency chain.
 
 ---
 

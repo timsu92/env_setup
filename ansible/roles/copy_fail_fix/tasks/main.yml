@@ -1,4 +1,5 @@
 # Temporary fix for CVE-2026-31431 in every Linux since 2017
+# Documentation: https://copy.fail
 ---
 - name: Copy the disable kernel module command file
   ansible.builtin.copy:

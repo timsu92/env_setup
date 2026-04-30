@@ -31,4 +31,5 @@
     - role: docker_rootless
     - role: fzf
     - role: htop
+    - role: copy_fail_fix
     - role: apt_reboot_if_required

@@ -1,0 +1,18 @@
+---
+# Temporary fix for CVE-2026-31431 in every Linux since 2017
+# Documentation: https://copy.fail
+- name: Write modprobe.d config to disable algif_aead module
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/disable-algif-aead.conf
+    content: |
+      # Disable the algif_aead module to mitigate CVE-2026-31431
+      install algif_aead /bin/false
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Disable the algif_aead module immediately
+  community.general.modprobe:
+    name: algif_aead
+    state: absent
+    persistent: absent

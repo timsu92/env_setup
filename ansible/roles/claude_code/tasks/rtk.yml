@@ -28,7 +28,7 @@
 
 - name: Install RTK for Claude Code / Copilot
   ansible.builtin.command:
-    cmd: "rtk init -g"
+    cmd: "rtk init -g --auto-patch"
     creates:
       - "{{ setup_user_home }}/.claude/hooks/rtk-rewrite.sh"
       - "{{ setup_user_home }}/.claude/RTK.md"

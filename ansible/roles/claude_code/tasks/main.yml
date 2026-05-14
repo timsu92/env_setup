@@ -31,3 +31,6 @@
 
 - name: Install RTK
   ansible.builtin.include_tasks: rtk.yml
+
+- name: Install winlab-skills
+  ansible.builtin.include_tasks: winlab-skills.yml

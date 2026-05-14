@@ -1,0 +1,39 @@
+---
+- name: Create user plugin directory
+  ansible.builtin.include_tasks:
+    file: self-download-dir.yml
+
+- name: Download Winlab-skills
+  ansible.builtin.git:
+    repo: https://github.com/NYCU-WinLab/winlab-skills.git
+    dest: "{{ claude_code_self_download_dir }}/winlab-skills"
+    version: 6d43862
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Symlink cc to Claude Skills
+  ansible.builtin.shell:
+    cmd: |
+      cp -r --reflink=auto {{ claude_code_self_download_dir }}/winlab-skills/skills/cc {{ setup_user_home }}/.claude/skills/cc
+      chmod -R a-w {{ setup_user_home }}/.claude/skills/cc
+    creates: "{{ setup_user_home }}/.claude/skills/cc/SKILL.md"
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Symlink english-writing-review to Claude Skills
+  ansible.builtin.shell:
+    cmd: |
+      cp -r --reflink=auto {{ claude_code_self_download_dir }}/winlab-skills/skills/english-writing-review {{ setup_user_home }}/.claude/skills/english-writing-review
+      chmod -R a-w {{ setup_user_home }}/.claude/skills/english-writing-review
+    creates: "{{ setup_user_home }}/.claude/skills/english-writing-review/SKILL.md"
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Symlink winlab-slides-guidelines to Claude Skills
+  ansible.builtin.shell:
+    cmd: |
+      cp -r --reflink=auto {{ claude_code_self_download_dir }}/winlab-skills/skills/winlab-slides-guidelines {{ setup_user_home }}/.claude/skills/winlab-slides-guidelines
+      chmod -R a-w {{ setup_user_home }}/.claude/skills/winlab-slides-guidelines
+    creates: "{{ setup_user_home }}/.claude/skills/winlab-slides-guidelines/SKILL.md"
+  become: true
+  become_user: "{{ setup_user }}"

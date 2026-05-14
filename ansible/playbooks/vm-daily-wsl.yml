@@ -30,4 +30,5 @@
     - role: fzf
     - role: htop
     - role: copy_fail_fix
+    - role: dirty_frag_fix
     - role: apt_reboot_if_required

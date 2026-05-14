@@ -1,0 +1,29 @@
+---
+# Temporary fix for Linux dirty fragmentation issue (CVE-2026-43284, CVE-2026-43500)
+# Documentation: https://www.ithome.com.tw/news/175672
+# This will affect IPsec and rxrpc functionality
+- name: Write modprobe.d config to disable fragmentation-causing modules
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/dirtyfrag.conf
+    content: |
+      install esp4 /bin/false
+      install esp6 /bin/false
+      install ipcomp4 /bin/false
+      install ipcomp6 /bin/false
+      install rxrpc /bin/false
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Disable dirtyfrag-related modules
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: absent
+    persistent: absent
+  loop:
+    - esp4
+    - esp6
+    - ipcomp4
+    - ipcomp6
+    - rxrpc
+  failed_when: false

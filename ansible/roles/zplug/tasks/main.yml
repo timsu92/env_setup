@@ -50,7 +50,7 @@
     'Build package' in zplug_install_result.stdout or
     'No packages to install' not in zplug_install_result.stdout
 
-- name: Ensure Vim plugins are installed
+- name: Install Vim plugins
   # might be zplug's hook-build doesn't work in non-interactive shell, so run the install script directly
   ansible.builtin.shell:
     cmd: >

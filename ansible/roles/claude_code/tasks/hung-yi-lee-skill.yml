@@ -1,0 +1,47 @@
+---
+- name: Create Claude skills directory
+  ansible.builtin.file:
+    path: "{{ setup_user_home }}/.claude/skills"
+    state: directory
+    mode: '0755'
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+
+- name: Clone hung-yi-lee-skill
+  ansible.builtin.git:
+    repo: https://github.com/voidful/hung-yi-lee-skill
+    dest: "{{ setup_user_home }}/.claude/skills/hung-yi-lee"
+    version: 50aa282
+    depth: 1
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Create venv for hung-yi-lee-skill
+  ansible.builtin.command:
+    cmd: uv init .
+    chdir: "{{ setup_user_home }}/.claude/skills/hung-yi-lee"
+    creates: "{{ setup_user_home }}/.claude/skills/hung-yi-lee/pyproject.toml"
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Install dependencies for hung-yi-lee-skill
+  ansible.builtin.command:
+    cmd: uv add 'youtube-transcript-api>=1.2,<2' 'networkx>=3.0' 'python-louvain>=0.16' yt-dlp
+    chdir: "{{ setup_user_home }}/.claude/skills/hung-yi-lee"
+    creates: "{{ setup_user_home }}/.claude/skills/hung-yi-lee/uv.lock"
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Update python paths in skill documentation to use venv
+  ansible.builtin.replace:
+    path: "{{ setup_user_home }}/.claude/skills/hung-yi-lee/{{ item }}"
+    regexp: 'python3 scripts/hungyi_kb\.py'
+    replace: "{{ setup_user_home }}/.claude/skills/hung-yi-lee/.venv/bin/python {{ setup_user_home }}/.claude/skills/hung-yi-lee/scripts/hungyi_kb.py"
+  loop:
+    - AGENTS.md
+    - SKILL.md
+    - wiki/graph/GRAPH_REPORT.md
+    - wiki/index.md
+    - wiki/query-playbook.md
+  become: true
+  become_user: "{{ setup_user }}"

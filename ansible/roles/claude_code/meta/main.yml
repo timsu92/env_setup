@@ -1,4 +1,4 @@
 ---
 dependencies:
   - role: curl_or_wget  # Claude Code
-  - role: uv  # claude-swap
+  - role: uv  # claude-swap, hung-yi-lee-skill

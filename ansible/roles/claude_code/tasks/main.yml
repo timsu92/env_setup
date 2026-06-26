@@ -34,3 +34,6 @@
 
 - name: Install winlab-skills
   ansible.builtin.include_tasks: winlab-skills.yml
+
+- name: Install hung-yi-lee-skill
+  ansible.builtin.include_tasks: hung-yi-lee-skill.yml

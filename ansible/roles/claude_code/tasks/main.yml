@@ -37,3 +37,6 @@
 
 - name: Install hung-yi-lee-skill
   ansible.builtin.include_tasks: hung-yi-lee-skill.yml
+
+- name: Install cswap auto switch account daemon
+  ansible.builtin.include_tasks: cswap-daemon.yml

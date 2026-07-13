@@ -8,6 +8,8 @@
     repo: https://github.com/NYCU-WinLab/winlab-skills.git
     dest: "{{ claude_code_self_download_dir }}/winlab-skills"
     version: 6d43862
+    refspec: 6d43862aa56bf35a17b637a5f40246103cc88085
+    depth: 1
   become: true
   become_user: "{{ setup_user }}"
 

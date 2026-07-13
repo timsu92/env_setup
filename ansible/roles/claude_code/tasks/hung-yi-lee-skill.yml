@@ -12,6 +12,7 @@
     repo: https://github.com/voidful/hung-yi-lee-skill
     dest: "{{ setup_user_home }}/.claude/skills/hung-yi-lee"
     version: 50aa282
+    refspec: 50aa2823cee651ecd9fbfb56cb66455bb8e3a7b3
     depth: 1
   become: true
   become_user: "{{ setup_user }}"

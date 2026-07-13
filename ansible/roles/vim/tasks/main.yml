@@ -20,6 +20,7 @@
     repo: "{{ vim_repo_url }}"
     dest: "{{ vim_repo_dest }}"
     version: "{{ vim_repo_version }}"
+    depth: 1
     update: true
   become: true
   become_user: "{{ setup_user }}"

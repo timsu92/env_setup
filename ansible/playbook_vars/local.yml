@@ -1,5 +1,5 @@
 ---
 # Shared vars for local execution profiles (WSL / container / devcontainer)
 ansible_connection: local
-setup_user: "{{ default(ansible_user_id, true) }}"
+setup_user: "{{ lookup('env', 'USER') }}"
 setup_user_home: "{{ lookup('pipe', 'getent passwd ' ~ setup_user ~ ' | cut -d: -f6 || true') | default('/root' if setup_user == 'root' else '/home/' + setup_user, true) }}"

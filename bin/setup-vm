@@ -58,7 +58,7 @@ case "$PROFILE" in
       usage
     fi
     echo "==> Provisioning WSL daily driver (local) ..."
-    ansible-playbook -c local -i inventory/local.yml playbooks/vm-daily-wsl.yml "${EXTRA_ARGS[@]}"
+    ansible-playbook -c local -i -K inventory/local.yml playbooks/vm-daily-wsl.yml "${EXTRA_ARGS[@]}"
     ;;
   pve)
     [[ -z "$HOST" ]] && { echo "ERROR: --host required for pve profile"; usage; }

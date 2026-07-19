@@ -7,6 +7,7 @@
     name:
       - curl
       - gpg
+      - python3-debian
     state: present
 
 - name: Download and dearmor Helm GPG key
@@ -18,10 +19,19 @@
     creates: /usr/share/keyrings/helm.gpg
 
 - name: Add Helm apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/helm.gpg] {{ apt_https_repo_prefix }}packages.buildkite.com/helm-linux/helm-debian/any/ any main"
-    filename: helm-stable-debian
+  ansible.builtin.deb822_repository:
+    name: helm-stable-debian
+    types: deb
+    uris: "{{ apt_https_repo_prefix }}packages.buildkite.com/helm-linux/helm-debian/any/"
+    suites: any
+    components: main
+    signed_by: /usr/share/keyrings/helm.gpg
     state: present
+
+- name: Remove legacy Helm apt repository source
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/helm-stable-debian.list
+    state: absent
 
 - name: Install helm
   ansible.builtin.apt:

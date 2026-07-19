@@ -6,6 +6,7 @@
     name:
       - ca-certificates
       - gpg
+      - python3-debian
     state: present
 
 - name: Ensure apt keyrings directory exists
@@ -38,12 +39,20 @@
   changed_when: false
 
 - name: Add GitHub CLI apt repository
-  ansible.builtin.apt_repository:
-    repo: >-
-      deb [arch={{ github_cli_dpkg_arch.stdout }} signed-by={{ github_cli_keyring_path }}]
-      {{ github_cli_repo_url }} {{ github_cli_repo_suite }} {{ github_cli_repo_component }}
-    filename: "{{ github_cli_repo_file_name }}"
+  ansible.builtin.deb822_repository:
+    name: "{{ github_cli_repo_file_name }}"
+    types: deb
+    uris: "{{ github_cli_repo_url }}"
+    suites: "{{ github_cli_repo_suite }}"
+    components: "{{ github_cli_repo_component }}"
+    architectures: "{{ github_cli_dpkg_arch.stdout }}"
+    signed_by: "{{ github_cli_keyring_path }}"
     state: present
+
+- name: Remove legacy GitHub CLI apt repository source
+  ansible.builtin.file:
+    path: "/etc/apt/sources.list.d/{{ github_cli_repo_file_name }}.list"
+    state: absent
 
 - name: Install GitHub CLI package
   ansible.builtin.apt:

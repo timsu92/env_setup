@@ -6,6 +6,20 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ANSIBLE_DIR="${REPO_ROOT}/ansible"
 export ANSIBLE_CONFIG="${REPO_ROOT}/ansible.cfg"
+ORIGINAL_ARGS=("$@")
+
+resolve_home() {
+  local user="$1"
+  local home
+  home="$(getent passwd "$user" | cut -d: -f6)"
+  if [[ -n "$home" ]]; then
+    printf '%s\n' "$home"
+  elif [[ "$user" == "root" ]]; then
+    printf '/root\n'
+  else
+    printf '/home/%s\n' "$user"
+  fi
+}
 
 usage() {
   cat <<EOF
@@ -57,8 +71,27 @@ case "$PROFILE" in
       echo -e "\033[31mERROR: WSL profile can only be run inside WSL\033[0m"
       usage
     fi
+    CALLER_USER="${SUDO_USER:-$(id -un)}"
+    CALLER_HOME="$(resolve_home "$CALLER_USER")"
+    WSL_ANSIBLE_VARS=(
+      -e "setup_user=${CALLER_USER}"
+      -e "setup_user_home=${CALLER_HOME}"
+    )
+
+    if [[ "$EUID" -ne 0 ]]; then
+      if command -v sudo >/dev/null 2>&1; then
+        echo "==> Running WSL bootstrap with sudo ..."
+        sudo env "PATH=${PATH}" bash "${REPO_ROOT}/bin/setup-vm" "${ORIGINAL_ARGS[@]}"
+        exit $?
+      else
+        echo "Requires root privileges to setup using Ansible."
+        echo "Please run this script with sudo or as root."
+        exit 1
+      fi
+    fi
+
     echo "==> Provisioning WSL daily driver (local) ..."
-    ansible-playbook -c local -i -K inventory/local.yml playbooks/vm-daily-wsl.yml "${EXTRA_ARGS[@]}"
+    ansible-playbook -c local -i inventory/local.yml playbooks/vm-daily-wsl.yml "${WSL_ANSIBLE_VARS[@]}" "${EXTRA_ARGS[@]}"
     ;;
   pve)
     [[ -z "$HOST" ]] && { echo "ERROR: --host required for pve profile"; usage; }

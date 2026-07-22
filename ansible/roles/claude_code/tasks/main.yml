@@ -26,6 +26,9 @@
     state: absent
   when: not claude_code_installed.stat.exists
 
+- name: Install marketplaces and plugins
+  ansible.builtin.include_tasks: plugins.yml
+
 - name: Install claude-swap
   ansible.builtin.include_tasks: claude-swap.yml
 

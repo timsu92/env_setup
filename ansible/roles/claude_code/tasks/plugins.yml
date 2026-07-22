@@ -1,0 +1,25 @@
+---
+# Both `claude plugin marketplace add` and `claude plugin install` work with
+# no Claude Code login at all (verified in a throwaway container) — they
+# only touch ~/.claude/settings.json and ~/.claude/plugins/*.json, never
+# ~/.claude.json's onboarding/auth state. So this can run unconditionally,
+# with no dependency on `claude auth login` having happened yet.
+- name: Add Claude Code plugin marketplaces
+  ansible.builtin.command:
+    cmd: "~/.local/bin/claude plugin marketplace add {{ item.url }}"
+  become: true
+  become_user: "{{ setup_user }}"
+  loop: "{{ claude_code_marketplaces }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: claude_code_marketplace_add
+  changed_when: "'Successfully added marketplace' in claude_code_marketplace_add.stdout"
+
+- name: Install Claude Code plugins
+  ansible.builtin.command:
+    cmd: "~/.local/bin/claude plugin install {{ item }}"
+  become: true
+  become_user: "{{ setup_user }}"
+  loop: "{{ claude_code_plugins }}"
+  register: claude_code_plugin_install
+  changed_when: "'Successfully installed plugin' in claude_code_plugin_install.stdout"

@@ -1,0 +1,35 @@
+---
+# ICMP echo (ping) is refused from inside rootless containers unless the
+# host explicitly widens this range to include the user's group.
+# https://docs.docker.com/engine/security/rootless/#routing-ping-packets
+#
+# The upper bound must stay within the id range that's actually mapped into
+# the current user namespace, or the kernel rejects the write with EINVAL.
+# A real VM/bare-metal host (running in the init user namespace) maps the
+# full id space, but an unprivileged Proxmox LXC container is confined to
+# whatever range its own uid/gid map covers -- and that size isn't fixed
+# across hosts, so detect it from /proc/self/gid_map instead of assuming it.
+- name: Read this user namespace's GID mapping
+  ansible.builtin.command: cat /proc/self/gid_map
+  register: docker_rootless_gid_map
+  changed_when: false
+
+- name: Compute widest usable ping_group_range upper bound
+  ansible.builtin.set_fact:
+    docker_rootless_ping_group_max: >-
+      {{ [
+        (docker_rootless_gid_map.stdout_lines[0].split()[0] | int)
+          + (docker_rootless_gid_map.stdout_lines[0].split()[2] | int) - 1,
+        2147483647
+      ] | min }}
+    # Capped at INT_MAX: on a real VM/bare-metal host the mapping covers the
+    # full id space, but that's larger than what Docker's own docs use, and
+    # ping_group_range's kernel handler parses the value as a signed int.
+
+- name: Allow ping from rootless containers (net.ipv4.ping_group_range)
+  ansible.posix.sysctl:
+    name: net.ipv4.ping_group_range
+    value: "0 {{ docker_rootless_ping_group_max }}"
+    sysctl_set: true
+    state: present
+    reload: true

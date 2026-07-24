@@ -1,0 +1,15 @@
+---
+# rootlesskit runs unprivileged, so published ports below 1024 fail to bind
+# unless it is granted this capability directly.
+# https://docs.docker.com/engine/security/rootless/#exposing-privileged-ports
+- name: Locate rootlesskit binary
+  ansible.builtin.command: which rootlesskit
+  register: docker_rootless_rootlesskit_path
+  changed_when: false
+
+- name: Grant CAP_NET_BIND_SERVICE to rootlesskit (expose privileged ports)
+  community.general.capabilities:
+    path: "{{ docker_rootless_rootlesskit_path.stdout }}"
+    capability: cap_net_bind_service=ep
+    state: present
+  notify: Restart rootless Docker service

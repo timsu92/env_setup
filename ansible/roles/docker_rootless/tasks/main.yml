@@ -45,3 +45,9 @@
   ansible.builtin.command: loginctl enable-linger {{ setup_user }}
   changed_when: false
   ignore_errors: true  # may fail in containers without systemd
+
+- name: Enable ping from rootless containers
+  ansible.builtin.include_tasks: ping.yml
+
+- name: Expose privileged ports from rootless containers
+  ansible.builtin.include_tasks: privileged-ports.yml

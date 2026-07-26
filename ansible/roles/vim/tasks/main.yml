@@ -24,7 +24,7 @@
     update: true
   become: true
   become_user: "{{ setup_user }}"
-  register: vimrc_repo_checkout
+  register: vim_vimrc_repo_checkout
   when: vim_profile == 'full'
 
 - name: Run vimrc install.sh
@@ -42,4 +42,4 @@
   when:
     - vim_profile == 'full'
     - not ansible_check_mode
-    - vimrc_repo_checkout.changed
+    - vim_vimrc_repo_checkout.changed

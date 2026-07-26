@@ -2,8 +2,8 @@
 # NFS mounts to configure on this host.
 # Override in inventory (host_vars or group_vars) — not here.
 # Example:
-#   nfs_mounts:
+#   nfs_client_mounts:
 #     - src: "192.168.1.1:/mnt/shared_data"
 #       dest: /mnt/data
 #       opts: "defaults,nofail,_netdev,soft,timeo=30,retrans=5"
-nfs_mounts: []
+nfs_client_mounts: []

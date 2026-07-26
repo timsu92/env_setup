@@ -3,7 +3,7 @@
 # Source: docs/Linux系統/nfs.md
 #
 # Configure mounts via inventory (host_vars or group_vars):
-#   nfs_mounts:
+#   nfs_client_mounts:
 #     - src: "<SERVER_IP>:/mnt/shared_data"
 #       dest: /mnt/data
 #       opts: "defaults,nofail,_netdev,soft,timeo=30,retrans=5"
@@ -20,7 +20,7 @@
     owner: root
     group: root
     mode: "0755"
-  loop: "{{ nfs_mounts }}"
+  loop: "{{ nfs_client_mounts }}"
 
 - name: Configure NFS mounts in /etc/fstab
   ansible.posix.mount:
@@ -29,4 +29,4 @@
     fstype: nfs
     opts: "{{ item.opts | default('defaults,nofail,_netdev,soft,timeo=30,retrans=5') }}"
     state: mounted
-  loop: "{{ nfs_mounts }}"
+  loop: "{{ nfs_client_mounts }}"

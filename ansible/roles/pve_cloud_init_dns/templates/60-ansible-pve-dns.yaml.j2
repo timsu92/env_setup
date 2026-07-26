@@ -1,17 +1,17 @@
 network:
   version: 2
   ethernets:
-    {{ pve_dns_override_effective_interface }}:
+    {{ pve_cloud_init_dns_override_effective_interface }}:
       nameservers:
-{% if pve_dns_override_servers | length > 0 %}
+{% if pve_cloud_init_dns_override_servers | length > 0 %}
         addresses:
-{% for server in pve_dns_override_servers %}
+{% for server in pve_cloud_init_dns_override_servers %}
           - {{ server }}
 {% endfor %}
 {% endif %}
-{% if pve_dns_override_search | length > 0 %}
+{% if pve_cloud_init_dns_override_search | length > 0 %}
         search:
-{% for domain in pve_dns_override_search %}
+{% for domain in pve_cloud_init_dns_override_search %}
           - {{ domain }}
 {% endfor %}
 {% endif %}

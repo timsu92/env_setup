@@ -2,4 +2,4 @@
 # Select the Xpra repository to install
 # Source: docs/Linux系統/xpra.md
 
-repo: "xpra"  # Options: "xpra", "xpra-lts", "xpra-beta"
+xpra_repo: "xpra"  # Options: "xpra", "xpra-lts", "xpra-beta"

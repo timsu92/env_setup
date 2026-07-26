@@ -2,9 +2,9 @@
 # wireguard_client: install WireGuard and deploy wg0.conf
 # Source: docs/wireguard.md
 #
-# Required vars (no default): wireguard_address, wireguard_server_pubkey, wireguard_endpoint,
-# Optional vars (see defaults/main.yml): wireguard_allowedips, wireguard_dns
-#                                        wireguard_mtu, wireguard_keepalive
+# Required vars (no default): wireguard_client_address, wireguard_client_server_pubkey, wireguard_client_endpoint,
+# Optional vars (see defaults/main.yml): wireguard_client_allowedips, wireguard_client_dns
+#                                        wireguard_client_mtu, wireguard_client_keepalive
 #
 # Keys are generated on the target host and persisted in /etc/wireguard/.
 # After the play runs, this role prints the client PublicKey and PresharedKey
@@ -17,7 +17,7 @@
   when:
     - ansible_facts["distribution"] == "Ubuntu"
     - ansible_facts["distribution_version"] == "22.04"
-    - wireguard_dns | default("") | trim | length > 0
+    - wireguard_client_dns | default("") | trim | length > 0
 
 - name: Install wireguard-tools
   ansible.builtin.apt:
@@ -61,19 +61,19 @@
 - name: Read WireGuard private key
   ansible.builtin.slurp:
     src: /etc/wireguard/privatekey
-  register: _wg_privatekey
+  register: wireguard_client_privatekey
   no_log: true
 
 - name: Read WireGuard preshared key
   ansible.builtin.slurp:
     src: /etc/wireguard/presharedkey
-  register: _wg_psk
+  register: wireguard_client_psk
   no_log: true
 
 - name: Derive WireGuard public key from private key
   ansible.builtin.shell:
     cmd: wg pubkey < /etc/wireguard/privatekey
-  register: _wg_pubkey
+  register: wireguard_client_pubkey
   changed_when: false
 
 - name: Deploy /etc/wireguard/wg0.conf
@@ -89,8 +89,8 @@
 - name: "Client keys — add these to the server [Peer] block"
   ansible.builtin.debug:
     msg:
-      - "PublicKey    = {{ _wg_pubkey.stdout }}"
-      - "PresharedKey = {{ _wg_psk.content | b64decode | trim }}"
+      - "PublicKey    = {{ wireguard_client_pubkey.stdout }}"
+      - "PresharedKey = {{ wireguard_client_psk.content | b64decode | trim }}"
 
 - name: Delete private key file from the client for security
   ansible.builtin.file:

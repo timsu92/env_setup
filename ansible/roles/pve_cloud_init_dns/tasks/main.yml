@@ -6,49 +6,49 @@
 
 - name: Decide whether DNS override should be managed
   ansible.builtin.set_fact:
-    pve_dns_override_enabled: >-
+    pve_cloud_init_dns_override_enabled: >-
       {{
-        (pve_dns_override_servers | default([]) | length > 0)
+        (pve_cloud_init_dns_override_servers | default([]) | length > 0)
         or
-        (pve_dns_override_search | default([]) | length > 0)
+        (pve_cloud_init_dns_override_search | default([]) | length > 0)
       }}
 
 - name: Check whether netplan directory exists
   ansible.builtin.stat:
     path: /etc/netplan
-  register: pve_dns_override_netplan_dir
-  when: pve_dns_override_enabled
+  register: pve_cloud_init_dns_override_netplan_dir
+  when: pve_cloud_init_dns_override_enabled
 
 - name: Pick interface for DNS override
   ansible.builtin.set_fact:
-    pve_dns_override_effective_interface: >-
+    pve_cloud_init_dns_override_effective_interface: >-
       {{
-        pve_dns_override_interface
-        if (pve_dns_override_interface | default('') | length > 0)
+        pve_cloud_init_dns_override_interface
+        if (pve_cloud_init_dns_override_interface | default('') | length > 0)
         else ansible_facts["default_ipv4"]["interface"]
       }}
   when:
-    - pve_dns_override_enabled
+    - pve_cloud_init_dns_override_enabled
     - ansible_facts["service_mgr"] == 'systemd'
-    - pve_dns_override_netplan_dir.stat.exists
+    - pve_cloud_init_dns_override_netplan_dir.stat.exists
 
 - name: Deploy netplan DNS override
   ansible.builtin.template:
     src: 60-ansible-pve-dns.yaml.j2
-    dest: "{{ pve_dns_override_filename }}"
+    dest: "{{ pve_cloud_init_dns_override_filename }}"
     owner: root
     group: root
     mode: "0600"
-  register: pve_dns_override_template
+  register: pve_cloud_init_dns_override_template
   when:
-    - pve_dns_override_enabled
+    - pve_cloud_init_dns_override_enabled
     - ansible_facts["service_mgr"] == 'systemd'
-    - pve_dns_override_netplan_dir.stat.exists
+    - pve_cloud_init_dns_override_netplan_dir.stat.exists
 
 - name: Apply netplan DNS override
   ansible.builtin.command: netplan apply
-  changed_when: pve_dns_override_template.changed
+  changed_when: pve_cloud_init_dns_override_template.changed
   when:
-    - pve_dns_override_enabled
+    - pve_cloud_init_dns_override_enabled
     - ansible_facts["service_mgr"] == 'systemd'
-    - pve_dns_override_netplan_dir.stat.exists
+    - pve_cloud_init_dns_override_netplan_dir.stat.exists

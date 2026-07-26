@@ -40,7 +40,7 @@
 
 - name: Get dpkg architecture
   ansible.builtin.command: dpkg --print-architecture
-  register: dpkg_arch
+  register: docker_rootful_dpkg_arch
   changed_when: false
 
 - name: Add Docker apt repository
@@ -50,7 +50,7 @@
     uris: "{{ apt_https_repo_prefix }}download.docker.com/linux/ubuntu"
     suites: "{{ ansible_facts['distribution_release'] }}"
     components: stable
-    architectures: "{{ dpkg_arch.stdout }}"
+    architectures: "{{ docker_rootful_dpkg_arch.stdout }}"
     signed_by: /etc/apt/keyrings/docker.asc
     state: present
 

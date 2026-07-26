@@ -4,7 +4,7 @@
 
 - name: Create ~/documents symlink pointing to Windows Documents
   ansible.builtin.file:
-    src: "/mnt/c/Users/{{ wsl_windows_username }}/Documents"
+    src: "/mnt/c/Users/{{ wsl_my_documents_windows_username }}/Documents"
     dest: "{{ setup_user_home }}/documents"
     state: link
     owner: "{{ setup_user }}"

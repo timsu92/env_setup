@@ -1,8 +1,8 @@
 ---
-proxmox_new_username: tim
-proxmox_new_user_shell: /bin/zsh
+proxmox_guest_new_username: tim
+proxmox_guest_new_user_shell: /bin/zsh
 # Groups that are common in Proxmox VMs. Some may not exist in LXC — errors are ignored.
-proxmox_new_user_groups:
+proxmox_guest_new_user_groups:
   - adm
   - sudo
   - dip

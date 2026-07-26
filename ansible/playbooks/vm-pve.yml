@@ -10,9 +10,9 @@
   roles:
     - role: pve_cloud_init_dns
       vars:
-        pve_dns_override_interface: "{{ vm_pve_dns_interface | default('') }}"
-        pve_dns_override_servers: "{{ vm_pve_dns_servers | default([]) }}"
-        pve_dns_override_search: "{{ vm_pve_dns_search | default([]) }}"
+        pve_cloud_init_dns_override_interface: "{{ vm_pve_dns_interface | default('') }}"
+        pve_cloud_init_dns_override_servers: "{{ vm_pve_dns_servers | default([]) }}"
+        pve_cloud_init_dns_override_search: "{{ vm_pve_dns_search | default([]) }}"
     - role: apt_cacher_ng
     - role: apt_nycu_mirror
     - role: common_base

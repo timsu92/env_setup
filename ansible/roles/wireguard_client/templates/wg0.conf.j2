@@ -1,14 +1,14 @@
 [Interface]
-PrivateKey = {{ _wg_privatekey.content | b64decode | trim }}
-Address = {{ wireguard_address }}
-{% if wireguard_dns | default('') | trim %}
-DNS = {{ wireguard_dns }}
+PrivateKey = {{ wireguard_client_privatekey.content | b64decode | trim }}
+Address = {{ wireguard_client_address }}
+{% if wireguard_client_dns | default('') | trim %}
+DNS = {{ wireguard_client_dns }}
 {% endif %}
-MTU = {{ wireguard_mtu }}
+MTU = {{ wireguard_client_mtu }}
 
 [Peer]
-PublicKey = {{ wireguard_server_pubkey }}
-PresharedKey = {{ _wg_psk.content | b64decode | trim }}
-AllowedIPs = {{ wireguard_allowedips }}
-Endpoint = {{ wireguard_endpoint }}
-PersistentKeepalive = {{ wireguard_keepalive }}
+PublicKey = {{ wireguard_client_server_pubkey }}
+PresharedKey = {{ wireguard_client_psk.content | b64decode | trim }}
+AllowedIPs = {{ wireguard_client_allowedips }}
+Endpoint = {{ wireguard_client_endpoint }}
+PersistentKeepalive = {{ wireguard_client_keepalive }}

@@ -17,14 +17,14 @@ all:
           # WireGuard client config (used by wireguard_client role).
           # The role generates keys on the host and prints PublicKey + PresharedKey
           # at the end of the play — add them to the server's [Peer] block.
-          wireguard_address: "192.168.100.2/24, fd73:9b2a:4c1e:2/112"
-          wireguard_server_pubkey: "<server-public-key>"
-          wireguard_endpoint: "..."
-          # wireguard_allowedips: "..."  # optional, see role defaults
-          # wireguard_dns: "1.1.1.1, 2606:4700:4700::1111"  # optional; unset/empty means no DNS line in wg0.conf
+          wireguard_client_address: "192.168.100.2/24, fd73:9b2a:4c1e:2/112"
+          wireguard_client_server_pubkey: "<server-public-key>"
+          wireguard_client_endpoint: "..."
+          # wireguard_client_allowedips: "..."  # optional, see role defaults
+          # wireguard_client_dns: "1.1.1.1, 2606:4700:4700::1111"  # optional; unset/empty means no DNS line in wg0.conf
           # NFS mounts for this host (used by nfs_client role).
           # Remove or leave empty if no NFS mounts are needed.
-          nfs_mounts:
+          nfs_client_mounts:
             - src: "192.168.1.1:/mnt/shared_data"
               dest: /mnt/data
               opts: "defaults,nofail,_netdev,soft,timeo=30,retrans=5"
@@ -33,4 +33,4 @@ all:
         pve-lxc-01:
           ansible_host: 192.168.1.20  # target host to setup
           ansible_user: root  # user name used to ssh into
-          nfs_mounts: []  # no NFS mounts for this LXC
+          nfs_client_mounts: []  # no NFS mounts for this LXC

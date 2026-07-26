@@ -2,12 +2,12 @@
 # wireguard_client role defaults
 #
 # Required (no default):
-#   wireguard_address:       client IP address(es) for the WireGuard interface
-#                            e.g. "10.140.113.2/24, fdcc:fade:beee:deed:feed:beef:0:2/112"
-#   wireguard_server_pubkey: server's WireGuard public key
-#   wireguard_endpoint:      server's WireGuard endpoint (IP:port)
+#   wireguard_client_address:       client IP address(es) for the WireGuard interface
+#                                   e.g. "10.140.113.2/24, fdcc:fade:beee:deed:feed:beef:0:2/112"
+#   wireguard_client_server_pubkey: server's WireGuard public key
+#   wireguard_client_endpoint:      server's WireGuard endpoint (IP:port)
 
-wireguard_allowedips: "10.140.113.0/24, fdcc:fade:beee:deed:feed:beef::/112"
-wireguard_dns: ""
-wireguard_mtu: 1420
-wireguard_keepalive: 25
+wireguard_client_allowedips: "10.140.113.0/24, fdcc:fade:beee:deed:feed:beef::/112"
+wireguard_client_dns: ""
+wireguard_client_mtu: 1420
+wireguard_client_keepalive: 25

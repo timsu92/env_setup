@@ -46,7 +46,6 @@
 - name: Create user {{ proxmox_guest_new_username }}
   ansible.builtin.user:
     name: "{{ proxmox_guest_new_username }}"
-    shell: "{{ proxmox_guest_new_user_shell }}"
     create_home: true
     groups: "{{ proxmox_guest_new_user_groups | join(',') }}"
     append: true

@@ -43,3 +43,6 @@
 
 - name: Install cswap auto switch account daemon
   ansible.builtin.include_tasks: cswap-daemon.yml
+
+- name: Install drawio-mcp
+  ansible.builtin.include_tasks: drawio-mcp.yml

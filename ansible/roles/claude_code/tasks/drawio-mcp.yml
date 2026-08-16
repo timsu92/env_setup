@@ -1,0 +1,9 @@
+---
+- name: Install drawio-mcp
+  ansible.builtin.command:
+    cmd: ~/.local/bin/claude mcp add --scope user drawio -- npx -y @drawio/mcp
+  become: true
+  become_user: "{{ setup_user }}"
+  # 如果return code是1且輸出包含"already exists in user config"則代表已經安裝過了，這個任務不應該被視為changed
+  changed_when: "'MCP server drawio already exists in user config' != drawio_mcp_add.stderr"
+  failed_when: "'MCP server drawio already exists in user config' != drawio_mcp_add.stderr and drawio_mcp_add.rc != 0"

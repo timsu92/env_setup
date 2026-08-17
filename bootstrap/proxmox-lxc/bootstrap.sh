@@ -21,4 +21,4 @@ echo "==> Checking Python3 on target ..."
 ssh "${SSH_USER}@${LXC_IP}" "command -v python3 || apt-get install -y python3"
 
 echo "==> Target is ready. Add it to ansible/inventory/pve_hosts.yml under the 'lxc' group."
-echo "    Then run: bin/setup-lxc --host ${LXC_IP}"
+echo "    Then run: bin/setup-lxc --host <name_under_pve_hosts.yml>"

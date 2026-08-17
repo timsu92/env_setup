@@ -383,6 +383,30 @@ PYEOF
   fi
   date -d "$resume_str" +%s 2>/dev/null || printf ''
 }
+__cswap_account_segment() {
+  # Prints the active cswap account's alias if set, else its email, or empty
+  # if cswap is unavailable or the status query fails.
+  local cswap json
+  cswap="$(__cswap_bin)" || { printf ''; return; }
+  json="$("$cswap" status --json 2>/dev/null)" || { printf ''; return; }
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$json" | jq -r '.active | (.alias // .email // empty)' 2>/dev/null
+  else
+    local py=""
+    if command -v python3 >/dev/null 2>&1; then py=python3
+    elif command -v python >/dev/null 2>&1; then py=python
+    fi
+    if [ -n "$py" ]; then
+      CSWAP_JSON="$json" "$py" - <<'PYEOF' 2>/dev/null
+import json, os
+d = json.loads(os.environ.get('CSWAP_JSON', '{}') or '{}')
+active = d.get('active') or {}
+label = active.get('alias') or active.get('email') or ''
+print(label, end='')
+PYEOF
+    fi
+  fi
+}
 
 # Edit fields below
 if [ "$(__field 'fast_mode')" = 'true' ]; then
@@ -501,6 +525,11 @@ if awk -v a="$five_hour_pct" -v b="$seven_day_pct" -v t="$RATE_LIMIT_GATE_PCT" '
     __out="$(__dur_human "$__wait_ms")"
     __emit '1;3;38;2;125;207;255' "⏸  Paused, resuming in $__out"
   fi
+fi
+__account_label="$(__cswap_account_segment)"
+if [ -n "$__account_label" ]; then
+  __repeat_char ' ' 1
+  __emit '38;2;190;136;116' " $__account_label"
 fi
 __repeat_char ' ' 1
 __repeat_char ' ' 1

@@ -412,8 +412,8 @@ PYEOF
 if [ "$(__field 'fast_mode')" = 'true' ]; then
   __emit '' '⚡'
 else
-  __items=('😺' '😽' '😸' '😻' '🙀' '😼' '🐈' '😹' '😾' '🐱' '🐈‍⬛')
-  __idx=$(( RANDOM % 11 ))
+  __items=('😺' '😽' '😸' '😻' '🙀' '😼' '🐈' '😹' '😾' '🐱')
+  __idx=$(( RANDOM % 10 ))
   __emit '' "${__items[$__idx]}"
 fi
 __repeat_char ' ' 1

@@ -422,7 +422,11 @@ __emit '38;2;187;154;247' "$__v"
 __repeat_char ' ' 1
 if [ "$(__field 'thinking.enabled')" = 'true' ]; then
   __v="$(__field 'effort.level')"
-  __emit '' "$__v"
+  __emit '38;2;187;154;247' "$__v"
+fi
+if [ -n "$(__field 'agent.name')" ]; then
+  __repeat_char ' ' 1
+  __emit '38;2;187;154;247' "[$(__field 'agent.name')]"
 fi
 __repeat_char ' ' 1
 __cwd="$(__field 'workspace.current_dir')"

@@ -7,13 +7,45 @@
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
 
+- name: Check whether hung-yi-lee-skill is already cloned
+  ansible.builtin.stat:
+    path: "{{ setup_user_home }}/.claude/skills/hung-yi-lee/.git"
+  register: claude_code_hung_yi_lee_skill_git_dir
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Get installed hung-yi-lee-skill revision
+  ansible.builtin.command:
+    cmd: git rev-parse HEAD
+    chdir: "{{ setup_user_home }}/.claude/skills/hung-yi-lee"
+  register: claude_code_hung_yi_lee_skill_head
+  changed_when: false
+  become: true
+  become_user: "{{ setup_user }}"
+  when: claude_code_hung_yi_lee_skill_git_dir.stat.exists
+
+- name: Determine whether hung-yi-lee-skill needs updating
+  ansible.builtin.set_fact:
+    claude_code_hung_yi_lee_skill_needs_update: >-
+      {{
+        not claude_code_hung_yi_lee_skill_git_dir.stat.exists
+        or (claude_code_hung_yi_lee_skill_head.stdout | default('')
+            != claude_code_hung_yi_lee_skill_refspec)
+      }}
+
 - name: Clone hung-yi-lee-skill
   ansible.builtin.git:
     repo: https://github.com/voidful/hung-yi-lee-skill
     dest: "{{ setup_user_home }}/.claude/skills/hung-yi-lee"
-    version: 50aa282
-    refspec: 50aa2823cee651ecd9fbfb56cb66455bb8e3a7b3
+    version: "{{ claude_code_hung_yi_lee_skill_version }}"
+    refspec: "{{ claude_code_hung_yi_lee_skill_refspec }}"
     depth: 1
+    update: "{{ claude_code_hung_yi_lee_skill_needs_update }}"
+    force: >-
+      {{
+        claude_code_hung_yi_lee_skill_git_dir.stat.exists
+        and claude_code_hung_yi_lee_skill_needs_update
+      }}
   become: true
   become_user: "{{ setup_user }}"
 

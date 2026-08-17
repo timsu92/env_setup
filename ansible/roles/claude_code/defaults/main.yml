@@ -9,6 +9,9 @@ claude_code_marketplaces:
   - name: anthropic-agent-skills
     url: https://github.com/anthropics/skills.git
 
+claude_code_hung_yi_lee_skill_version: 50aa282
+claude_code_hung_yi_lee_skill_refspec: 50aa2823cee651ecd9fbfb56cb66455bb8e3a7b3
+
 # "<plugin>@<marketplace>" strings, passed as-is to `claude plugin install`.
 claude_code_plugins:
   - context7@claude-plugins-official

@@ -1,7 +1,7 @@
 ---
 - name: Create hooks directory
   ansible.builtin.include_tasks:
-    file: hooks.yml
+    file: hooks-dir.yml
 
 - name: Deploy high-watermark-auto-pause hook script
   ansible.builtin.copy:

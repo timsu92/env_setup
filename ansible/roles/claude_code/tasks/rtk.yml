@@ -26,6 +26,12 @@
     state: absent
   when: not claude_code_rtk_installed.stat.exists
 
+- name: Check for Codex's existance
+  ansible.builtin.stat:
+    path: "{{ setup_user_home }}/.local/bin/codex"
+  register: claude_code_codex
+  changed_when: false
+
 - name: Install RTK for Claude Code / Copilot
   ansible.builtin.command:
     cmd: "rtk init -g --auto-patch"
@@ -45,5 +51,6 @@
       - "{{ setup_user_home }}/.codex/AGENTS.md"
   become: true
   become_user: "{{ setup_user }}"
+  when: claude_code_codex.stat.exists
   environment:
     PATH: "{{ setup_user_home }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"

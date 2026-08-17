@@ -503,12 +503,6 @@ if awk -v a="$five_hour_pct" -v b="$seven_day_pct" -v t="$RATE_LIMIT_GATE_PCT" '
   fi
 fi
 __repeat_char ' ' 1
-if awk -v v="$(__field 'cost.total_cost_usd')" 'BEGIN{exit !(v+0 > 0)}'; then
-  __emit '1;3;38;2;51;51;47;48;2;231;231;42' ' '
-  __v="$(__field 'cost.total_cost_usd')"
-  __out="$(__cost_fmt "${__v:-0}" 2)"
-  __emit '1;3;38;2;51;51;47;48;2;231;231;42' "$__out"
-fi
 __repeat_char ' ' 1
 __emit '2;38;2;211;134;155' '  '
 __u="$(__tokens_used)"

@@ -30,14 +30,14 @@
 - name: Install marketplaces and plugins
   ansible.builtin.include_tasks: plugins.yml
 
+- name: Install claude-swap
+  ansible.builtin.include_tasks: claude-swap.yml
+
 - name: Install statusline
   ansible.builtin.include_tasks: statusline.yml
 
 - name: Install high-watermark-auto-pause hooks
   ansible.builtin.include_tasks: high-watermark-auto-pause.yml
-
-- name: Install claude-swap
-  ansible.builtin.include_tasks: claude-swap.yml
 
 - name: Install RTK
   ansible.builtin.include_tasks: rtk.yml

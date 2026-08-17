@@ -1,0 +1,8 @@
+---
+- name: Create Claude Code hooks directory
+  ansible.builtin.file:
+    path: "{{ setup_user_home }}/.claude/hooks"
+    state: directory
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"

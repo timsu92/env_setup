@@ -1,0 +1,21 @@
+---
+- name: Create hooks directory
+  ansible.builtin.include_tasks:
+    file: hooks.yml
+
+- name: Deploy high-watermark-auto-pause hook script
+  ansible.builtin.copy:
+    src: hooks/high-watermark-auto-pause.sh
+    dest: "{{ setup_user_home }}/.claude/hooks/high-watermark-auto-pause.sh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+
+- name: Register high-watermark-auto-pause hooks in settings.json
+  ansible.builtin.script:
+    cmd: install_hooks.bash
+  become: true
+  become_user: "{{ setup_user }}"
+  register: claude_code_hooks_install
+  changed_when: claude_code_hooks_install.rc == 0
+  failed_when: claude_code_hooks_install.rc != 0 and claude_code_hooks_install.rc != 10

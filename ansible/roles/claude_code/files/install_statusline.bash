@@ -24,6 +24,11 @@ BANNER_EOF
 cat > "$SL" <<'STATUSLINE_EOF'
 #!/usr/bin/env bash
 set -u
+
+# A rate-limit window at or above this percentage counts as "exhausted"
+# when deciding whether a cswap-managed account is usable.
+RATE_LIMIT_GATE_PCT=97
+
 INPUT="$(cat)"
 export INPUT_JSON="$INPUT"
 
@@ -197,27 +202,37 @@ __git_common_root() {
   printf '%s' "${gcd%/*}"
 }
 __repo_path_segment() {
-  # "…/<repo>[/<subpath>]" when not in a linked worktree; just "…/<repo>"
-  # when it is one (the worktree's own name/subpath goes in the segment
-  # __worktree_segment emits instead).
+  # "…/<repo>/<subpath>" where <subpath> is cwd relative to whichever
+  # worktree (main or linked) cwd actually sits in — this always reflects
+  # your real position in the working tree, regardless of which worktree
+  # that is. Which worktree it is gets its own tag from __worktree_segment.
   local cwd="$1" toplevel common_root
   toplevel="$(__git_toplevel "$cwd")" || return 1
   common_root="$(__git_common_root "$cwd")" || return 1
-  if [ "$common_root" = "$toplevel" ]; then
-    printf '…/%s%s' "$(__basename "$common_root")" "${cwd#"$toplevel"}"
-  else
-    printf '…/%s' "$(__basename "$common_root")"
-  fi
+  printf '…/%s%s' "$(__basename "$common_root")" "${cwd#"$toplevel"}"
 }
 __worktree_segment() {
-  local cwd="$1" toplevel common_root
+  # Just a name tag for which linked worktree cwd is in (empty when cwd is
+  # in the main worktree) — no subpath here, __repo_path_segment already
+  # carries that. Whether to show this tag at all is decided by our own
+  # common_root/toplevel check (ground truth from git) — Claude Code's
+  # "workspace.git_worktree" field isn't reliable for that decision (it can
+  # be non-empty even when cwd is in the main worktree, not a linked one).
+  # Once we've confirmed we ARE in a linked worktree, prefer that field for
+  # the display NAME, falling back to our own basename computation.
+  local cwd="$1" native toplevel common_root
   toplevel="$(__git_toplevel "$cwd")" || { printf ''; return; }
   common_root="$(__git_common_root "$cwd")" || { printf ''; return; }
   if [ "$common_root" = "$toplevel" ]; then
     printf ''
     return
   fi
-  printf '%s%s' "$(__basename "$toplevel")" "${cwd#"$toplevel"}"
+  native="$(__field 'workspace.git_worktree')"
+  if [ -n "$native" ]; then
+    printf '%s' "$native"
+    return
+  fi
+  printf '%s' "$(__basename "$toplevel")"
 }
 __emit() {
   local style="$1" text="$2"
@@ -302,6 +317,72 @@ __rel_time() {
   h=$((diff/3600)); rem=$(((diff%3600)/60))
   printf 'T-%dh%02dm' "$h" "$rem"
 }
+__cswap_bin() {
+  if command -v cswap >/dev/null 2>&1; then printf 'cswap'; return 0; fi
+  if [ -x "$HOME/.local/bin/cswap" ]; then printf '%s' "$HOME/.local/bin/cswap"; return 0; fi
+  return 1
+}
+__cswap_resume_at() {
+  # Prints the epoch time some cswap-managed account next clears both
+  # fiveHour and sevenDay usage under 97%, or empty if one already does,
+  # cswap is unavailable, or the JSON can't be parsed. resetsAt strings are
+  # all same-width ISO-8601 UTC (+00:00), so lexicographic max/min sorts
+  # the same as chronological order — no date parsing needed inside jq.
+  local cswap json resume_str
+  cswap="$(__cswap_bin)" || { printf ''; return; }
+  json="$("$cswap" list --json 2>/dev/null)" || { printf ''; return; }
+  if command -v jq >/dev/null 2>&1; then
+    resume_str="$(printf '%s' "$json" | jq -r --argjson threshold "$RATE_LIMIT_GATE_PCT" '
+      [.accounts[] | select(.usageStatus == "ok")] as $ok
+      | ($ok | any(((.usage.fiveHour.pct // 0) < $threshold) and ((.usage.sevenDay.pct // 0) < $threshold))) as $has_available
+      | if $has_available then empty
+        else
+          [ $ok[] |
+            ([ (if (.usage.fiveHour.pct // 0) >= $threshold then (.usage.fiveHour.resetsAt // empty) else empty end),
+               (if (.usage.sevenDay.pct // 0) >= $threshold then (.usage.sevenDay.resetsAt // empty) else empty end)
+             ] | map(select(. != null))) as $times
+            | if ($times | length) > 0 then ($times | max) else empty end
+          ] | if length > 0 then min else empty end
+        end
+    ' 2>/dev/null)"
+  else
+    local py=""
+    if command -v python3 >/dev/null 2>&1; then py=python3
+    elif command -v python >/dev/null 2>&1; then py=python
+    fi
+    if [ -n "$py" ]; then
+      resume_str="$(CSWAP_JSON="$json" CSWAP_GATE_PCT="$RATE_LIMIT_GATE_PCT" "$py" - <<'PYEOF' 2>/dev/null
+import json, os
+d = json.loads(os.environ.get('CSWAP_JSON', '{}') or '{}')
+threshold = float(os.environ.get('CSWAP_GATE_PCT'))
+ok = [a for a in d.get('accounts', []) if a.get('usageStatus') == 'ok']
+def pct(a, k):
+    return ((a.get('usage') or {}).get(k) or {}).get('pct') or 0
+def resets(a, k):
+    return ((a.get('usage') or {}).get(k) or {}).get('resetsAt')
+has_available = any(pct(a, 'fiveHour') < threshold and pct(a, 'sevenDay') < threshold for a in ok)
+if has_available:
+    print('', end='')
+else:
+    candidates = []
+    for a in ok:
+        times = [t for t in (
+            resets(a, 'fiveHour') if pct(a, 'fiveHour') >= threshold else None,
+            resets(a, 'sevenDay') if pct(a, 'sevenDay') >= threshold else None,
+        ) if t]
+        if times:
+            candidates.append(max(times))
+    print(min(candidates) if candidates else '', end='')
+PYEOF
+)"
+    fi
+  fi
+  if [ -z "${resume_str:-}" ] || [ "$resume_str" = "null" ]; then
+    printf ''
+    return
+  fi
+  date -d "$resume_str" +%s 2>/dev/null || printf ''
+}
 
 # Edit fields below
 if [ "$(__field 'fast_mode')" = 'true' ]; then
@@ -341,11 +422,34 @@ __emit '38;2;172;43;153' ' '
 __out="$(__git_branch)"
 __emit '38;2;172;43;153' "$__out"
 __repeat_char ' ' 1
-if awk -v v="$(__field 'cost.total_duration_ms')" 'BEGIN{exit !(v+0 > 5000)}'; then
-  __emit '' '  '
-  __v="$(__field 'cost.total_duration_ms')"
-  __out="$(__dur_human "${__v:-0}")"
-  __emit '' "$__out"
+__sid="$(__field 'session_id')"
+if [ -n "$__sid" ]; then
+  __tdir="/tmp/claude-$(id -u)/$__sid"
+  __ts_start=""
+  __ts_stop=""
+  [ -f "$__tdir/turn_start" ] && __ts_start="$(cat "$__tdir/turn_start" 2>/dev/null)"
+  [ -f "$__tdir/turn_stop" ] && __ts_stop="$(cat "$__tdir/turn_stop" 2>/dev/null)"
+  case "$__ts_start" in ''|*[!0-9]*) __ts_start="" ;; esac
+  case "$__ts_stop" in ''|*[!0-9]*) __ts_stop="" ;; esac
+  if [ -n "$__ts_start" ] && [ -n "$__ts_stop" ] && [ "$__ts_stop" -gt "$__ts_start" ]; then
+    __elapsed_ms=$(( (__ts_stop - __ts_start) * 1000 ))
+    if [ "$__elapsed_ms" -gt 5000 ]; then
+      __emit '' '  '
+      __out="$(__dur_human "$__elapsed_ms")"
+      __emit '' "$__out"
+    fi
+  elif [ -n "$__ts_start" ]; then
+    __now=$(date +%s)
+    __elapsed_ms=$(( (__now - __ts_start) * 1000 ))
+    if [ "$__elapsed_ms" -gt 5000 ]; then
+      __spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+      __idx=$(( __now % 10 ))
+      __frame="$(printf '%s' "$__spin" | awk -v i="$__idx" '{print substr($0, i+1, 1)}')"
+      __emit '' "$__frame "
+      __out="$(__dur_human "$__elapsed_ms")"
+      __emit '' "$__out"
+    fi
+  fi
 fi
 __reset
 printf '\n'
@@ -386,6 +490,17 @@ else
   __v="$(__field 'rate_limits.seven_day.resets_at')"
   __out="$(__rel_time "$__v")"
   __emit '1;38;2;224;104;104' "$__out"
+fi
+if awk -v a="$five_hour_pct" -v b="$seven_day_pct" -v t="$RATE_LIMIT_GATE_PCT" 'BEGIN{exit !(a+0>=t || b+0>=t)}'; then
+  __resume_epoch="$(__cswap_resume_at)"
+  if [ -n "$__resume_epoch" ]; then
+    __repeat_char ' ' 1
+    __now=$(date +%s)
+    __wait_ms=$(( (__resume_epoch - __now) * 1000 ))
+    if [ "$__wait_ms" -lt 0 ]; then __wait_ms=0; fi
+    __out="$(__dur_human "$__wait_ms")"
+    __emit '1;3;38;2;125;207;255' "⏸  Paused, resuming in $__out"
+  fi
 fi
 __repeat_char ' ' 1
 if awk -v v="$(__field 'cost.total_cost_usd')" 'BEGIN{exit !(v+0 > 0)}'; then

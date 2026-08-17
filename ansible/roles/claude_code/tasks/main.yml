@@ -31,11 +31,10 @@
   ansible.builtin.include_tasks: plugins.yml
 
 - name: Install statusline
-  ansible.builtin.command:
-    cmd: "ansible/roles/claude_code/files/install_statusline.bash"
-    creates: "{{ setup_user_home }}/.claude/statusline.sh"
-  become: true
-  become_user: "{{ setup_user }}"
+  ansible.builtin.include_tasks: statusline.yml
+
+- name: Install high-watermark-auto-pause hooks
+  ansible.builtin.include_tasks: high-watermark-auto-pause.yml
 
 - name: Install claude-swap
   ansible.builtin.include_tasks: claude-swap.yml

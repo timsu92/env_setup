@@ -1,0 +1,9 @@
+---
+- name: Install statusline
+  ansible.builtin.script:
+    cmd: install_statusline.bash
+  become: true
+  become_user: "{{ setup_user }}"
+  register: claude_code_statusline_install
+  changed_when: "'installed successfully' in claude_code_statusline_install.stdout or 'installed with errors' in claude_code_statusline_install.stdout"
+  failed_when: claude_code_statusline_install.rc != 0

@@ -582,7 +582,7 @@ PROMPT_EOF
 __merge_with_jq() {
   local tmp
   tmp="$(mktemp)"
-  jq --arg cmd "$SL" '. + { statusLine: { type:"command", command:$cmd } }' "$SETTINGS" > "$tmp"
+  jq --arg cmd "$SL" '. + { statusLine: { type:"command", command:$cmd, refreshInterval:1 } }' "$SETTINGS" > "$tmp"
   mv "$tmp" "$SETTINGS"
 }
 
@@ -599,7 +599,7 @@ except Exception:
     d = {}
 if not isinstance(d, dict):
     d = {}
-d['statusLine'] = {'type': 'command', 'command': sl}
+d['statusLine'] = {'type': 'command', 'command': sl, 'refreshInterval': 1}
 with open(p, 'w', encoding='utf-8') as f:
     json.dump(d, f, indent=2)
 PYEOF

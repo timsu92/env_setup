@@ -1,6 +1,7 @@
 ---
 dependencies:
   - role: curl_or_wget  # Claude Code
+  - role: git  # marketplaces, plugins
   - role: uv  # claude-swap, hung-yi-lee-skill
   - role: zsh_config_dirs  # cswap auto
   - role: node  # drawio-mcp

@@ -4,4 +4,4 @@
 #   `>|` means "overwrite the log file if it already exists", ignoring `noclobber` option which prevents
 #     overwriting existing files.
 #   `&!` means "run the command in the background and disown it.
-flock -n "$HOME/.cache/cswap-auto.lock" -c 'exec cswap auto >| "$HOME/.cache/cswap-auto.log" 2>&1' &!
+flock -n "$HOME/.cache/cswap-auto.lock" -c 'exec cswap auto --threshold 95 >| "$HOME/.cache/cswap-auto.log" 2>&1' &!

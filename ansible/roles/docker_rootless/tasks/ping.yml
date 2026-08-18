@@ -13,6 +13,7 @@
   ansible.builtin.command: cat /proc/self/gid_map
   register: docker_rootless_gid_map
   changed_when: false
+  check_mode: false
 
 - name: Compute widest usable ping_group_range upper bound
   ansible.builtin.set_fact:

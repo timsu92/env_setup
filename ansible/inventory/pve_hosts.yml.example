@@ -32,5 +32,10 @@ all:
       hosts:
         pve-lxc-01:
           ansible_host: 192.168.1.20  # target host to setup
+          # Pinned to root: Proxmox only ever provisions root on a fresh LXC
+          # (WebUI SSH-pubkey/password fields both apply to it), and sshd's
+          # PermitRootLogin prohibit-password keeps key-based root login
+          # working indefinitely. setup_user (group_vars/lxc.yml) is the
+          # separate, configured identity — see CLAUDE.md "Identity model".
           ansible_user: root  # user name used to ssh into
           nfs_client_mounts: []  # no NFS mounts for this LXC

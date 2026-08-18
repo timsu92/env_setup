@@ -1,7 +1,7 @@
 ---
-proxmox_guest_new_username: tim
-# Groups that are common in Proxmox VMs. Some may not exist in LXC — errors are ignored.
-proxmox_guest_new_user_groups:
+# Groups that are common in Proxmox VMs and LXC (all seven ship via the
+# base-passwd package, present on every Debian/Ubuntu target).
+proxmox_guest_user_groups:
   - adm
   - sudo
   - dip

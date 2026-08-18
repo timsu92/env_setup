@@ -2,6 +2,22 @@
 # proxmox_guest: prepare a Proxmox VM/LXC as a standard guest machine
 # Source: docs/proxmox/2. 一般使用機器.md
 
+- name: Confirm before configuring root's home directory
+  ansible.builtin.pause:
+    prompt: |
+      setup_user resolved to 'root' — dotfiles and tooling would be installed
+      into /root instead of a normal user account. Type 'yes' to continue
+  register: proxmox_guest_root_confirm
+  when: setup_user == 'root'
+
+- name: Abort unless configuring root was explicitly confirmed
+  ansible.builtin.assert:
+    that: (proxmox_guest_root_confirm.user_input | default('')) | lower == 'yes'
+    fail_msg: >-
+      Aborted: setup_user is 'root'. Set setup_user in
+      ansible/inventory/group_vars/<group>.yml.
+  when: setup_user == 'root'
+
 - name: Install base packages
   ansible.builtin.apt:
     name:
@@ -43,11 +59,14 @@
     daemon_reload: true
   when: ansible_facts["virtualization_type"] != 'lxc'
 
-- name: Create user {{ proxmox_guest_new_username }}
+- name: Create user {{ setup_user }}
   ansible.builtin.user:
-    name: "{{ proxmox_guest_new_username }}"
+    name: "{{ setup_user }}"
     create_home: true
-    groups: "{{ proxmox_guest_new_user_groups | join(',') }}"
+    groups: "{{ proxmox_guest_user_groups }}"
     append: true
     state: present
-  ignore_errors: true  # some groups (cdrom, floppy, etc.) may not exist in LXC
+
+- name: Grant login access to setup_user
+  ansible.builtin.include_tasks: login-access.yml
+  when: ansible_user != setup_user

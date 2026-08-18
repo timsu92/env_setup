@@ -1,0 +1,51 @@
+# Grant login access to setup_user.
+#
+# Both tasks read from `ansible_user` — the account we actually connected as —
+# never from a hardcoded name. On a fresh Proxmox LXC that happens to be root,
+# because Proxmox provisions nothing else, but nothing here depends on that.
+#
+# Included only when `ansible_user != setup_user`, i.e. when we connected as
+# somebody other than the user being configured. When they are the same user,
+# both tasks are provably unnecessary:
+#   - the key we authenticated with is already in setup_user's authorized_keys
+#   - become succeeded, so setup_user can already escalate to root
+
+- name: Look up the connecting user's home directory
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ ansible_user }}"
+
+- name: Ensure the connecting user has authorized_keys to inherit
+  ansible.builtin.stat:
+    path: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.ssh/authorized_keys"
+  register: proxmox_guest_connecting_keys
+
+- name: Fail with an actionable message when there is no key to copy
+  ansible.builtin.assert:
+    that: proxmox_guest_connecting_keys.stat.exists
+    fail_msg: >-
+      User "{{ ansible_user }}" has no ~/.ssh/authorized_keys, so there is no
+      key to grant user "{{ setup_user }}". However {{ setup_user }} would be
+      set as public key login only. If there's no key here to copy, the
+      provisioned user would have no way to log in. Add an SSH public key to
+      the container for user "{{ ansible_user }}" and re-run.
+
+- name: Read the connecting user's authorized_keys
+  ansible.builtin.slurp:
+    src: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.ssh/authorized_keys"
+  register: proxmox_guest_inherited_keys
+
+- name: Authorize those keys for {{ setup_user }}
+  ansible.posix.authorized_key:
+    user: "{{ setup_user }}"
+    key: "{{ proxmox_guest_inherited_keys.content | b64decode }}"
+    state: present
+
+- name: Grant passwordless sudo to {{ setup_user }}
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/90-{{ setup_user }}"
+    content: "{{ setup_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s

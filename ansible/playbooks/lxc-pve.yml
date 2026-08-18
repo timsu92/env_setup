@@ -2,6 +2,17 @@
 # Profile: Proxmox LXC
 # Target: lxc inventory group (push model via SSH)
 # Run: bin/setup-lxc --host <IP>
+
+- name: Ensure Python3 is in target LXC
+  hosts: lxc
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Ensure python3 is present
+      ansible.builtin.raw: command -v python3 || (apt-get update -q && apt-get install -y python3)
+      register: lxc_python_bootstrap
+      changed_when: "'Setting up python3' in lxc_python_bootstrap.stdout"
+
 - name: Provision Proxmox LXC
   hosts: lxc
   gather_facts: true
@@ -11,6 +22,8 @@
     - role: apt_cacher_ng
     - role: apt_nycu_mirror
     - role: common_base
+    # proxmox_guest installs sudo and creates setup_user; every role below
+    # uses become_user: setup_user, which needs both. Do not reorder above it.
     - role: proxmox_guest
     - role: vim
       vars:

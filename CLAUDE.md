@@ -69,6 +69,30 @@ Three layers apply depending on execution model, later ones win:
 
 If a variable's value seems wrong for a given target, check which of these three files last touched it for that execution model — `grep` across all three rather than assuming `group_vars/all.yml` is authoritative.
 
+### Identity model: `ansible_user` vs `setup_user`
+
+Two independent axes, easy to conflate:
+
+| Axis | Variable | Meaning |
+|---|---|---|
+| Connection identity | `ansible_user` (per host in `pve_hosts.yml`) | who Ansible SSHes in as *during* provisioning |
+| Configured identity | `setup_user` (`group_vars/{lxc,vm}.yml`) | who dotfiles/tooling are installed for, *after* provisioning |
+
+They decouple because `ansible.cfg` sets `become = True` / `become_user = root`
+globally — every role escalates to root regardless of which account it
+connected through. LXC pins `ansible_user: root` permanently (Proxmox
+provisions no account but root); VM connects directly as `setup_user`.
+
+`roles/proxmox_guest` is what bridges the two on LXC: it creates `setup_user`,
+copies `root`'s `authorized_keys` to it, and grants it passwordless sudo —
+only when `ansible_user != setup_user` (see
+`roles/proxmox_guest/tasks/login-access.yml`).
+
+**Ordering dependency**: `proxmox_guest` installs `sudo` and creates
+`setup_user`. Every role after it in `lxc-pve.yml`/`vm-pve.yml` that uses
+`become_user: "{{ setup_user }}"` needs both to already exist —
+`proxmox_guest` must stay before every such role in the `roles:` list.
+
 ### Role internals: task-file splitting
 
 Roles with more than one logical concern split `tasks/main.yml` into named files and pull them in with `include_tasks`, e.g. `roles/claude_code/tasks/main.yml` includes `claude-swap.yml`, `rtk.yml`, `winlab-skills.yml`, `hung-yi-lee-skill.yml`, `cswap-daemon.yml`. When adding a new sub-concern to an existing role, follow this pattern (new file + `include_tasks` line) instead of growing `main.yml` monolithically.

@@ -30,11 +30,9 @@ ansible/
 ├─ playbooks/                # profiles (one per target environment)
 └─ roles/                    # reusable capability roles
 
-bootstrap/
-├─ proxmox-vm/               # documentation for VM prerequisites
-├─ proxmox-lxc/              # bootstrap script + README for LXC
-├─ container/                # bootstrap script for Docker container
-└─ devcontainer/             # bootstrap script for devcontainer
+utils/
+├─ common.sh                 # shared bash helpers for bin/setup-*
+└─ locale.sh                 # UTF-8 locale detection/generation
 
 bin/
 ├─ setup-vm                  # WSL or Proxmox VM entrypoint
@@ -111,6 +109,13 @@ bin/setup-vm --profile wsl
 
 ### Proxmox VM
 
+**Prerequisites**: the target VM needs `openssh-server` running, an SSH
+public key installed for the login user (`ansible_user` in `pve_hosts.yml`,
+typically `tim`), and `python3` available (installed by default on Ubuntu
+24.04; otherwise `apt install python3`). Cloud-init or manual setup can
+inject the key — no bootstrap script is needed beyond ensuring
+connectivity from the controller.
+
 ```bash
 # 1. Copy and configure inventory
 cp ansible/inventory/pve_hosts.yml.example ansible/inventory/pve_hosts.yml
@@ -130,13 +135,25 @@ bin/setup-vm --host pve-vm-01 --profile pve-daily
 
 ### Proxmox LXC
 
-```bash
-# Verify SSH access
-bash bootstrap/proxmox-lxc/bootstrap.sh 192.168.1.20
+**Prerequisite**: in the Proxmox WebUI, give the container's `root` account
+an SSH public key when creating it (the password field alone is not
+enough — provisioning connects over SSH as `root`). Proxmox only ever
+provisions `root`; see "Key variables" below for how `setup_user` gets
+configured from there.
 
-# Provision
+```bash
+# 1. Copy and configure inventory
+cp ansible/inventory/pve_hosts.yml.example ansible/inventory/pve_hosts.yml
+# Edit and add your LXC under the 'lxc' group
+
+# 2. Provision — creates setup_user, grants it root's SSH keys, and
+# configures passwordless sudo, all in this one run.
 bin/setup-lxc --host pve-lxc-01
 ```
+
+**Security note** — On LXC, provisioning runs as `root`. Afterwards, any SSH
+key that can log in as `root` can also log in as `setup_user`, and
+`setup_user` has passwordless `sudo`.
 
 ### Docker container
 
@@ -151,6 +168,9 @@ bin/setup-container
 # Inside the devcontainer:
 bin/setup-devcontainer
 ```
+
+Can also be invoked from a VS Code dotfiles repository's `install.sh`, or
+called directly from a devcontainer lifecycle hook.
 
 ---
 
@@ -211,9 +231,16 @@ Defined in `ansible/inventory/group_vars/all.yml`, overridable per group or host
 
 For PVE VM/LXC, `setup_user` is overridden to `tim` in `inventory/group_vars/vm.yml` and `inventory/group_vars/lxc.yml`.
 
+For Proxmox push-model targets, `ansible_user` (set per host in
+`pve_hosts.yml`) is a separate axis from `setup_user`: it is who Ansible
+connects over SSH as, not who gets configured. LXC pins `ansible_user: root`
+permanently (Proxmox provisions no other account); VM uses `setup_user`
+directly since cloud-init already installs its key. See
+`ansible/roles/proxmox_guest/tasks/login-access.yml` for how LXC grants
+`setup_user` login access from `root`'s inherited key.
+
 ---
 
 ## Notes
 
 - **WireGuard keys**: checkout `ansible/inventory/pve_hosts.yml.example` for example inventory vars needed to set up a WireGuard client.
-- **proxmox_guest user creation**: some groups (cdrom, floppy, etc.) may not exist in LXC; errors for those are ignored.

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# utils/common.sh
 # Shared helpers for bin/setup-* entrypoints. Source, do not execute.
 
 # Print $1's home directory. Falls back to a conventional guess

@@ -110,8 +110,8 @@ bin/setup-vm --profile wsl
 ### Proxmox VM
 
 **Prerequisites**: the target VM needs `openssh-server` running, an SSH
-public key installed for the login user (`ansible_user` in `pve_hosts.yml`,
-typically `tim`), and `python3` available (installed by default on Ubuntu
+public key installed for the login user (`ansible_user` in `pve_hosts.yml`)
+, and `python3` available (installed by default on Ubuntu
 24.04; otherwise `apt install python3`). Cloud-init or manual setup can
 inject the key — no bootstrap script is needed beyond ensuring
 connectivity from the controller.
@@ -146,8 +146,7 @@ configured from there.
 cp ansible/inventory/pve_hosts.yml.example ansible/inventory/pve_hosts.yml
 # Edit and add your LXC under the 'lxc' group
 
-# 2. Provision — creates setup_user, grants it root's SSH keys, and
-# configures passwordless sudo, all in this one run.
+# 2. Provision
 bin/setup-lxc --host pve-lxc-01
 ```
 

@@ -383,26 +383,66 @@ PYEOF
   fi
   date -d "$resume_str" +%s 2>/dev/null || printf ''
 }
-__cswap_account_segment() {
-  # Prints the active cswap account's alias if set, else its email, or empty
-  # if cswap is unavailable or the status query fails.
-  local cswap json
-  cswap="$(__cswap_bin)" || { printf ''; return; }
-  json="$("$cswap" status --json 2>/dev/null)" || { printf ''; return; }
+__account_segment() {
+  # Prints the active account's alias if set, else its email, or empty if no
+  # account is logged in. Reads Claude Code's and cswap's own local state
+  # files directly instead of shelling out to `cswap status --json` — that
+  # command also fetches live rate-limit usage over the network even though
+  # we only need identity here, so it would pay for a round-trip this field
+  # doesn't need.
+  local claude_home claude_cfg
+  claude_home="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  if [ -f "$claude_home/.config.json" ]; then
+    claude_cfg="$claude_home/.config.json"
+  else
+    claude_cfg="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+  fi
+  [ -f "$claude_cfg" ] || { printf ''; return; }
+  local xdg_data seq_json
+  if [ -n "${XDG_DATA_HOME:-}" ] && [[ "$XDG_DATA_HOME" = /* ]]; then
+    xdg_data="$XDG_DATA_HOME"
+  else
+    xdg_data="$HOME/.local/share"
+  fi
+  seq_json="$xdg_data/claude-swap/sequence.json"
   if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$json" | jq -r '.active | (.alias // .email // empty)' 2>/dev/null
+    local email
+    email="$(jq -r '.oauthAccount.emailAddress // empty' "$claude_cfg" 2>/dev/null)"
+    [ -n "$email" ] || { printf ''; return; }
+    local acct_alias=""
+    if [ -f "$seq_json" ]; then
+      acct_alias="$(jq -r --arg e "$email" '(.accounts // {}) | to_entries[] | select(.value.email == $e) | .value.alias // empty' "$seq_json" 2>/dev/null | head -n1)"
+    fi
+    if [ -n "$acct_alias" ]; then printf '%s' "$acct_alias"; else printf '%s' "$email"; fi
   else
     local py=""
     if command -v python3 >/dev/null 2>&1; then py=python3
     elif command -v python >/dev/null 2>&1; then py=python
     fi
     if [ -n "$py" ]; then
-      CSWAP_JSON="$json" "$py" - <<'PYEOF' 2>/dev/null
+      CSWAP_CLAUDE_CFG="$claude_cfg" CSWAP_SEQ_JSON="$seq_json" "$py" - <<'PYEOF' 2>/dev/null
 import json, os
-d = json.loads(os.environ.get('CSWAP_JSON', '{}') or '{}')
-active = d.get('active') or {}
-label = active.get('alias') or active.get('email') or ''
-print(label, end='')
+email = ''
+try:
+    with open(os.environ['CSWAP_CLAUDE_CFG'], encoding='utf-8') as f:
+        d = json.load(f)
+    email = (d.get('oauthAccount') or {}).get('emailAddress') or ''
+except Exception:
+    pass
+if not email:
+    print('', end='')
+else:
+    alias = ''
+    try:
+        with open(os.environ['CSWAP_SEQ_JSON'], encoding='utf-8') as f:
+            seq = json.load(f)
+        for acct in (seq.get('accounts') or {}).values():
+            if acct.get('email') == email:
+                alias = acct.get('alias') or ''
+                break
+    except Exception:
+        pass
+    print(alias or email, end='')
 PYEOF
     fi
   fi
@@ -530,7 +570,7 @@ if awk -v a="$five_hour_pct" -v b="$seven_day_pct" -v t="$RATE_LIMIT_GATE_PCT" '
     __emit '1;3;38;2;125;207;255' "⏸  Paused, resuming in $__out"
   fi
 fi
-__account_label="$(__cswap_account_segment)"
+__account_label="$(__account_segment)"
 if [ -n "$__account_label" ]; then
   __repeat_char ' ' 1
   __emit '38;2;190;136;116' " $__account_label"

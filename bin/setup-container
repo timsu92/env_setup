@@ -6,39 +6,25 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+export ANSIBLE_CONFIG="${REPO_ROOT}/ansible.cfg"
 
-resolve_home() {
-	local user="$1"
-	local home
-	home="$(getent passwd "$user" | cut -d: -f6)"
-	if [[ -n "$home" ]]; then
-		printf '%s\n' "$home"
-	elif [[ "$user" == "root" ]]; then
-		printf '/root\n'
-	else
-		printf '/home/%s\n' "$user"
-	fi
-}
+# shellcheck source=../utils/common.sh
+source "${REPO_ROOT}/utils/common.sh"
+# shellcheck source=../utils/locale.sh
+source "${REPO_ROOT}/utils/locale.sh"
 
-CALLER_USER="$(id -un)"
-CALLER_HOME="$(resolve_home "$CALLER_USER")"
-EXTRA_ANSIBLE_VARS=(
-	-e "setup_user=${CALLER_USER}"
-	-e "setup_user_home=${CALLER_HOME}"
-)
+reexec_with_sudo "${BASH_SOURCE[0]}" "$@"
 
-if [[ "$EUID" -ne 0 ]]; then
-	if command -v sudo >/dev/null 2>&1; then
-		echo "==> Running container bootstrap with sudo ..."
-		sudo bash "${REPO_ROOT}/bootstrap/container/bootstrap.sh" "${EXTRA_ANSIBLE_VARS[@]}" "$@"
-		exit $?
-	else
-		echo "Requires root privileges to setup using Ansible."
-		echo "Please run this script with sudo or as root."
-		exit 1
-	fi
+caller_ansible_vars
+ensure_ansible
+
+if ! ansible_locale="$(get_valid_utf8_locale)"; then
+  echo "Error: No valid UTF-8 locale found. Please ensure a UTF-8 locale is generated and available in the container." >&2
+  exit 1
 fi
 
-echo "==> Running container bootstrap ..."
-bash "${REPO_ROOT}/bootstrap/container/bootstrap.sh" "${EXTRA_ANSIBLE_VARS[@]}" "$@"
-exit $?
+echo "==> Running container profile ..."
+cd "${REPO_ROOT}/ansible"
+LC_ALL="$ansible_locale" ansible-playbook -c local -i inventory/local.yml playbooks/container.yml "${CALLER_ANSIBLE_VARS[@]}" "$@"
+
+echo "==> Done."

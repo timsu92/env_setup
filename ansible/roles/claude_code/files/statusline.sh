@@ -91,7 +91,7 @@ __tildify() {
   local s="$1"
   local home="${HOME%/}"
   if [ -n "$home" ] && [[ "$s" == "$home"* ]]; then
-    printf '~%s' "${s#$home}"
+    printf '~%s' "${s#"$home"}"
     return
   fi
   if [[ "$s" =~ ^/(Users|home)/[^/]+(.*)$ ]]; then
@@ -263,7 +263,8 @@ __tokens_remaining() {
   printf '%d' "$r"
 }
 __tokens_pct_int() {
-  local p="$(__field 'context_window.used_percentage')"
+  local p
+  p="$(__field 'context_window.used_percentage')"
   __norm_int "$p"
 }
 __tick() {

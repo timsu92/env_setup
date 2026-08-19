@@ -140,7 +140,7 @@ __bar() {
   printf '%s' "$out"
 }
 __git_branch() {
-  local cwd dir
+  local cwd
   cwd="$(__field workspace.current_dir)"
   if [ -z "$cwd" ]; then cwd="$(__field cwd)"; fi
   if [ -n "$cwd" ] && command -v git >/dev/null 2>&1; then
@@ -218,7 +218,7 @@ __emit() {
 }
 __norm_int() {
   # Coerce a possibly-decimal/empty/garbage field value to a non-negative
-  # integer string. Used by token-display helpers.
+  # integer string.
   local v="$1"
   v="${v%%.*}"
   case "$v" in
@@ -501,6 +501,8 @@ printf '\n'
 __reset
 five_hour_pct="$(__field 'rate_limits.five_hour.used_percentage')"
 seven_day_pct="$(__field 'rate_limits.seven_day.used_percentage')"
+five_hour_pct_display="$(__norm_int "$five_hour_pct")"
+seven_day_pct_display="$(__norm_int "$seven_day_pct")"
 if awk -v a="$five_hour_pct" -v b="$seven_day_pct" 'BEGIN{exit !(a+0 > 90 || b+0 > 90)}'; then
     __emit '38;2;224;104;104' ''
 elif awk -v a="$five_hour_pct" -v b="$seven_day_pct" 'BEGIN{exit !(a+0 > 30 || b+0 > 30)}'; then
@@ -510,13 +512,13 @@ else
 fi
 __repeat_char ' ' 1
 if awk -v v="$five_hour_pct" 'BEGIN{exit !(v+0 < 75)}'; then
-  __emit '38;2;158;206;106' "$five_hour_pct"
+  __emit '38;2;158;206;106' "$five_hour_pct_display"
   __emit '38;2;158;206;106' '%'
 elif awk -v v="$five_hour_pct" 'BEGIN{exit !(v+0 < 85)}'; then
-  __emit '4;38;2;224;175;104' "$five_hour_pct"
+  __emit '4;38;2;224;175;104' "$five_hour_pct_display"
   __emit '4;38;2;224;175;104' '%'
 else
-  __emit '1;38;2;224;104;104' "$five_hour_pct"
+  __emit '1;38;2;224;104;104' "$five_hour_pct_display"
   __emit '1;38;2;224;104;104' '%'
   __v="$(__field 'rate_limits.five_hour.resets_at')"
   __out="$(__rel_time "$__v")"
@@ -524,13 +526,13 @@ else
 fi
 __emit '' '/'
 if awk -v v="$seven_day_pct" 'BEGIN{exit !(v+0 < 75)}'; then
-  __emit '38;2;158;206;106' "$seven_day_pct"
+  __emit '38;2;158;206;106' "$seven_day_pct_display"
   __emit '38;2;158;206;106' '%'
 elif awk -v v="$seven_day_pct" 'BEGIN{exit !(v+0 < 85)}'; then
-  __emit '4;38;2;224;175;104' "$seven_day_pct"
+  __emit '4;38;2;224;175;104' "$seven_day_pct_display"
   __emit '4;38;2;224;175;104' '%'
 else
-  __emit '1;38;2;224;104;104' "$seven_day_pct"
+  __emit '1;38;2;224;104;104' "$seven_day_pct_display"
   __emit '1;38;2;224;104;104' '%'
   __v="$(__field 'rate_limits.seven_day.resets_at')"
   __out="$(__rel_time "$__v")"

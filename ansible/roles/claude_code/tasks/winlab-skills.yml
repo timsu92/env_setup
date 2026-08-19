@@ -3,6 +3,10 @@
   ansible.builtin.include_tasks:
     file: self-download-dir.yml
 
+- name: Create skills directory
+  ansible.builtin.include_tasks:
+    file: skills-dir.yml
+
 - name: Download Winlab-skills
   ansible.builtin.git:
     repo: https://github.com/NYCU-WinLab/winlab-skills.git
@@ -16,7 +20,7 @@
 - name: Symlink cc to Claude Skills
   ansible.builtin.file:
     src: "{{ claude_code_self_download_dir }}/winlab-skills/skills/cc"
-    dest: "{{ setup_user_home }}/.claude/skills/cc"
+    dest: "{{ claude_code_skills_dir }}/cc"
     state: link
   become: true
   become_user: "{{ setup_user }}"
@@ -24,7 +28,7 @@
 - name: Symlink english-writing-review to Claude Skills
   ansible.builtin.file:
     src: "{{ claude_code_self_download_dir }}/winlab-skills/skills/english-writing-review"
-    dest: "{{ setup_user_home }}/.claude/skills/english-writing-review"
+    dest: "{{ claude_code_skills_dir }}/english-writing-review"
     state: link
   become: true
   become_user: "{{ setup_user }}"
@@ -32,7 +36,7 @@
 - name: Symlink winlab-slides-guidelines to Claude Skills
   ansible.builtin.file:
     src: "{{ claude_code_self_download_dir }}/winlab-skills/skills/winlab-slides-guidelines"
-    dest: "{{ setup_user_home }}/.claude/skills/winlab-slides-guidelines"
+    dest: "{{ claude_code_skills_dir }}/winlab-slides-guidelines"
     state: link
   become: true
   become_user: "{{ setup_user }}"

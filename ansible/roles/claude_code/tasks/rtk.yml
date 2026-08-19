@@ -36,8 +36,8 @@
   ansible.builtin.command:
     cmd: "rtk init -g --auto-patch"
     creates:
-      - "{{ setup_user_home }}/.claude/hooks/rtk-rewrite.sh"
-      - "{{ setup_user_home }}/.claude/RTK.md"
+      - "{{ claude_code_hook_dir }}/rtk-rewrite.sh"
+      - "{{ claude_code_dir }}/RTK.md"
   become: true
   become_user: "{{ setup_user }}"
   environment:

@@ -6,7 +6,7 @@
 - name: Deploy high-watermark-auto-pause hook script
   ansible.builtin.copy:
     src: hooks/high-watermark-auto-pause.sh
-    dest: "{{ setup_user_home }}/.claude/hooks/high-watermark-auto-pause.sh"
+    dest: "{{ claude_code_hook_dir }}/high-watermark-auto-pause.sh"
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: "0755"

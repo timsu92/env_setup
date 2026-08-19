@@ -1,7 +1,7 @@
 ---
-- name: Create Claude Code hooks directory
+- name: Create Claude Code skills directory
   ansible.builtin.file:
-    path: "{{ claude_code_hook_dir }}"
+    path: "{{ claude_code_skills_dir }}"
     state: directory
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"

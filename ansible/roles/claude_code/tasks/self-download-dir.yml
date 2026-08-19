@@ -2,19 +2,7 @@
 # Create a directory for self-downloaded plugins
 - name: Create self-download Claude plugin directory
   ansible.builtin.file:
-    path: "{{ setup_user_home }}/.claude/plugins/self-download"
-    state: directory
-    owner: "{{ setup_user }}"
-    group: "{{ setup_user }}"
-    mode: '0755'
-
-- name: Export variable
-  ansible.builtin.set_fact:
-    claude_code_self_download_dir: "{{ setup_user_home }}/.claude/plugins/self-download"
-
-- name: Create Claude skills directory
-  ansible.builtin.file:
-    path: "{{ setup_user_home }}/.claude/skills"
+    path: "{{ claude_code_plugin_dir }}/self-download"
     state: directory
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"

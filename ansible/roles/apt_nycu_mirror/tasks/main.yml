@@ -8,6 +8,17 @@
 #
 # Because APT sees apt-cacher-ng as the immediate origin in this mode, pinning
 # must target "apt-cacher-ng" instead of the upstream mirror hostname.
+#
+# Better not add an arch= restriction here: since Ubuntu 25.10 (Questing), the
+# archive publishes an extra amd64v3 (x86-64-v3 optimized) packages index
+# alongside plain amd64, and the default sources.list.d/ubuntu.sources has no
+# arch= restriction either, so it picks up amd64v3 automatically. If this repo
+# were pinned to arch=amd64 only, NYCU's higher pin priority (501) would still
+# win package selection but could only offer the plain-amd64 build, so APT
+# would "downgrade" every package with an amd64v3 build back to plain-amd64
+# even though the version string is identical. Leaving arch= unset keeps this
+# repo's architecture set in sync with whatever the default sources file (and
+# any future variant Ubuntu introduces) resolves to.
 
 - name: Set NYCU mirror for Ubuntu
   ansible.builtin.copy:
@@ -16,10 +27,10 @@
     group: root
     mode: "0644"
     content: |
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }} main universe restricted multiverse
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-updates main universe restricted multiverse
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-backports main universe restricted multiverse
-      deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-security main universe restricted multiverse
+      deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }} main universe restricted multiverse
+      deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-updates main universe restricted multiverse
+      deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-backports main universe restricted multiverse
+      deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-security main universe restricted multiverse
   when: ansible_facts["distribution"] == "Ubuntu"
 
 - name: Set apt pin priority for NYCU Ubuntu mirror
@@ -41,8 +52,8 @@
     group: root
     mode: "0644"
     content: |
-      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] {{ apt_https_repo_prefix }}debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }} main non-free-firmware
-      deb [arch=amd64 signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] {{ apt_https_repo_prefix }}debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }}-updates main non-free-firmware
+      deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] {{ apt_https_repo_prefix }}debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }} main non-free-firmware
+      deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] {{ apt_https_repo_prefix }}debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }}-updates main non-free-firmware
   when: ansible_facts["distribution"] == "Debian"
 
 - name: Set apt pin priority for NYCU Debian mirror

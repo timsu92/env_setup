@@ -1,9 +1,24 @@
 ---
-- name: Install statusline
+- name: Create Claude Code home directory
+  ansible.builtin.include_tasks:
+    file: claude-dir.yml
+
+- name: Install statusline script
+  ansible.builtin.copy:
+    src: statusline.sh
+    dest: "{{ claude_code_dir }}/statusline.sh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+
+- name: Install statusline config
   ansible.builtin.script:
-    cmd: install_statusline.bash
+    cmd: install_statusline_settings.bash
   become: true
   become_user: "{{ setup_user }}"
+  environment:
+    CLAUDE_CONFIG_DIR: "{{ claude_code_dir }}"
+    CLAUDE_STATUSLINE_PATH: "{{ claude_code_dir }}/statusline.sh"
   register: claude_code_statusline_install
   changed_when: "'installed successfully' in claude_code_statusline_install.stdout or 'installed with errors' in claude_code_statusline_install.stdout"
   failed_when: claude_code_statusline_install.rc != 0

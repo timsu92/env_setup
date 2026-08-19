@@ -4,8 +4,7 @@
 set -euo pipefail
 
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-mkdir -p "$CLAUDE_DIR"
-SL="$CLAUDE_DIR/statusline.sh"
+SL="${CLAUDE_STATUSLINE_PATH:-${CLAUDE_DIR}/statusline.sh}"
 
 __banner() {
   local color="$1"
@@ -20,8 +19,6 @@ __banner() {
 BANNER_EOF
   printf '\033[0m\n\033[%sm  %s\033[0m\n\n' "$color" "$msg"
 }
-
-install -m 0755 "$(dirname "${BASH_SOURCE[0]}")/statusline.sh" "$SL"
 
 SETTINGS="$CLAUDE_DIR/settings.json"
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"

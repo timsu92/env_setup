@@ -1,5 +1,3 @@
 ---
 pve_cloud_init_dns_override_interface: ""
-pve_cloud_init_dns_override_servers: []
-pve_cloud_init_dns_override_search: []
 pve_cloud_init_dns_override_filename: /etc/netplan/60-ansible-pve-dns.yaml

@@ -8,12 +8,6 @@ all:
         pve-vm-01:
           ansible_host: 192.168.1.10  # target host to setup
           ansible_user: tim  # user name used to ssh into
-          # Optional: overlay netplan DNS/search on guests where cloud-init
-          # delivers DNS metadata but the guest does not render search domains.
-          # vm_pve_dns_servers:
-          #   - 10.0.0.1
-          # vm_pve_dns_search:
-          #   - lan
           # WireGuard client config (used by wireguard_client role).
           # The role generates keys on the host and prints PublicKey + PresharedKey
           # at the end of the play — add them to the server's [Peer] block.

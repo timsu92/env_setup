@@ -1,23 +1,20 @@
 ---
-# pve_cloud_init_dns: overlay netplan DNS settings when cloud-init metadata is
-# present but not rendered fully into the guest network config.
-# This is a bug which Debian trixie won't apply the cloud-init DNS settings to
-# resolv.conf.
-
-- name: Decide whether DNS override should be managed
-  ansible.builtin.set_fact:
-    pve_cloud_init_dns_override_enabled: >-
-      {{
-        (pve_cloud_init_dns_override_servers | default([]) | length > 0)
-        or
-        (pve_cloud_init_dns_override_search | default([]) | length > 0)
-      }}
+# pve_cloud_init_dns: force systemd-networkd to merge DHCP-provided search
+# domains into resolv.conf.
+#
+# cloud-init never renders nameservers into netplan on any of these distros
+# (DHCP-only network config), so DNS server/domain resolution normally relies
+# entirely on systemd-networkd's own DHCP client defaults. Debian trixie's
+# systemd package defaults DHCPv4/DHCPv6 UseDomains to false, silently
+# dropping the DHCP-provided search domain, while Ubuntu's systemd package
+# merges it by default, so the same DHCP lease behaves differently per distro.
+# This override forces UseDomains on for both protocols so the behavior is
+# consistent everywhere.
 
 - name: Check whether netplan directory exists
   ansible.builtin.stat:
     path: /etc/netplan
   register: pve_cloud_init_dns_override_netplan_dir
-  when: pve_cloud_init_dns_override_enabled
 
 - name: Pick interface for DNS override
   ansible.builtin.set_fact:
@@ -28,7 +25,6 @@
         else ansible_facts["default_ipv4"]["interface"]
       }}
   when:
-    - pve_cloud_init_dns_override_enabled
     - ansible_facts["service_mgr"] == 'systemd'
     - pve_cloud_init_dns_override_netplan_dir.stat.exists
 
@@ -41,7 +37,6 @@
     mode: "0600"
   register: pve_cloud_init_dns_override_template
   when:
-    - pve_cloud_init_dns_override_enabled
     - ansible_facts["service_mgr"] == 'systemd'
     - pve_cloud_init_dns_override_netplan_dir.stat.exists
 
@@ -49,6 +44,5 @@
   ansible.builtin.command: netplan apply
   changed_when: pve_cloud_init_dns_override_template.changed
   when:
-    - pve_cloud_init_dns_override_enabled
     - ansible_facts["service_mgr"] == 'systemd'
     - pve_cloud_init_dns_override_netplan_dir.stat.exists

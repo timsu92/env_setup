@@ -556,7 +556,7 @@ if [ -n "$__account_label" ]; then
 fi
 __repeat_char ' ' 1
 __repeat_char ' ' 1
-__emit '2;38;2;211;134;155' '  '
+__emit '2;38;2;211;134;155' ' '
 __u="$(__tokens_used)"
 __t="$(__tokens_total)"
 __p="$(__tokens_pct_int)"

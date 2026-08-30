@@ -27,6 +27,7 @@ claude_code_plugins:
   - clangd-lsp@claude-plugins-official
   - claude-code-setup@claude-plugins-official
   - sonarqube@claude-plugins-official
+  - mattpocock-skills
 
 claude_code_dir: "{{ setup_user_home }}/.claude"
 claude_code_hook_dir: "{{ claude_code_dir }}/hooks"

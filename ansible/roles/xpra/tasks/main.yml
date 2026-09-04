@@ -29,20 +29,71 @@
     replace: 'URIs: {{ apt_https_repo_prefix }}\1'
   when: apt_cacher_ng_enabled
 
-- name: Enable Ubuntu universe repository
+# Cleanup of the pre-deb822 filename this role used to write. It has to run
+# BEFORE the detection task below: while this file exists it is a source that
+# provides universe, so the detection would count it as "somebody else already
+# provides universe" and drop our own source — and then this task would delete
+# the very file that assumption rested on, leaving the host with no universe
+# at all. Deleting first means the detection only ever sees the final state.
+- name: Remove legacy Ubuntu universe repository source
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/archive_ubuntu_com_ubuntu.list
+    state: absent
+  when: ansible_facts["distribution"] == "Ubuntu"
+
+# xpra requires the universe component, and we're trying not to add it redundantly
+# if the host already has it.
+#
+# apt-get indextargets reads the *configured* sources rather than the
+# downloaded indexes (it still reports every component with an empty
+# /var/lib/apt/lists), so this works before the first apt update. Filtering on
+# "Component: universe" narrows it to the targets we care about, and
+# $(SOURCESENTRY) reports the "file:line" each one came from — which is what
+# lets the next task ask the real question: does universe come from anything
+# other than the file this role manages? The duplicate-target warnings apt
+# emits here go to stderr, so stdout stays clean.
+#
+# argv (not a shell pipeline) on purpose: "$(SOURCESENTRY)" is apt's own
+# placeholder syntax, and no shell must be allowed to expand it as a command
+# substitution. It also keeps the filtering in Jinja below, where the decision
+# is visible, instead of encoding it in an exit code — a `| grep -q` pipeline
+# with pipefail can report 141 (SIGPIPE) when grep short-circuits on a match,
+# which would invert exactly the case that matters.
+- name: List apt sources that provide the universe component  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    argv:
+      - apt-get
+      - indextargets
+      - --no-release-info
+      - --format
+      - $(SOURCESENTRY)
+      - "Created-By: Packages"
+      - "Component: universe"
+  register: xpra_universe_providers
+  changed_when: false
+  check_mode: false
+  when: ansible_facts["distribution"] == "Ubuntu"
+
+- name: Enable Ubuntu universe repository when no other source provides it
   ansible.builtin.deb822_repository:
     name: archive_ubuntu_com_ubuntu
     types: deb
     uris: http://archive.ubuntu.com/ubuntu
     suites: "{{ ansible_facts['distribution_release'] }}"
     components: universe
-    state: present
-  when: ansible_facts["distribution"] == "Ubuntu"
-
-- name: Remove legacy Ubuntu universe repository source
-  ansible.builtin.file:
-    path: /etc/apt/sources.list.d/archive_ubuntu_com_ubuntu.list
-    state: absent
+    # Strip the ":line" suffix off each entry, drop the file this role owns,
+    # and see whether any provider is left. Something left means universe is
+    # already covered and this repo is redundant, so hand it back rather than
+    # leave a duplicate behind; nothing left means we are the only one who can
+    # provide it and the source has to exist for the xpra install to resolve.
+    state: >-
+      {{ 'absent'
+         if xpra_universe_providers.stdout_lines
+            | map('regex_replace', ':[0-9]+$', '')
+            | unique
+            | difference([xpra_universe_sources_file])
+            | length > 0
+         else 'present' }}
   when: ansible_facts["distribution"] == "Ubuntu"
 
 - name: Install xpra

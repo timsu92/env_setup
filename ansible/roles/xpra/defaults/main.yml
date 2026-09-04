@@ -3,3 +3,10 @@
 # Source: docs/Linux系統/xpra.md
 
 xpra_repo: "xpra"  # Options: "xpra", "xpra-lts", "xpra-beta"
+
+# File that deb822_repository derives from `name: archive_ubuntu_com_ubuntu`
+# in tasks/main.yml. The module slugifies the name (lowercase, [_\s]+ -> "-",
+# then strips anything outside [a-z0-9-]), so underscores become hyphens.
+# Kept as a variable because the universe-detection task below has to exclude
+# this exact path from its search — the two must stay in sync.
+xpra_universe_sources_file: /etc/apt/sources.list.d/archive-ubuntu-com-ubuntu.sources

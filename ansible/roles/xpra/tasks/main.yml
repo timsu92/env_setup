@@ -111,3 +111,27 @@
     name: xpra
     state: present
     update_cache: true
+
+# xpra can't send unicode input to a remote session, so we need a input method
+# to type in the xpra server.
+- name: Install fcitx5 chewing
+  ansible.builtin.apt:
+    name:
+      - fcitx5
+      - fcitx5-chewing
+    state: present
+
+- name: Ask xpra to start fctix5 when starting a session
+  ansible.builtin.lineinfile:
+    path: "{{ setup_user_home }}/.config/xpra/xpra.conf"
+    regex: "^\\s*#?\\s*{{ item.split('=')[0] }}="
+    line: "{{ item }}"
+    state: present
+    create: true
+    mode: "0664"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+  loop:
+    - start-child=fcitx5
+    - exit-with-children=no
+    - terminate-children=yes

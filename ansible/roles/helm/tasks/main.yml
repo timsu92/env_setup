@@ -5,17 +5,21 @@
 - name: Install prerequisites
   ansible.builtin.apt:
     name:
-      - curl
       - gpg
       - python3-debian
     state: present
 
-- name: Download and dearmor Helm GPG key
-  ansible.builtin.shell:
-    cmd: >
-      curl -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey
-      | gpg --dearmor
-      | tee /usr/share/keyrings/helm.gpg > /dev/null
+- name: Download Helm GPG key
+  ansible.builtin.uri:
+    url: https://packages.buildkite.com/helm-linux/helm-debian/gpgkey
+    return_content: true
+  check_mode: false
+  register: helm_gpg_key
+
+- name: Dearmor Helm GPG key
+  ansible.builtin.command:
+    stdin: "{{ helm_gpg_key.content }}"
+    cmd: gpg --dearmor --output /usr/share/keyrings/helm.gpg
     creates: /usr/share/keyrings/helm.gpg
 
 - name: Add Helm apt repository

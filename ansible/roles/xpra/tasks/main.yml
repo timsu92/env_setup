@@ -16,18 +16,28 @@
     dest: /usr/share/keyrings/xpra.asc
     mode: "0644"
 
-- name: Add xpra apt repository
-  ansible.builtin.get_url:
+- name: Fetch xpra apt repository definition
+  ansible.builtin.uri:
     url: "https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/{{ ansible_facts['distribution_release'] }}/{{ xpra_repo }}.sources"
+    return_content: true
+  register: xpra_repo_definition
+  changed_when: false
+  check_mode: false
+
+# copy computes a checksum diff against the existing dest, so this is what
+# gives the whole sequence correct idempotency — the fetch above always hits
+# GitHub, but only this task decides `changed`. Building the final content in
+# a variable (rather than writing then rewriting a file) also means there is
+# no scratch file left on disk to clean up afterwards.
+- name: Rewrite xpra deb822 repository to apt-cacher-ng HTTPS backend form and Install xpra apt repository
+  ansible.builtin.copy:
+    content: >-
+      {{ xpra_repo_definition.content
+         | regex_replace('(?m)^URIs:\s+https://', 'URIs: ' + apt_https_repo_prefix)
+         if apt_cacher_ng_enabled
+         else xpra_repo_definition.content }}
     dest: /etc/apt/sources.list.d/xpra.sources
     mode: "0644"
-
-- name: Rewrite xpra deb822 repository to apt-cacher-ng HTTPS backend form
-  ansible.builtin.replace:
-    path: /etc/apt/sources.list.d/xpra.sources
-    regexp: '(?m)^URIs:\s+https://(.*)$'
-    replace: 'URIs: {{ apt_https_repo_prefix }}\1'
-  when: apt_cacher_ng_enabled
 
 # Cleanup of the pre-deb822 filename this role used to write. It has to run
 # BEFORE the detection task below: while this file exists it is a source that

@@ -119,6 +119,7 @@
     name:
       - fcitx5
       - fcitx5-chewing
+      - chewing-editor  # 自訂詞彙編輯器
     state: present
 
 - name: Ask xpra to start fctix5 when starting a session

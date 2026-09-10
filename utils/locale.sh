@@ -5,6 +5,21 @@ have_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+# Run "$@" as root: directly if already root, via sudo if available,
+# otherwise fail loudly instead of hitting "sudo: command not found"
+# (e.g. minimal containers that run as root and never install sudo).
+run_privileged() {
+  if [[ "$EUID" -eq 0 ]]; then
+    "$@"
+  elif have_cmd sudo; then
+    sudo "$@"
+  else
+    echo "ERROR: root privileges required to run: $*" >&2
+    echo "Not running as root and 'sudo' is not available." >&2
+    return 1
+  fi
+}
+
 # Normalize locale name by stripping encoding and modifier, and converting to lowercase.
 normalize_locale_name() {
   local s="${1:-}"
@@ -30,8 +45,8 @@ apt_install_if_missing() {
 
   if ((${#missing[@]} > 0)); then
     # export DEBIAN_FRONTEND=noninteractive
-    sudo apt-get update
-    sudo apt-get install -y "${missing[@]}"
+    run_privileged apt-get update
+    run_privileged apt-get install -y "${missing[@]}"
   fi
 }
 
@@ -116,17 +131,17 @@ generate_en_us_utf8_locale() {
   if have_cmd locale-gen; then
     if [[ -f /etc/locale.gen ]]; then
       # Uncomment existing en_US.UTF-8 entry
-      sudo sed -i \
+      run_privileged sed -i \
         -e 's/^[[:space:]]*#\?[[:space:]]*en_US\.UTF-8[[:space:]]\+UTF-8[[:space:]]*$/en_US.UTF-8 UTF-8/' \
         /etc/locale.gen
 
       # If no en_US.UTF-8 entry exists, add one
       if ! grep -Eq '^[[:space:]]*en_US\.UTF-8[[:space:]]+UTF-8[[:space:]]*$' /etc/locale.gen; then
-        echo 'en_US.UTF-8 UTF-8' | sudo tee -a /etc/locale.gen >/dev/null
+        echo 'en_US.UTF-8 UTF-8' | run_privileged tee -a /etc/locale.gen >/dev/null
       fi
     fi
 
-    sudo locale-gen en_US.UTF-8
+    run_privileged locale-gen en_US.UTF-8
   else
     echo "ERROR: 'locale-gen' is unavailable even after installing locales." >&2
     return 1

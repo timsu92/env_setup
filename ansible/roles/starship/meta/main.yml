@@ -1,4 +1,5 @@
 ---
 dependencies:
+  - role: locale_term_env
   - role: curl_or_wget
   - role: zsh

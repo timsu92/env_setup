@@ -54,3 +54,11 @@
   when: claude_code_codex.stat.exists
   environment:
     PATH: "{{ setup_user_home }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
+
+- name: Deploy aptu update script for rtk
+  ansible.builtin.copy:
+    src: rtk.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/rtk.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

@@ -26,6 +26,14 @@
     state: absent
   when: not claude_code_installed.stat.exists
 
+- name: Deploy aptu update script for claude
+  ansible.builtin.copy:
+    src: claude.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/claude.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
 # Also helps initialize ~/.claude/settings.json
 - name: Install marketplaces and plugins
   ansible.builtin.include_tasks: plugins.yml

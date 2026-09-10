@@ -13,3 +13,11 @@
     creates: "{{ claude_code_uv_tool_dir.stdout }}/claude-swap"
   become: true
   become_user: "{{ setup_user }}"
+
+- name: Deploy aptu update script for claude-swap
+  ansible.builtin.copy:
+    src: claude-swap.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/claude-swap.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

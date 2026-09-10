@@ -40,3 +40,11 @@
     state: link
   become: true
   become_user: "{{ setup_user }}"
+
+- name: Deploy aptu update script for winlab-skills
+  ansible.builtin.copy:
+    src: winlab-skills.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/winlab-skills.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

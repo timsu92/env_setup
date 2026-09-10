@@ -74,3 +74,11 @@
     - wiki/query-playbook.md
   become: true
   become_user: "{{ setup_user }}"
+
+- name: Deploy aptu update script for hung-yi-lee-skill
+  ansible.builtin.copy:
+    src: hung-yi-lee-skill.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/hung-yi-lee-skill.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

@@ -35,3 +35,11 @@
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: "0644"
+
+- name: Deploy aptu update script for uv
+  ansible.builtin.copy:
+    src: uv.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/uv.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

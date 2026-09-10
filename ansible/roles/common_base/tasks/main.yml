@@ -13,3 +13,19 @@
   ansible.builtin.apt:
     autoremove: true
     purge: true
+
+- name: Deploy aptu update script for apt
+  ansible.builtin.copy:
+    src: apt.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/apt.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
+- name: Deploy aptu update script for snap
+  ansible.builtin.copy:
+    src: snap.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/snap.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

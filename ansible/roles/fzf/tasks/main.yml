@@ -24,3 +24,11 @@
     dest: "{{ setup_user_home }}/.config/zsh/interactive/60-fzf-shell-integration.zsh"
     # mode: "0644" # Why not inherit FZF's permission?  # noqa risky-file-permissions
     state: hard
+
+- name: Deploy aptu update script for fzf
+  ansible.builtin.copy:
+    src: fzf.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/fzf.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

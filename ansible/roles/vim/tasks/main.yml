@@ -43,3 +43,15 @@
     - vim_profile == 'full'
     - not ansible_check_mode
     - vim_vimrc_repo_checkout.changed
+
+- name: Deploy aptu update script for vimrc
+  # Deployed unconditionally (not gated on vim_profile == 'full'): the script
+  # itself is a no-op when ~/vimrc isn't a git checkout, so it activates
+  # automatically if a profile ever switches to the full vim profile without
+  # needing the zsh role to be re-run.
+  ansible.builtin.copy:
+    src: vimrc.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/vimrc.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

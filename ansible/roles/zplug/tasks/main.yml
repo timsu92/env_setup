@@ -30,6 +30,14 @@
     group: "{{ setup_user }}"
     mode: preserve
 
+- name: Deploy aptu update script for zplug
+  ansible.builtin.copy:
+    src: zplug.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/zplug.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
 - name: Install zplug plugins
   ansible.builtin.shell:
     cmd: >
@@ -68,3 +76,17 @@
   ansible.builtin.file:
     path: "{{ setup_user_home }}/.zplug/log/job.lock"
     state: absent
+
+- name: Restrict zplug directory permissions for zsh compaudit
+  # zplug's own installer (and its plugin-install machinery) leaves
+  # ~/.zplug world-writable, which zsh's compinit/compaudit flags as
+  # insecure and refuses to autoload from without an interactive prompt —
+  # that prompt blocking on a fresh shell is also what breaks zplug's own
+  # `zplug update` (its __update__ autoload lookup depends on compinit
+  # having finished). Strip group/other write bits recursively; read/execute
+  # bits are untouched.
+  ansible.builtin.file:
+    path: "{{ setup_user_home }}/.zplug"
+    state: directory
+    recurse: true
+    mode: go-w

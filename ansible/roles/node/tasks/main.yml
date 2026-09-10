@@ -16,3 +16,11 @@
   changed_when: >-
     'is already installed' not in node_install_result.stdout and
     'is already installed' not in node_install_result.stderr
+
+- name: Deploy aptu update script for node
+  ansible.builtin.copy:
+    src: node.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/node.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

@@ -1,5 +1,6 @@
 ---
 dependencies:
+  - role: locale_term_env
   - role: zsh
   - role: vim
     vars:

@@ -20,11 +20,16 @@ run_privileged() {
   fi
 }
 
-# Normalize locale name by stripping encoding and modifier, and converting to lowercase.
+# Normalize locale name by stripping the modifier, converting to lowercase,
+# and collapsing "utf-8"/"utf8" to one spelling — `locale -a` reports
+# generated locales as e.g. "en_US.utf8" (no dash), while callers here spell
+# the same locale "en_US.UTF-8" (with dash), and without this collapsing the
+# two would compare as different strings.
 normalize_locale_name() {
   local s="${1:-}"
   s="${s%%@*}"
-  printf '%s\n' "$s" | tr '[:upper:]' '[:lower:]'
+  s="$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')"
+  printf '%s\n' "${s//utf-8/utf8}"
 }
 
 is_utf8_locale_name() {

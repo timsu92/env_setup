@@ -38,3 +38,11 @@
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: "0644"
+
+- name: Deploy aptu update script for starship
+  ansible.builtin.copy:
+    src: starship.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/starship.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

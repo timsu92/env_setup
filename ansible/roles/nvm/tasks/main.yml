@@ -35,3 +35,11 @@
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: "0644"
+
+- name: Deploy aptu update script for nvm
+  ansible.builtin.copy:
+    src: nvm.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/nvm.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

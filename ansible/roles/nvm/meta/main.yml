@@ -1,3 +1,7 @@
 ---
 dependencies:
   - zsh_config_dirs
+  # nvm's install.sh only clones itself as a real git repo (rather than a
+  # script-only, non-git install) when `git` is already on PATH at
+  # install time
+  - git

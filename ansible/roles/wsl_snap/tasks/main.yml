@@ -1,0 +1,12 @@
+---
+# Setup snap path in WSL2 distros.
+# Since sessions in WSL2 are non-login shells, the snap path setup is in /etc/profile.d,
+# which is sourced by login shells only.
+
+- name: Deploy snap path setup
+  ansible.builtin.copy:
+    src: non-interactive/13-snap-path.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/non-interactive/13-snap-path.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

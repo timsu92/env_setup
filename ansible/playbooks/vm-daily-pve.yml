@@ -15,4 +15,5 @@
     - role: xpra
     - role: wireguard_client
     - role: github_cli
+    - role: gitlab_cli
     - role: apt_reboot_if_required

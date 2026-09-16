@@ -1,0 +1,7 @@
+---
+gitlab_cli_git_protocol: https
+
+# Authenticate git operations using the Gitlab CLI's credential helper
+gitlab_cli_git_auth_using_glab: true
+gitlab_cli_git_auth_using_glab_remotes:
+  - https://gitlab.com

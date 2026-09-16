@@ -34,3 +34,11 @@
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: preserve
+
+- name: Deploy zsh non-interactive snippets
+  ansible.builtin.copy:
+    src: non-interactive/
+    dest: "{{ setup_user_home }}/.config/zsh/non-interactive/"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: preserve

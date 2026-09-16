@@ -6,7 +6,6 @@
   ansible.builtin.apt:
     name:
       - gpg
-      - python3-debian
     state: present
 
 - name: Download Helm GPG key
@@ -31,6 +30,7 @@
     components: main
     signed_by: /usr/share/keyrings/helm.gpg
     state: present
+    install_python_debian: true
 
 - name: Remove legacy Helm apt repository source
   ansible.builtin.file:

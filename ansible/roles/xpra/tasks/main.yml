@@ -6,7 +6,6 @@
   ansible.builtin.apt:
     name:
       - ca-certificates
-      - python3-debian
       - wget
     state: present
 
@@ -104,6 +103,7 @@
             | difference([xpra_universe_sources_file])
             | length > 0
          else 'present' }}
+    install_python_debian: true
   when: ansible_facts["distribution"] == "Ubuntu"
 
 - name: Install xpra

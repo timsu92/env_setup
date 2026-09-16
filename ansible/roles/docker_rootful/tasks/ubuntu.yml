@@ -19,7 +19,6 @@
     name:
       - ca-certificates
       - curl
-      - python3-debian
     state: present
 
 - name: Create /etc/apt/keyrings directory
@@ -53,6 +52,7 @@
     architectures: "{{ docker_rootful_dpkg_arch.stdout }}"
     signed_by: /etc/apt/keyrings/docker.asc
     state: present
+    install_python_debian: true
 
 - name: Remove legacy Docker apt repository source
   ansible.builtin.file:

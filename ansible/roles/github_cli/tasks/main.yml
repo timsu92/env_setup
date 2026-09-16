@@ -6,7 +6,6 @@
     name:
       - ca-certificates
       - gpg
-      - python3-debian
     state: present
 
 - name: Ensure apt keyrings directory exists
@@ -48,6 +47,7 @@
     architectures: "{{ github_cli_dpkg_arch.stdout }}"
     signed_by: "{{ github_cli_keyring_path }}"
     state: present
+    install_python_debian: true
 
 - name: Remove legacy GitHub CLI apt repository source
   ansible.builtin.file:

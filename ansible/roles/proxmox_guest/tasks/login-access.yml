@@ -17,7 +17,7 @@
 
 - name: Ensure the connecting user has authorized_keys to inherit
   ansible.builtin.stat:
-    path: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.ssh/authorized_keys"
+    path: "{{ ansible_facts['getent_passwd'][ansible_user][4] }}/.ssh/authorized_keys"
   register: proxmox_guest_connecting_keys
 
 - name: Fail with an actionable message when there is no key to copy
@@ -32,7 +32,7 @@
 
 - name: Read the connecting user's authorized_keys
   ansible.builtin.slurp:
-    src: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.ssh/authorized_keys"
+    src: "{{ ansible_facts['getent_passwd'][ansible_user][4] }}/.ssh/authorized_keys"
   register: proxmox_guest_inherited_keys
 
 - name: Authorize those keys for {{ setup_user }}

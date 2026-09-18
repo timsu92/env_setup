@@ -1,0 +1,4 @@
+---
+# Git tag of the bun release, passed to the install script as its first argument
+bun_version: bun-v1.4.2
+bun_install_dir: "{{ setup_user_home }}/.bun"

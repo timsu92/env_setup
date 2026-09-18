@@ -33,4 +33,5 @@
     - role: dirty_frag_fix
     - role: wsl_snap
     - role: gitlab_cli
+    - role: bun
     - role: apt_reboot_if_required

@@ -1,0 +1,70 @@
+---
+# bun: install bun (JavaScript runtime / package manager) and zsh integration
+# Sources: https://bun.com/docs/installation
+
+- name: Install bun prerequisites
+  ansible.builtin.apt:
+    name:
+      - bash  # install script's shebang
+      - curl  # install script downloads the release zip with curl (wget is not supported)
+      - unzip  # install script aborts without it
+    state: present
+
+- name: Download bun installer
+  ansible.builtin.get_url:
+    url: https://bun.com/install
+    dest: /tmp/bun-install.sh
+    mode: "0700"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+  changed_when: false
+
+- name: Install bun
+  ansible.builtin.command:
+    cmd: bash /tmp/bun-install.sh {{ bun_version }}
+    creates: "{{ bun_install_dir }}/bin/bun"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+    BUN_INSTALL: "{{ bun_install_dir }}"
+    # The installer appends PATH lines to ~/.zshrc / ~/.bashrc depending on
+    # $SHELL and has no flag to opt out; an unrecognised shell only makes it
+    # print manual instructions. PATH is set by 10-bun.zsh instead.
+    SHELL: /bin/sh
+
+- name: Remove bun installer
+  ansible.builtin.file:
+    path: /tmp/bun-install.sh
+    state: absent
+  changed_when: false
+
+- name: Deploy bun non-interactive zsh snippet
+  ansible.builtin.copy:
+    src: non-interactive/10-bun.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/non-interactive/10-bun.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
+# `bun completions` prints the script to stdout only when stdout is not a
+# TTY; on a TTY it installs ~/.bun/_bun by itself. The redirect keeps it on
+# the printing path.
+- name: Install zsh completion for bun
+  ansible.builtin.shell:
+    cmd: >
+      SHELL=zsh {{ bun_install_dir }}/bin/bun completions
+      > "{{ setup_user_home }}/.config/zsh/completions/_bun"
+    creates: "{{ setup_user_home }}/.config/zsh/completions/_bun"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+
+- name: Deploy aptu update script for bun
+  ansible.builtin.copy:
+    src: bun.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/bun.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

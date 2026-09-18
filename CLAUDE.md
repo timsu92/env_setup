@@ -11,20 +11,21 @@ A modular, idempotent Ansible provisioning project for the author's personal env
 Run all commands from the repo root unless noted otherwise.
 
 ```bash
-# Install/sync Python deps (ansible, ansible-lint) via uv
+# Install/sync Python deps (ansible, ansible-lint) via uv.
+# Run every ansible tool through `uv run` (not a bare `ansible-playbook` from
+# PATH or an activated venv), so the project-pinned version is what executes.
 uv sync
-source .venv/bin/activate
 
 # Lint (profile: production, see .ansible-lint.yml)
 uv run ansible-lint
 
 # Syntax-check a specific profile playbook without connecting to any host
-cd ansible && ansible-playbook --syntax-check -i inventory/local.yml playbooks/vm-daily-wsl.yml
+cd ansible && ANSIBLE_CONFIG=../ansible.cfg uv run ansible-playbook --syntax-check -i inventory/local.yml playbooks/vm-daily-wsl.yml
 
 # Dry run against a real target (shows what would change, no actual changes).
 # bin/setup-* wrappers only pass through `-e`, not arbitrary flags, so invoke
 # ansible-playbook directly for --check:
-cd ansible && ansible-playbook -i inventory/pve_hosts.yml -l pve-vm-01 playbooks/vm-daily-pve.yml --check --diff
+cd ansible && ANSIBLE_CONFIG=../ansible.cfg uv run ansible-playbook -i inventory/pve_hosts.yml -l pve-vm-01 playbooks/vm-daily-pve.yml --check --diff
 
 # Actually provision — always go through bin/, not ansible-playbook directly,
 # so ANSIBLE_CONFIG and cwd are set correctly (see "ansible.cfg" below)
@@ -36,6 +37,22 @@ bin/setup-devcontainer   # inside a devcontainer, local
 ```
 
 There is no test suite (no CI, no `tests/`) — correctness is validated via `ansible-lint`, `--syntax-check`, and `--check --diff` dry runs against a real or throwaway target.
+
+### Verifying a role: run it in Docker, never on the host
+
+Whenever a real (non-`--check`) run is needed — to confirm a role installs, or that a second run reports `changed=0` — do it in a throwaway container with the repo mounted read-only. Running it on the host installs into the developer's real `$HOME` and can edit their dotfiles. Write a one-role playbook with `setup_user`/`setup_user_home` set, put it and the script below outside the repo (e.g. the scratchpad), then run the playbook **twice** and compare the recaps:
+
+```bash
+docker run --rm -v "$PWD":/app:ro -v <dir-with-test-playbook>:/scratch:ro ubuntu:24.04 bash -c '
+  apt-get update -qq && apt-get install -y -qq curl ca-certificates acl sudo python3 python3-apt
+  useradd -m -s /bin/bash tim
+  curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+  export UV_PROJECT_ENVIRONMENT=/opt/venv ANSIBLE_CONFIG=/app/ansible.cfg   # /app is read-only: keep the venv elsewhere
+  cd /app/ansible && uv sync --project /app --locked
+  uv run --project /app --locked ansible-playbook -i localhost, /scratch/test.yml -e ansible_python_interpreter=/usr/bin/python3'
+```
+
+`sudo` and `acl` are there because the roles `become_user` an unprivileged `setup_user` (normally installed by `common_base`/`proxmox_guest`, absent from a bare image). Expect the second run to be `changed=0`.
 
 ### ansible.cfg location matters
 
@@ -123,11 +140,23 @@ A role that needs to add shell config must not write directly to `~/.zshrc`/`~/.
 
 Before doing that, check the installer's own script/flags: many install scripts try to append their own integration lines to `~/.bashrc`/`~/.zshrc`, which would conflict with the numbered-snippet system. Suppress that and let the role's snippet be the only integration point — see `roles/fzf/tasks/main.yml`'s `install --completion --key-bindings --no-update-rc --no-bash --no-fish`, and its update script `roles/fzf/files/fzf.update.zsh:17` re-passing the same flags so a re-install triggered by `aptu` doesn't silently reintroduce rc edits.
 
+A role's `files/` mirrors the directory each snippet is deployed to: `files/non-interactive/NN-<tool>.zsh` and `files/interactive/NN-<tool>.zsh` (see `roles/nvm/files/`), with `<program>.update.zsh` directly under `files/`. Don't drop a snippet flat into `files/` — the sub-directory is what says which loader picks it up, and a PATH/env snippet belongs in `non-interactive/` so scripts and non-interactive shells see it too.
+
+### Piping downloaded files to shells
+
+Don't pipe a downloaded file into a shell in one `command`/`shell` task (`command-instead-of-module` from lint, and the download can't be told apart from the install for idempotence). Split it in three tasks — see `roles/bun/tasks/main.yml`:
+
+1. `ansible.builtin.get_url` to `/tmp/<tool>-install.sh` (`mode: "0700"`, owned by the user who will run it) with `changed_when: false` — a download is not a change to the machine, and doing it unconditionally keeps the run free of `stat`/`when` bookkeeping.
+2. Run the script with `ansible.builtin.command` and a `creates:` pointing at the installed binary, so **this** task is the one that reports `changed` — and nothing else does on the second run.
+3. `ansible.builtin.file` `state: absent` on the script, also `changed_when: false`.
+
+If the file is only *read* — e.g. its content is written out with `ansible.builtin.copy` and never executed — skip the file: fetch it with `ansible.builtin.uri` and `return_content: true`, register the result, and use the variable in the later task.
+
 ### Required role files, dependencies, and updates
 
 README.md:203-209 lists which files a role *can* have; this expands on *when*:
 
-- **`meta/main.yml`**: declare a dependency here only for another *Ansible role* that must run first (e.g. `roles/zplug/meta/main.yml` depends on `locale_term_env`, `zsh`, `vim`, `node`). It doesn't cover apt packages.
+- **`meta/main.yml`**: declare a dependency here only for another *Ansible role* that must run first (e.g. `roles/zplug/meta/main.yml` depends on `locale_term_env`, `zsh`, `vim`, `node`). It doesn't cover apt packages. In particular `curl_or_wget` only guarantees *one of* curl/wget: if an script calls `curl` or `wget` specifically (check the script), `apt`-install `curl` in the role's own tasks instead of depending on `curl_or_wget`.
 - **apt prerequisites**: install them at the top of the role's own `tasks/*.yml`, even if every profile you personally use already has them installed elsewhere. This project supports being invoked as a standalone role in a stripped-down container, so never skip a package install because "it's usually already there." It's fine for a role to only be *useful* when paired with another it doesn't formally depend on (e.g. dotfiles from a role depending only on `zsh_config_dirs` are inert without `zsh` actually installed) — that's a legitimate minimal-test setup; don't add defensive checks to special-case it. When a package in the list isn't self-evidently required — a paired/optional extra rather than a hard dependency — say why with a trailing YAML comment, e.g. `chewing-editor  # 自訂詞彙編輯器` next to the actually-required `fcitx5`/`fcitx5-chewing` in `roles/xpra/tasks/main.yml:118-122`.
 - **Update scripts** (`files/<program>.update.zsh` — named for what it updates, not the role; a role can own more than one update target, e.g. `common_base`'s `apt.update.zsh` and `snap.update.zsh` — deployed to `~/.config/zsh/update/`, run by `aptu`, see `roles/zsh/files/interactive/99-aptu.zsh`): write one when the tool has its own out-of-band update path that `apt`/`snap` doesn't cover (e.g. `roles/nvm/files/nvm.update.zsh` re-runs the pinned git-checkout comparison via the shared `_aptu_update_git_repo` helper). Skip it when:
   - the tool updates via `apt`/`snap` — already covered by `roles/common_base/files/{apt,snap}.update.zsh`.

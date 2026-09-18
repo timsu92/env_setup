@@ -17,4 +17,5 @@
     - role: github_cli
     - role: gitlab_cli
     - role: bun
+    - role: uv
     - role: apt_reboot_if_required

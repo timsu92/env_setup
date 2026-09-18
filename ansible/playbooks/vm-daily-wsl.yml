@@ -34,4 +34,5 @@
     - role: wsl_snap
     - role: gitlab_cli
     - role: bun
+    - role: uv
     - role: apt_reboot_if_required

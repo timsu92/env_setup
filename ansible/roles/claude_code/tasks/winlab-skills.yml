@@ -9,10 +9,10 @@
 
 - name: Download Winlab-skills
   ansible.builtin.git:
-    repo: https://github.com/NYCU-WinLab/winlab-skills.git
+    repo: https://github.com/timsu92/winlab-skills.git
     dest: "{{ claude_code_self_download_dir }}/winlab-skills"
-    version: d2e2b15
-    refspec: d2e2b1567d4f1b539d83ae6b0eda8c6e6a378d52
+    version: 38f31a5
+    refspec: 38f31a564c780dbec23ea061b01222f24ac95563
     depth: 1
   become: true
   become_user: "{{ setup_user }}"

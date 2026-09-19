@@ -1,0 +1,16 @@
+# Example inventory for local execution (WSL / container / devcontainer).
+#
+# bin/setup-vm (wsl profile), bin/setup-container and bin/setup-devcontainer
+# create ansible/inventory/local.yml from this file when it does not exist, so
+# copying it by hand is only needed to set the optional variables below:
+#   cp ansible/inventory/local.yml.example ansible/inventory/local.yml
+# local.yml is git-ignored; run `chmod 600` on it once it holds a token.
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      # SonarQube user token (used by claude_code role); optional. When set,
+      # Ansible writes it to ~/.config/zsh/non-interactive/15-sonarqube-cli.zsh.
+      # When unset, an empty stub is deployed for you to fill in by hand.
+      # Must be a *user* token (project / global tokens do not work).
+      # claude_code_sonarqube_token: "<user-token>"

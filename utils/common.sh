@@ -31,6 +31,33 @@ caller_ansible_vars() {
   )
 }
 
+# Create ansible/inventory/local.yml from local.yml.example when it is missing.
+# local.yml is git-ignored (it may hold claude_code_sonarqube_token), so a
+# fresh clone, or a checkout that just pulled the commit which untracked it,
+# has none. The example is usable as-is (localhost only), so this needs no
+# input from the user.
+#
+# Call this BEFORE reexec_with_sudo: afterwards we are root, and a file created
+# then would be root-owned inside the invoking user's checkout, leaving them
+# unable to edit it. When already started via `sudo bin/setup-*` (root from the
+# beginning), the file is handed to SUDO_USER for the same reason.
+#
+# Never fails: a missing local.yml only costs the optional inventory vars.
+ensure_local_inventory() {
+  local repo_root="$1"
+  local inventory_dir="${repo_root}/ansible/inventory"
+
+  [[ -e "${inventory_dir}/local.yml" ]] && return 0
+
+  if install -m 0600 "${inventory_dir}/local.yml.example" "${inventory_dir}/local.yml"; then
+    [[ -n "${SUDO_USER:-}" ]] && chown "${SUDO_USER}:" "${inventory_dir}/local.yml" 2>/dev/null
+    echo "==> Created ansible/inventory/local.yml from local.yml.example"
+  else
+    echo "Warning: could not create ${inventory_dir}/local.yml from local.yml.example" >&2
+  fi
+  return 0
+}
+
 # Re-exec $1 (with the remaining args) under sudo, preserving PATH, unless
 # already running as root. Exits with an error if root is required but sudo
 # is unavailable. Returns (without exec'ing) only when EUID is already 0.

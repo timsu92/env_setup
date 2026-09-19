@@ -62,6 +62,9 @@ case "$PROFILE" in
       usage
     fi
 
+    # Before the sudo re-exec, so a new local.yml is owned by the invoking user.
+    ensure_local_inventory "${REPO_ROOT}"
+
     reexec_with_sudo "${REPO_ROOT}/bin/setup-vm" "${ORIGINAL_ARGS[@]}"
 
     caller_ansible_vars

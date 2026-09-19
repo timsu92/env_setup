@@ -1,5 +1,0 @@
-# Inventory for local execution (WSL / container / devcontainer)
-all:
-  hosts:
-    localhost:
-      ansible_connection: local

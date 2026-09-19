@@ -137,16 +137,18 @@ CLI 的 `pin` 註解需說明：官方 `install.sh` 只會裝 stable，不支援
 2. 否則若 `java` 主版本 ≥ 21 且 JAR 存在 → 匯出 `SONARQUBE_URL="$SONARQUBE_CLI_SERVER"`、`SONARQUBE_TOKEN="$SONARQUBE_CLI_TOKEN"`、`STORAGE_PATH`（`${XDG_STATE_HOME:-$HOME/.local/state}/sonarqube-mcp`，先 `mkdir -p`），再 `exec java -jar <jar>`。
 3. 否則向 **stderr** 印說明（啟動 Docker，或安裝 Java 21 與 JAR）並 `exit 1`。
 
+wrapper 另支援 `sonarqube-mcp --check`：只判斷「能不能啟動」（能：exit 0；不能：exit 1，原因印到 stderr），不真的啟動。警告 hook 用它判斷，這樣偵測邏輯只有 wrapper 裡這一份，不會與實際執行的行為脫節。
+
 wrapper 不得向 stdout 輸出任何內容（stdio MCP 協定佔用 stdout，多印一個字元就會破壞協定）。**這條限制與理由必須寫進 wrapper 的檔首註解**，讓之後修改它的人一眼看到（所有診斷訊息一律走 stderr）。
 
 **3d. 註冊為 `sonarqube`：** 名稱必須維持 `sonarqube`，因為 plugin 的 reviewer agent 白名單是 `mcp__sonarqube__*`。
 
 - 順序：**integrate 之後**執行，因為 integrate 會寫入 `sonarqube → sonar run mcp` 並可能覆蓋。
-- 檢查：`claude mcp get sonarqube`；輸出已含 wrapper 路徑則不變更；否則 `claude mcp remove --scope user sonarqube`（不存在時忽略）後 `claude mcp add --scope user sonarqube -- <wrapper>`。
+- 檢查：用 `slurp` 直接讀 `~/.claude.json` 的 `mcpServers.sonarqube.command`（不依賴 `jq`）；等於 wrapper 路徑則不變更；否則先 `claude mcp remove --scope user sonarqube`（僅在已有項目時），再 `claude mcp add --scope user sonarqube -- <wrapper>`。**不用 `claude mcp get`**：實測它會真的啟動 server 來回報 `Status`，對 integrate 寫入且啟動失敗的項目甚至不顯示 `Command:`，慢且不可靠；`claude mcp add` 在項目已存在時回傳 rc=1，所以必須先 remove。
 - `changed_when` 判斷寫法參照 `drawio-mcp.yml`。
 - 註冊不依賴 token 是否已填（wrapper 是在執行時才需要 token）。
 
-**3e. 警告 hook（SessionStart）**：`sonarqube-mcp-check.sh` 在下列條件全部成立時輸出 `{"systemMessage": "…"}`：沒有可用容器 runtime（同 3c 判斷）、且沒有可用的 Java 21 + JAR。全部正常時完全不輸出。由 `sonarqube-mcp.yml` 部署腳本到 `claude_code_hook_dir`，再呼叫參數化後的 `install_hooks.bash` 註冊到 `settings.json` 的 `hooks.SessionStart`（見 §3f）。
+**3e. 警告 hook（SessionStart）**：`sonarqube-mcp-check.sh` 呼叫 `sonarqube-mcp --check`；失敗（沒有可用容器 runtime，且沒有可用的 Java 21 + JAR）時輸出 `{"systemMessage": "…"}`。能啟動時、或 wrapper 根本沒安裝時，完全不輸出。由 `sonarqube-mcp.yml` 部署腳本到 `claude_code_hook_dir`，再呼叫參數化後的 `install_hooks.bash` 註冊到 `settings.json` 的 `hooks.SessionStart`（見 §3f）。
 
 ### 3f. `install_hooks.bash` 參數化
 
@@ -175,6 +177,7 @@ install_hooks.bash <hook 腳本路徑> <事件>[:<timeout 秒數>] [<事件>[:<t
 
 - `ansible/inventory/local.yml` 不存在時，從 `local.yml.example` 以 `install -m 0600` 建立；已存在則完全不動。
 - 建立失敗（例如目錄唯讀）只印警告，不中止。
+- 若一開始就以 `sudo bin/setup-*` 執行（一開始即是 root、`SUDO_USER` 有值），建立後把檔案 `chown` 給 `SUDO_USER`，理由同上。
 - 三支 script 在 `reexec_with_sudo` **之前**呼叫。sudo 之後是 root，此時建立會讓檔案屬於 root，使用者之後無法編輯 token。
 - example 本身可直接使用（只有 `localhost`），所以自動建立不需要使用者介入；README 的手動 `cp` 只在想讓 Ansible 管理 token 時才需要。
 

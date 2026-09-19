@@ -60,3 +60,4 @@ claude_code_sonarqube_server: http://sonarqube:9000
 # (VM, LXC) or ansible/inventory/local.yml (WSL, devcontainer).
 claude_code_sonarqube_token: ""
 claude_code_sonarqube_token_file: "{{ setup_user_home }}/.config/zsh/non-interactive/15-sonarqube-cli.zsh"
+claude_code_sonarqube_server_file: "{{ setup_user_home }}/.config/zsh/non-interactive/14-sonarqube-cli-server.zsh"

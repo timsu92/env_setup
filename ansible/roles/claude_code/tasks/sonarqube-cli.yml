@@ -60,7 +60,7 @@
 - name: Deploy sonarqube-cli server zsh snippet
   ansible.builtin.template:
     src: 14-sonarqube-cli-server.zsh.j2
-    dest: "{{ setup_user_home }}/.config/zsh/non-interactive/14-sonarqube-cli-server.zsh"
+    dest: "{{ claude_code_sonarqube_server_file }}"
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: "0644"
@@ -104,3 +104,44 @@
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: "0644"
+
+# `sonar integrate claude --global` registers the secrets-scanning hooks and
+# writes the `sonarqube` MCP entry into ~/.claude.json. It needs a reachable
+# server and a valid token: without them it exits 1 and writes nothing, so it
+# can only run once the token file holds a token, whether it came from the
+# inventory or was filled in by hand.
+- name: Check whether a SonarQube token is configured
+  ansible.builtin.command:
+    cmd: grep -q '^export SONARQUBE_CLI_TOKEN=' "{{ claude_code_sonarqube_token_file }}"
+  register: claude_code_sonarqube_token_check
+  changed_when: false
+  failed_when: claude_code_sonarqube_token_check.rc > 1
+
+- name: Explain how to enable the SonarQube integration
+  ansible.builtin.debug:
+    msg: >-
+      No SonarQube token yet, so `sonar integrate claude` was skipped. Put a
+      user token in {{ claude_code_sonarqube_token_file }}, or set
+      claude_code_sonarqube_token in ansible/inventory/pve_hosts.yml (VM, LXC)
+      or ansible/inventory/local.yml (WSL, devcontainer), then run the
+      playbook again.
+  when: claude_code_sonarqube_token_check.rc != 0
+
+# The task fails when the server is unreachable or the token is invalid: a
+# token was provided, so silently skipping would hide a broken setup. The
+# marker file is what integrate installs, so a finished integration is not
+# repeated.
+- name: Integrate SonarQube with Claude Code (secrets-scanning hooks, MCP entry)
+  ansible.builtin.shell:
+    cmd: >-
+      . "{{ claude_code_sonarqube_server_file }}" &&
+      . "{{ claude_code_sonarqube_token_file }}" &&
+      sonar integrate claude --global --non-interactive
+    executable: /bin/bash
+    creates: "{{ claude_code_hook_dir }}/sonar-secrets/build-scripts/pretool-secrets.sh"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+    PATH: "{{ claude_code_sonarqube_cli_dir }}:{{ ansible_facts['env']['PATH'] }}"
+  when: claude_code_sonarqube_token_check.rc == 0

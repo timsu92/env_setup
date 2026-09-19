@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# sonarqube-mcp: start the SonarQube MCP server for Claude Code.
+#
+# Registered in ~/.claude.json as the MCP server named `sonarqube`. Keep that
+# name: the sonarqube plugin's skills and agents call its tools as
+# mcp__sonarqube__*.
+#
+# How the server runs is decided every time it starts, so installing or
+# removing Docker later needs no re-provisioning:
+#   1. a container runtime that works (docker / podman / nerdctl)
+#        -> `sonar run mcp`, the officially supported way
+#   2. otherwise Java 21+ and the standalone MCP server JAR
+#        -> `java -jar` (both installed by the claude_code Ansible role)
+#   3. otherwise exit 1 with an explanation on stderr
+#
+# !! stdout belongs to the MCP protocol (stdio transport). Do NOT write
+# !! anything to stdout in this script, not even a stray `echo`: one extra
+# !! byte corrupts the protocol and Claude Code reports the server as failed
+# !! to connect. Every diagnostic goes to stderr.
+set -euo pipefail
+
+SONARQUBE_CLI_BIN="${HOME}/.local/share/sonarqube-cli/bin"
+MCP_JAR="${SONARQUBE_MCP_JAR:-${HOME}/.local/share/sonarqube-mcp/sonarqube-mcp-server.jar}"
+
+container_runtime_works() {
+  local runtime
+  for runtime in docker podman nerdctl; do
+    if command -v "$runtime" >/dev/null 2>&1 && "$runtime" info >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Prints the major Java version (21 for "21.0.12"), or nothing without Java.
+java_major_version() {
+  command -v java >/dev/null 2>&1 || return 0
+  java -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p'
+}
+
+if container_runtime_works; then
+  PATH="${SONARQUBE_CLI_BIN}:${PATH}"
+  exec sonar run mcp "$@"
+fi
+
+java_major="$(java_major_version)"
+if [[ -f "$MCP_JAR" && "${java_major:-0}" -ge 21 ]]; then
+  # The JAR reads its own variable names, not the CLI's.
+  export SONARQUBE_URL="${SONARQUBE_CLI_SERVER:?SONARQUBE_CLI_SERVER is not set (see ~/.config/zsh/non-interactive/14-sonarqube-cli-server.zsh)}"
+  export SONARQUBE_TOKEN="${SONARQUBE_CLI_TOKEN:?SONARQUBE_CLI_TOKEN is not set (see ~/.config/zsh/non-interactive/15-sonarqube-cli.zsh)}"
+  export STORAGE_PATH="${XDG_STATE_HOME:-${HOME}/.local/state}/sonarqube-mcp"
+  mkdir -p "$STORAGE_PATH"
+  exec java -jar "$MCP_JAR"
+fi
+
+{
+  echo "sonarqube-mcp: cannot start the SonarQube MCP server."
+  echo "  - no working container runtime (docker / podman / nerdctl): install and start one, or"
+  echo "  - install Java 21+ and the MCP server JAR at ${MCP_JAR}"
+  echo "    (found: java ${java_major:-none}, jar $([[ -f "$MCP_JAR" ]] && echo present || echo missing))."
+} >&2
+exit 1

@@ -1,0 +1,66 @@
+---
+# sonarqube-mcp: run the SonarQube MCP server (`mcp__sonarqube__*`) wherever
+# it can run. `sonar run mcp` needs a container runtime; without one the
+# standalone MCP server JAR needs Java 21+. The sonarqube-mcp wrapper picks
+# between them each time Claude Code starts the server; this file only
+# provides what the wrapper may need.
+
+# Presence only: a rootless Docker daemon is a systemd user service that is
+# usually not running during provisioning, so "works" cannot be checked here.
+- name: Look for a container runtime
+  ansible.builtin.shell:
+    cmd: for runtime in docker podman nerdctl; do command -v "$runtime" && exit 0; done; exit 1
+    executable: /bin/sh
+  register: claude_code_sonarqube_container_runtime
+  changed_when: false
+  failed_when: false
+
+- name: Explain that the SonarQube MCP server cannot be installed here
+  ansible.builtin.debug:
+    msg: >-
+      Claude Code 的 SonarQube MCP 無法安裝：此環境沒有容器 runtime，備援方案（獨立 JAR）也因為沒有 Java 21 而無法使用
+      （{{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }} 沒有 openjdk-21-jre-headless 套件）。
+  when:
+    - claude_code_sonarqube_container_runtime.rc != 0
+    - not claude_code_sonarqube_mcp_java_supported | bool
+
+- name: Install Java for the SonarQube MCP server JAR
+  ansible.builtin.apt:
+    name: openjdk-21-jre-headless
+    state: present
+  when:
+    - claude_code_sonarqube_container_runtime.rc != 0
+    - claude_code_sonarqube_mcp_java_supported | bool
+
+- name: Create SonarQube MCP server directory
+  ansible.builtin.file:
+    path: "{{ claude_code_sonarqube_mcp_dir }}"
+    state: directory
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+  when:
+    - claude_code_sonarqube_container_runtime.rc != 0
+    - claude_code_sonarqube_mcp_java_supported | bool
+
+# As for the CLI, a checksum makes get_url replace a JAR that does not match.
+- name: Download SonarQube MCP server JAR
+  ansible.builtin.get_url:
+    url: "{{ claude_code_sonarqube_mcp_url }}"
+    dest: "{{ claude_code_sonarqube_mcp_dir }}/sonarqube-mcp-server.jar"
+    checksum: "sha256:{{ claude_code_sonarqube_mcp_url }}.sha256"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+  when:
+    - claude_code_sonarqube_container_runtime.rc != 0
+    - claude_code_sonarqube_mcp_java_supported | bool
+
+# Deployed everywhere: it chooses between container and JAR at run time.
+- name: Deploy sonarqube-mcp wrapper
+  ansible.builtin.copy:
+    src: sonarqube-mcp
+    dest: "{{ setup_user_home }}/.local/bin/sonarqube-mcp"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"

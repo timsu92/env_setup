@@ -61,3 +61,13 @@ claude_code_sonarqube_server: http://sonarqube:9000
 claude_code_sonarqube_token: ""
 claude_code_sonarqube_token_file: "{{ setup_user_home }}/.config/zsh/non-interactive/15-sonarqube-cli.zsh"
 claude_code_sonarqube_server_file: "{{ setup_user_home }}/.config/zsh/non-interactive/14-sonarqube-cli-server.zsh"
+
+# SonarQube MCP server JAR, the fallback when no container runtime can run
+# `sonar run mcp`. Needs Java 21+; Debian 12 has no openjdk-21 package.
+claude_code_sonarqube_mcp_version: 1.27.0.4335
+claude_code_sonarqube_mcp_dir: "{{ setup_user_home }}/.local/share/sonarqube-mcp"
+claude_code_sonarqube_mcp_url: "https://binaries.sonarsource.com/Distribution/sonarqube-mcp-server/\
+  sonarqube-mcp-server-{{ claude_code_sonarqube_mcp_version }}.jar"
+claude_code_sonarqube_mcp_java_supported: >-
+  {{ ansible_facts['distribution'] == 'Ubuntu'
+     or (ansible_facts['distribution'] == 'Debian' and ansible_facts['distribution_major_version'] | int >= 13) }}

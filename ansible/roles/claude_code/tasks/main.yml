@@ -64,3 +64,6 @@
 
 - name: Install sonarqube-cli
   ansible.builtin.include_tasks: sonarqube-cli.yml
+
+- name: Install SonarQube MCP server fallback
+  ansible.builtin.include_tasks: sonarqube-mcp.yml

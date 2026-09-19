@@ -71,3 +71,4 @@ claude_code_sonarqube_mcp_url: "https://binaries.sonarsource.com/Distribution/so
 claude_code_sonarqube_mcp_java_supported: >-
   {{ ansible_facts['distribution'] == 'Ubuntu'
      or (ansible_facts['distribution'] == 'Debian' and ansible_facts['distribution_major_version'] | int >= 13) }}
+claude_code_sonarqube_mcp_wrapper: "{{ setup_user_home }}/.local/bin/sonarqube-mcp"

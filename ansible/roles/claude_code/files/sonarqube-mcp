@@ -17,6 +17,9 @@
 # !! anything to stdout in this script, not even a stray `echo`: one extra
 # !! byte corrupts the protocol and Claude Code reports the server as failed
 # !! to connect. Every diagnostic goes to stderr.
+#
+# `sonarqube-mcp --check` only reports whether the server could start (exit 0
+# or 1, reason on stderr) without starting it; the SessionStart hook uses it.
 set -euo pipefail
 
 SONARQUBE_CLI_BIN="${HOME}/.local/share/sonarqube-cli/bin"
@@ -38,20 +41,35 @@ java_major_version() {
   java -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p'
 }
 
+mode=none
+java_major=""
 if container_runtime_works; then
-  PATH="${SONARQUBE_CLI_BIN}:${PATH}"
-  exec sonar run mcp "$@"
+  mode=container
+else
+  java_major="$(java_major_version)"
+  if [[ -f "$MCP_JAR" && "${java_major:-0}" -ge 21 ]]; then
+    mode=jar
+  fi
 fi
 
-java_major="$(java_major_version)"
-if [[ -f "$MCP_JAR" && "${java_major:-0}" -ge 21 ]]; then
-  # The JAR reads its own variable names, not the CLI's.
-  export SONARQUBE_URL="${SONARQUBE_CLI_SERVER:?SONARQUBE_CLI_SERVER is not set (see ~/.config/zsh/non-interactive/14-sonarqube-cli-server.zsh)}"
-  export SONARQUBE_TOKEN="${SONARQUBE_CLI_TOKEN:?SONARQUBE_CLI_TOKEN is not set (see ~/.config/zsh/non-interactive/15-sonarqube-cli.zsh)}"
-  export STORAGE_PATH="${XDG_STATE_HOME:-${HOME}/.local/state}/sonarqube-mcp"
-  mkdir -p "$STORAGE_PATH"
-  exec java -jar "$MCP_JAR"
+if [[ "$mode" != none && "${1:-}" == "--check" ]]; then
+  exit 0
 fi
+
+case "$mode" in
+  container)
+    PATH="${SONARQUBE_CLI_BIN}:${PATH}"
+    exec sonar run mcp "$@"
+    ;;
+  jar)
+    # The JAR reads its own variable names, not the CLI's.
+    export SONARQUBE_URL="${SONARQUBE_CLI_SERVER:?SONARQUBE_CLI_SERVER is not set (see ~/.config/zsh/non-interactive/14-sonarqube-cli-server.zsh)}"
+    export SONARQUBE_TOKEN="${SONARQUBE_CLI_TOKEN:?SONARQUBE_CLI_TOKEN is not set (see ~/.config/zsh/non-interactive/15-sonarqube-cli.zsh)}"
+    export STORAGE_PATH="${XDG_STATE_HOME:-${HOME}/.local/state}/sonarqube-mcp"
+    mkdir -p "$STORAGE_PATH"
+    exec java -jar "$MCP_JAR"
+    ;;
+esac
 
 {
   echo "sonarqube-mcp: cannot start the SonarQube MCP server."

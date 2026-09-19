@@ -60,7 +60,70 @@
 - name: Deploy sonarqube-mcp wrapper
   ansible.builtin.copy:
     src: sonarqube-mcp
-    dest: "{{ setup_user_home }}/.local/bin/sonarqube-mcp"
+    dest: "{{ claude_code_sonarqube_mcp_wrapper }}"
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: "0755"
+
+# Warns at session start when the MCP server cannot start (see the script).
+- name: Create hooks directory
+  ansible.builtin.include_tasks:
+    file: hooks-dir.yml
+
+- name: Deploy sonarqube-mcp-check hook script
+  ansible.builtin.copy:
+    src: hooks/sonarqube-mcp-check.sh
+    dest: "{{ claude_code_hook_dir }}/sonarqube-mcp-check.sh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+
+- name: Register sonarqube-mcp-check hook in settings.json
+  ansible.builtin.script:
+    cmd: "install_hooks.bash {{ claude_code_hook_dir }}/sonarqube-mcp-check.sh SessionStart"
+  become: true
+  become_user: "{{ setup_user }}"
+  register: claude_code_sonarqube_mcp_hook_install
+  changed_when: claude_code_sonarqube_mcp_hook_install.rc == 0
+  failed_when: claude_code_sonarqube_mcp_hook_install.rc != 0 and claude_code_sonarqube_mcp_hook_install.rc != 10
+
+# The MCP entry must be named `sonarqube`: the plugin's skills and agent call
+# mcp__sonarqube__*. `sonar integrate claude` (sonarqube-cli.yml, earlier in
+# the same run) writes `sonarqube -> sonar run mcp`, which cannot start
+# without a container runtime, so replace it with the wrapper. Read
+# ~/.claude.json directly: `claude mcp get` starts the server to check on it.
+- name: Read ~/.claude.json
+  ansible.builtin.slurp:
+    src: "{{ setup_user_home }}/.claude.json"
+  register: claude_code_claude_json
+  failed_when: false
+
+- name: Find the command registered for the sonarqube MCP server
+  ansible.builtin.set_fact:
+    claude_code_sonarqube_mcp_registered: >-
+      {{ (((claude_code_claude_json.content | default('e30=') | b64decode | from_json).mcpServers
+         | default({})).sonarqube | default({})).command | default('') }}
+
+- name: Remove the sonarqube MCP server that does not use the wrapper
+  ansible.builtin.command:
+    cmd: "{{ setup_user_home }}/.local/bin/claude mcp remove --scope user sonarqube"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+  changed_when: true
+  when:
+    - claude_code_sonarqube_mcp_registered | length > 0
+    - claude_code_sonarqube_mcp_registered != claude_code_sonarqube_mcp_wrapper
+
+- name: Register the sonarqube MCP server through the wrapper
+  ansible.builtin.command:
+    cmd: >-
+      {{ setup_user_home }}/.local/bin/claude mcp add --scope user sonarqube
+      -- {{ claude_code_sonarqube_mcp_wrapper }}
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+  changed_when: true
+  when: claude_code_sonarqube_mcp_registered != claude_code_sonarqube_mcp_wrapper

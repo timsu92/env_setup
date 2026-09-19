@@ -19,7 +19,9 @@ uv sync
 # Lint (profile: production, see .ansible-lint.yml)
 uv run ansible-lint
 
-# Syntax-check a specific profile playbook without connecting to any host
+# Syntax-check a specific profile playbook without connecting to any host.
+# inventory/local.yml is git-ignored: run any bin/setup-* once (or
+# `cp ansible/inventory/local.yml.example ansible/inventory/local.yml`) so it exists.
 cd ansible && ANSIBLE_CONFIG=../ansible.cfg uv run ansible-playbook --syntax-check -i inventory/local.yml playbooks/vm-daily-wsl.yml
 
 # Dry run against a real target (shows what would change, no actual changes).

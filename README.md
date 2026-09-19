@@ -24,7 +24,7 @@ ansible/
 ├─ playbook_vars/
 │  └─ local.yml              # shared vars for local execution profiles
 ├─ inventory/
-│  ├─ local.yml              # localhost for local execution profiles
+│  ├─ local.yml.example      # template for localhost (WSL / container / devcontainer); copied to git-ignored local.yml
 │  ├─ pve_hosts.yml.example  # template for remote PVE hosts
 │  └─ group_vars/            # inventory-scoped group variables
 ├─ playbooks/                # profiles (one per target environment)
@@ -100,9 +100,22 @@ Roles implement individual capabilities. Each role encapsulates everything neede
 
 ## How to run
 
+The local profiles (WSL, Docker container, devcontainer) read
+`ansible/inventory/local.yml`, which is git-ignored. `bin/setup-*` create it
+from `local.yml.example` when it is missing, so it only needs to be copied by
+hand to set optional variables such as `claude_code_sonarqube_token`.
+
 ### WSL daily driver (local)
 
 ```bash
+# 1. (Optional) Copy and configure inventory
+#    Only needed to let Ansible manage the SonarQube token; if the file is
+#    missing, bin/setup-vm creates it from the example automatically.
+cp ansible/inventory/local.yml.example ansible/inventory/local.yml
+# Edit and set claude_code_sonarqube_token under 'localhost', then:
+chmod 600 ansible/inventory/local.yml
+
+# 2. Provision
 bin/setup-vm
 # or explicitly:
 bin/setup-vm --profile wsl
@@ -165,7 +178,14 @@ bin/setup-container
 ### Devcontainer
 
 ```bash
-# Inside the devcontainer:
+# 1. (Optional) Copy and configure inventory
+#    Only needed to let Ansible manage the SonarQube token; if the file is
+#    missing, bin/setup-devcontainer creates it from the example automatically.
+cp ansible/inventory/local.yml.example ansible/inventory/local.yml
+# Edit and set claude_code_sonarqube_token under 'localhost', then:
+chmod 600 ansible/inventory/local.yml
+
+# 2. Inside the devcontainer:
 bin/setup-devcontainer
 ```
 

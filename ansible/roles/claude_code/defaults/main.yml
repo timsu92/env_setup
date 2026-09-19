@@ -37,3 +37,26 @@ claude_code_self_download_dir: "{{ claude_code_plugin_dir }}/self-download"
 
 claude_code_hung_yi_lee_skill_version: 50aa282
 claude_code_hung_yi_lee_skill_refspec: 50aa2823cee651ecd9fbfb56cb66455bb8e3a7b3
+
+# sonarqube-cli. The official install.sh always installs "stable" and cannot be
+# pinned, so the role downloads the release binary itself and verifies it with
+# the .sha256 published next to it. Only the two glibc builds exist upstream.
+claude_code_sonarqube_cli_version: 1.8.0.5274
+claude_code_sonarqube_cli_dir: "{{ setup_user_home }}/.local/share/sonarqube-cli/bin"
+claude_code_sonarqube_cli_platforms:
+  x86_64: linux-x86-64
+  aarch64: linux-arm64
+claude_code_sonarqube_cli_platform: "{{ claude_code_sonarqube_cli_platforms[ansible_facts['architecture']] }}"
+claude_code_sonarqube_cli_base_url: https://binaries.sonarsource.com/Distribution/sonarqube-cli
+claude_code_sonarqube_cli_url: "{{ claude_code_sonarqube_cli_base_url }}/{{ claude_code_sonarqube_cli_version }}\
+  /linux/sonarqube-cli-{{ claude_code_sonarqube_cli_version }}-{{ claude_code_sonarqube_cli_platform }}.bin"
+
+# Self-hosted SonarQube Server that the CLI (and its MCP server) talks to.
+claude_code_sonarqube_server: http://sonarqube:9000
+# Optional SonarQube *user* token (project / global tokens do not work). When
+# non-empty, Ansible owns claude_code_sonarqube_token_file and writes it there;
+# when empty, an empty stub is deployed once and never overwritten, so a token
+# filled in by hand survives re-runs. Set it in ansible/inventory/pve_hosts.yml
+# (VM, LXC) or ansible/inventory/local.yml (WSL, devcontainer).
+claude_code_sonarqube_token: ""
+claude_code_sonarqube_token_file: "{{ setup_user_home }}/.config/zsh/non-interactive/15-sonarqube-cli.zsh"

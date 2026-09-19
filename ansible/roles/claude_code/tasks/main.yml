@@ -61,3 +61,6 @@
 
 - name: Install drawio-mcp
   ansible.builtin.include_tasks: drawio-mcp.yml
+
+- name: Install sonarqube-cli
+  ansible.builtin.include_tasks: sonarqube-cli.yml

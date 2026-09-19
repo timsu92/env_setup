@@ -264,3 +264,4 @@ directly since cloud-init already installs its key. See
 ## Notes
 
 - **WireGuard keys**: checkout `ansible/inventory/pve_hosts.yml.example` for example inventory vars needed to set up a WireGuard client.
+- **SonarQube token** (optional): set `claude_code_sonarqube_token` in `ansible/inventory/pve_hosts.yml` (VM, LXC) or `ansible/inventory/local.yml` (WSL, devcontainer); see the matching `.example` file. When set, Ansible writes it to `~/.config/zsh/non-interactive/15-sonarqube-cli.zsh` (mode 0600); when unset, an empty stub is deployed there for you to fill in by hand, and is never overwritten. It must be a SonarQube *user* token (project and global tokens do not work). Run `chmod 600` on the inventory file once it holds a token.

@@ -22,6 +22,10 @@ all:
             - src: "192.168.1.1:/mnt/shared_data"
               dest: /mnt/data
               opts: "defaults,nofail,_netdev,soft,timeo=30,retrans=5"
+          # SonarQube user token (used by claude_code role); optional. When set, Ansible
+          # writes it to ~/.config/zsh/non-interactive/15-sonarqube-cli.zsh; when unset,
+          # an empty stub is deployed for you to fill in by hand. Must be a *user* token.
+          # claude_code_sonarqube_token: "<user-token>"
     lxc:
       hosts:
         pve-lxc-01:
@@ -33,3 +37,7 @@ all:
           # separate, configured identity — see CLAUDE.md "Identity model".
           ansible_user: root  # user name used to ssh into
           nfs_client_mounts: []  # no NFS mounts for this LXC
+          # SonarQube user token (used by claude_code role); optional. When set, Ansible
+          # writes it to ~/.config/zsh/non-interactive/15-sonarqube-cli.zsh; when unset,
+          # an empty stub is deployed for you to fill in by hand. Must be a *user* token.
+          # claude_code_sonarqube_token: "<user-token>"

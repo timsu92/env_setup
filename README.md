@@ -94,7 +94,7 @@ Roles implement individual capabilities. Each role encapsulates everything neede
 | `fzf` | fzf fuzzy finder |
 | `github_cli` | GitHub CLI (gh) |
 | `htop` | htop process viewer |
-| `claude_code` | Claude Code + rtk |
+| `claude_code` | Claude Code + rtk + SonarQube CLI / MCP server (container or, without a container runtime, standalone JAR + Java) |
 
 ---
 

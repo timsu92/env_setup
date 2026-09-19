@@ -25,8 +25,10 @@
     - role: tmux
     - role: nfs_client
     - role: sshd
-    - role: claude_code
     - role: docker_rootless
+    # After docker_rootless: claude_code checks for a container runtime to
+    # decide whether the SonarQube MCP server needs Java + the standalone JAR.
+    - role: claude_code
     - role: fzf
     - role: htop
     - role: copy_fail_fix

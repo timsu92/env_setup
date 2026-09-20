@@ -24,7 +24,7 @@ ansible/
 ├─ playbook_vars/
 │  └─ local.yml              # shared vars for local execution profiles
 ├─ inventory/
-│  ├─ local.yml              # localhost for local execution profiles
+│  ├─ local.yml.example      # template for localhost (WSL / container / devcontainer); copied to git-ignored local.yml
 │  ├─ pve_hosts.yml.example  # template for remote PVE hosts
 │  └─ group_vars/            # inventory-scoped group variables
 ├─ playbooks/                # profiles (one per target environment)
@@ -94,15 +94,28 @@ Roles implement individual capabilities. Each role encapsulates everything neede
 | `fzf` | fzf fuzzy finder |
 | `github_cli` | GitHub CLI (gh) |
 | `htop` | htop process viewer |
-| `claude_code` | Claude Code + rtk |
+| `claude_code` | Claude Code + plugins, skills, hooks and MCP servers |
 
 ---
 
 ## How to run
 
+The local profiles (WSL, Docker container, devcontainer) read
+`ansible/inventory/local.yml`, which is git-ignored. `bin/setup-*` create it
+from `local.yml.example` when it is missing, so it only needs to be copied by
+hand to set optional variables such as `claude_code_sonarqube_token`.
+
 ### WSL daily driver (local)
 
 ```bash
+# 1. (Optional) Copy and configure inventory
+#    Only needed to let Ansible manage the SonarQube token; if the file is
+#    missing, bin/setup-vm creates it from the example automatically.
+cp ansible/inventory/local.yml.example ansible/inventory/local.yml
+# Edit and set claude_code_sonarqube_token under 'localhost', then:
+chmod 600 ansible/inventory/local.yml
+
+# 2. Provision
 bin/setup-vm
 # or explicitly:
 bin/setup-vm --profile wsl
@@ -165,7 +178,14 @@ bin/setup-container
 ### Devcontainer
 
 ```bash
-# Inside the devcontainer:
+# 1. (Optional) Copy and configure inventory
+#    Only needed to let Ansible manage the SonarQube token; if the file is
+#    missing, bin/setup-devcontainer creates it from the example automatically.
+cp ansible/inventory/local.yml.example ansible/inventory/local.yml
+# Edit and set claude_code_sonarqube_token under 'localhost', then:
+chmod 600 ansible/inventory/local.yml
+
+# 2. Inside the devcontainer:
 bin/setup-devcontainer
 ```
 
@@ -244,3 +264,4 @@ directly since cloud-init already installs its key. See
 ## Notes
 
 - **WireGuard keys**: checkout `ansible/inventory/pve_hosts.yml.example` for example inventory vars needed to set up a WireGuard client.
+- **SonarQube token** (optional): set `claude_code_sonarqube_token` in `ansible/inventory/pve_hosts.yml` (VM, LXC) or `ansible/inventory/local.yml` (WSL, devcontainer); see the matching `.example` file. When set, Ansible writes it to `~/.config/zsh/non-interactive/15-sonarqube-cli.zsh` (mode 0600); when unset, an empty stub is deployed there for you to fill in by hand, and is never overwritten. It must be a SonarQube *user* token (project and global tokens do not work). Run `chmod 600` on the inventory file once it holds a token.

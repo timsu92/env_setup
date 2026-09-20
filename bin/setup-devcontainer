@@ -14,6 +14,9 @@ source "${REPO_ROOT}/utils/common.sh"
 # shellcheck source=../utils/locale.sh
 source "${REPO_ROOT}/utils/locale.sh"
 
+# Before the sudo re-exec, so a new local.yml is owned by the invoking user.
+ensure_local_inventory "${REPO_ROOT}"
+
 reexec_with_sudo "${BASH_SOURCE[0]}" "$@"
 
 caller_ansible_vars

@@ -1,0 +1,141 @@
+---
+# sonarqube-cli: the SonarQube CLI (pinned, checksum-verified), its zsh
+# integration and update script. `sonar integrate claude` and, through the
+# sonarqube-mcp wrapper, `sonar run mcp` both need it.
+
+# The upstream binary is linked against glibc only. Verified on Alpine 3.22:
+# it fails with "not found", and gcompat then fails with
+# "__pthread_key_create: symbol not found".
+- name: Refuse to install sonarqube-cli on Alpine
+  ansible.builtin.assert:
+    that: ansible_facts['distribution'] != 'Alpine'
+    fail_msg: >-
+      sonarqube-cli's official binary is only built against glibc, so it cannot
+      run on Alpine (musl), not even with gcompat. This role does not support
+      Alpine.
+    quiet: true
+
+- name: Refuse CPU architectures sonarqube-cli has no build for
+  ansible.builtin.assert:
+    that: ansible_facts['architecture'] in claude_code_sonarqube_cli_platforms
+    fail_msg: "sonarqube-cli has no build for {{ ansible_facts['architecture'] }}"
+    quiet: true
+
+- name: Create sonarqube-cli directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+  loop:
+    - "{{ claude_code_sonarqube_cli_dir | dirname }}"
+    - "{{ claude_code_sonarqube_cli_dir }}"
+
+# With a checksum, get_url downloads again whenever dest does not match it, so
+# a binary replaced by `sonar update` is put back to the pinned version.
+- name: Download sonarqube-cli
+  ansible.builtin.get_url:
+    url: "{{ claude_code_sonarqube_cli_url }}"
+    dest: "{{ claude_code_sonarqube_cli_dir }}/sonar"
+    checksum: "sha256:{{ claude_code_sonarqube_cli_url }}.sha256"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+
+- name: Deploy sonarqube-cli PATH zsh snippet
+  ansible.builtin.copy:
+    src: non-interactive/14-sonarqube-cli-path.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/non-interactive/14-sonarqube-cli-path.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
+- name: Deploy sonarqube-cli server zsh snippet
+  ansible.builtin.template:
+    src: 14-sonarqube-cli-server.zsh.j2
+    dest: "{{ claude_code_sonarqube_server_file }}"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
+# The token file is sourced by every zsh and holds a credential, hence 0600.
+# With a token in the inventory Ansible is the only source of truth and
+# rewrites the file; no_log keeps the token out of the output and --diff.
+- name: Deploy SonarQube token from the inventory
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible from claude_code_sonarqube_token: edit the inventory, not this file.
+      export SONARQUBE_CLI_TOKEN={{ claude_code_sonarqube_token | quote }}
+    dest: "{{ claude_code_sonarqube_token_file }}"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0600"
+  no_log: true
+  when: claude_code_sonarqube_token | length > 0
+
+# force: false means an existing file, e.g. a token filled in by hand, is
+# never overwritten.
+- name: Deploy empty SonarQube token stub
+  ansible.builtin.copy:
+    content: |
+      # SonarQube CLI token, sourced by every zsh. Keep this file mode 0600.
+      # Must be a *user* token (project / global tokens do not work).
+      # To have Ansible manage this file instead, set claude_code_sonarqube_token in
+      # ansible/inventory/pve_hosts.yml (VM, LXC) or ansible/inventory/local.yml (WSL, devcontainer).
+      # export SONARQUBE_CLI_TOKEN="<user token>"
+    dest: "{{ claude_code_sonarqube_token_file }}"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0600"
+    force: false
+  when: claude_code_sonarqube_token | length == 0
+
+- name: Deploy aptu update script for sonarqube-cli
+  ansible.builtin.copy:
+    src: sonarqube-cli.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/sonarqube-cli.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
+# `sonar integrate claude --global` registers the secrets-scanning hooks and
+# writes the `sonarqube` MCP entry into ~/.claude.json. It needs a reachable
+# server and a valid token: without them it exits 1 and writes nothing, so it
+# can only run once the token file holds a token, whether it came from the
+# inventory or was filled in by hand.
+- name: Check whether a SonarQube token is configured
+  ansible.builtin.command:
+    cmd: grep -q '^export SONARQUBE_CLI_TOKEN=' "{{ claude_code_sonarqube_token_file }}"
+  register: claude_code_sonarqube_token_check
+  changed_when: false
+  failed_when: claude_code_sonarqube_token_check.rc > 1
+
+- name: Explain how to enable the SonarQube integration
+  ansible.builtin.debug:
+    msg: >-
+      No SonarQube token yet, so `sonar integrate claude` was skipped. Put a
+      user token in {{ claude_code_sonarqube_token_file }}, or set
+      claude_code_sonarqube_token in ansible/inventory/pve_hosts.yml (VM, LXC)
+      or ansible/inventory/local.yml (WSL, devcontainer), then run the
+      playbook again.
+  when: claude_code_sonarqube_token_check.rc != 0
+
+# The task fails when the server is unreachable or the token is invalid: a
+# token was provided, so silently skipping would hide a broken setup. The
+# marker file is what integrate installs, so a finished integration is not
+# repeated.
+- name: Integrate SonarQube with Claude Code (secrets-scanning hooks, MCP entry)
+  ansible.builtin.shell:
+    cmd: >-
+      . "{{ claude_code_sonarqube_server_file }}" &&
+      . "{{ claude_code_sonarqube_token_file }}" &&
+      sonar integrate claude --global --non-interactive
+    executable: /bin/bash
+    creates: "{{ claude_code_hook_dir }}/sonar-secrets/build-scripts/pretool-secrets.sh"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+    PATH: "{{ claude_code_sonarqube_cli_dir }}:{{ ansible_facts['env']['PATH'] }}"
+  when: claude_code_sonarqube_token_check.rc == 0

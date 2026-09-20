@@ -94,7 +94,7 @@ CLI 的 `pin` 註解需說明：官方 `install.sh` 只會裝 stable，不支援
 ### 1. CLI 安裝（`sonarqube-cli.yml`）
 
 0. **平台守衛（`sonarqube-cli.yml` 的第一個 task）：** `ansible.builtin.assert` 要求 `ansible_facts['distribution'] != 'Alpine'`，`fail_msg` 為「sonarqube-cli 的官方 binary 只有 glibc 版本，在 Alpine（musl）上無法執行（`gcompat` 也不行），本 role 不支援 Alpine」。用 `assert` 而不是 `ignore_errors`，符合 `ansible-lint` 的 production profile。目前 `claude_code` 前面的 `apt` task 在 Alpine 上本來就會先失敗，這個守衛的作用是：日後若 role 擴充到 Alpine，SonarQube 這一段仍會給出明確的原因，而不是一個難懂的 `not found`。
-1. apt 安裝 `curl`（`sonar update` 的 `install.sh` 需要 curl 或 wget；依 CLAUDE.md 慣例，prerequisites 寫在 task 開頭）。
+1. 不另外安裝下載工具：`sonar update` 會重跑的 `install.sh`，每個下載點都是 curl、wget 擇一皆可（實測在只有 wget 的容器內可正常更新），而 `claude_code` 的 meta 依賴 `curl_or_wget` 已保證至少有其一。CLAUDE.md 要求另外 apt 安裝 `curl` 的情況是腳本明確只用 curl（如 `bun`），不適用於此。
 2. 建立 `claude_code_sonarqube_cli_dir`（owner `setup_user`）。
 3. `ansible.builtin.get_url`：
    - `url`：`…/<版本>/linux/sonarqube-cli-<版本>-<平台>.bin`，平台由 `ansible_facts['architecture']` 映射（`x86_64` → `linux-x86-64`、`aarch64` → `linux-arm64`），不在對照表內的架構明確失敗。

@@ -1,6 +1,6 @@
 ---
 dependencies:
-  - role: curl_or_wget  # Claude Code
+  - role: curl_or_wget  # Claude Code; sonar update re-runs sonarqube-cli's install.sh, which needs curl or wget
   - role: git  # marketplaces, plugins
   - role: uv  # claude-swap, hung-yi-lee-skill
   - role: zsh_config_dirs  # cswap auto

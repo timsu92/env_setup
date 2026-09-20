@@ -21,12 +21,6 @@
     fail_msg: "sonarqube-cli has no build for {{ ansible_facts['architecture'] }}"
     quiet: true
 
-- name: Install sonarqube-cli prerequisites
-  ansible.builtin.apt:
-    name:
-      - curl  # `sonar update` re-runs the official install.sh, which needs curl or wget
-    state: present
-
 - name: Create sonarqube-cli directories
   ansible.builtin.file:
     path: "{{ item }}"

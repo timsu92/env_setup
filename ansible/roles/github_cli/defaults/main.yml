@@ -13,3 +13,8 @@ github_cli_repo_component: main
 github_cli_repo_file_name: github-cli
 
 github_cli_package_name: gh
+
+# Hosts whose git operations authenticate through gh's credential helper
+github_cli_git_credential_hosts:
+  - https://github.com
+  - https://gist.github.com

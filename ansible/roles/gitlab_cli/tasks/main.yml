@@ -85,43 +85,23 @@
   when: gitlab_cli_current_git_protocol.stdout != gitlab_cli_git_protocol
   changed_when: true
 
-- name: Check existing git credential helpers for Gitlab CLI remotes  # noqa: command-instead-of-module
-  ansible.builtin.command: git config --global --get-all credential.{{ item }}.helper
-  register: gitlab_cli_existing_credential_helpers
-  become: true
-  become_user: "{{ setup_user }}"
-  check_mode: false
-  changed_when: false
-  failed_when: false
-  when: gitlab_cli_git_auth_using_glab
-  loop: "{{ gitlab_cli_git_auth_using_glab_remotes }}"
-
-# `git config <key> ""` cannot be expressed via community.general.git_config
-# (it rejects an empty value), so fall back to the raw command here. This
-# blank entry is what makes git forget any broader credential.helper that
+# A blank helper first makes git forget any broader credential.helper that
 # would otherwise still apply to these remotes (see credential.<url>.* in
-# git-config(1)) without touching credential.helper itself or any other
-# remote's own credential.<url>.helper entries.
-- name: Reset inherited git credential helpers for Gitlab CLI remotes  # noqa: command-instead-of-module
-  ansible.builtin.command: git config --global --replace-all credential.{{ item.item }}.helper ""
-  become: true
-  become_user: "{{ setup_user }}"
-  changed_when: true
-  when:
-    - gitlab_cli_git_auth_using_glab
-    - item.rc != 0 or item.stdout_lines[0] != ""
-  loop: "{{ gitlab_cli_existing_credential_helpers.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-
-- name: Set Gitlab CLI git auth using glab
-  community.general.git_config:
-    name: credential.{{ item }}.helper
-    value: "!/usr/bin/glab auth git-credential"
-    scope: global
-    add_mode: add
-    state: present
-  become: true
-  become_user: "{{ setup_user }}"
-  when: gitlab_cli_git_auth_using_glab
-  loop: "{{ gitlab_cli_git_auth_using_glab_remotes }}"
+# git-config(1)), then glab itself. Written into the shared ~/.gitconfig as our
+# own marked block so it survives the git role. Turning
+# gitlab_cli_git_auth_using_glab off removes the block again.
+- name: Configure git credential helper for Gitlab CLI remotes
+  ansible.builtin.blockinfile:
+    path: "{{ setup_user_home }}/.gitconfig"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: gitlab_cli"
+    content: |
+      {% for remote in gitlab_cli_git_auth_using_glab_remotes %}
+      [credential "{{ remote }}"]
+          helper =
+          helper = !/usr/bin/glab auth git-credential
+      {% endfor %}
+    create: true
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0664"
+    state: "{{ 'present' if gitlab_cli_git_auth_using_glab else 'absent' }}"

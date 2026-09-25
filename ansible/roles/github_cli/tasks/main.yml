@@ -59,3 +59,22 @@
     name: "{{ github_cli_package_name }}"
     state: present
     update_cache: true
+
+# Same effect as `gh auth setup-git`: a blank helper first (makes git forget any
+# broader credential.helper), then gh itself. Written into the shared
+# ~/.gitconfig as our own marked block so it survives the git role and doesn't
+# depend on it or on gh being logged in.
+- name: Configure git credential helper for GitHub CLI
+  ansible.builtin.blockinfile:
+    path: "{{ setup_user_home }}/.gitconfig"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: github_cli"
+    content: |
+      {% for host in github_cli_git_credential_hosts %}
+      [credential "{{ host }}"]
+          helper =
+          helper = !/usr/bin/gh auth git-credential
+      {% endfor %}
+    create: true
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0664"

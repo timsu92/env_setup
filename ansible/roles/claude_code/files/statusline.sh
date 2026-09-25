@@ -226,6 +226,18 @@ __norm_int() {
     *) printf '%s' "$v" ;;
   esac
 }
+__norm_num() {
+  # Like __norm_int but keeps the decimals: a non-negative plain decimal
+  # passes through unchanged, empty/garbage (null, negative, exponent, ...)
+  # becomes 0.
+  case "$1" in
+    ''|*[!0-9.]*|*.*.*|.*|*.) printf '0' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+__num_ge() {
+  awk -v a="$1" -v b="$2" 'BEGIN{exit !(a+0 >= b+0)}'
+}
 __fmt_token_compact() {
   local n
   n="$(__norm_int "$1")"
@@ -360,13 +372,13 @@ PYEOF
   fi
   date -d "$resume_str" +%s 2>/dev/null || printf ''
 }
-__account_segment() {
-  # Prints the active account's alias if set, else its email, or empty if no
-  # account is logged in. Reads Claude Code's and cswap's own local state
-  # files directly instead of shelling out to `cswap status --json` — that
-  # command also fetches live rate-limit usage over the network even though
-  # we only need identity here, so it would pay for a round-trip this field
-  # doesn't need.
+# Prints the logged-in OAuth account's raw email address (not the cswap
+# alias), or empty if no account is logged in. Reads Claude Code's local
+# config file directly instead of shelling out to `cswap status --json`
+# because that command also fetches live rate-limit usage over the network
+# even though we only need identity here, so it would pay for a round-trip
+# unnecessarily.
+__oauth_email() {
   local claude_home claude_cfg
   claude_home="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
   if [ -f "$claude_home/.config.json" ]; then
@@ -375,6 +387,31 @@ __account_segment() {
     claude_cfg="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
   fi
   [ -f "$claude_cfg" ] || { printf ''; return; }
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.oauthAccount.emailAddress // empty' "$claude_cfg" 2>/dev/null
+  else
+    local py=""
+    if command -v python3 >/dev/null 2>&1; then py=python3
+    elif command -v python >/dev/null 2>&1; then py=python
+    fi
+    [ -z "$py" ] && { printf ''; return; }
+    CLAUDE_CFG="$claude_cfg" "$py" - <<'PYEOF' 2>/dev/null
+import json, os
+try:
+    with open(os.environ['CLAUDE_CFG'], encoding='utf-8') as f:
+        d = json.load(f)
+    print((d.get('oauthAccount') or {}).get('emailAddress') or '', end='')
+except Exception:
+    print('', end='')
+PYEOF
+  fi
+}
+__account_segment() {
+  # Prints the active account's alias if set, else its email, or empty if no
+  # account is logged in.
+  local email
+  email="$(__oauth_email)"
+  [ -n "$email" ] || { printf ''; return; }
   local xdg_data seq_json
   if [ -n "${XDG_DATA_HOME:-}" ] && [[ "$XDG_DATA_HOME" = /* ]]; then
     xdg_data="$XDG_DATA_HOME"
@@ -383,9 +420,6 @@ __account_segment() {
   fi
   seq_json="$xdg_data/claude-swap/sequence.json"
   if command -v jq >/dev/null 2>&1; then
-    local email
-    email="$(jq -r '.oauthAccount.emailAddress // empty' "$claude_cfg" 2>/dev/null)"
-    [ -n "$email" ] || { printf ''; return; }
     local acct_alias=""
     if [ -f "$seq_json" ]; then
       acct_alias="$(jq -r --arg e "$email" '(.accounts // {}) | to_entries[] | select(.value.email == $e) | .value.alias // empty' "$seq_json" 2>/dev/null | head -n1)"
@@ -397,31 +431,76 @@ __account_segment() {
     elif command -v python >/dev/null 2>&1; then py=python
     fi
     if [ -n "$py" ]; then
-      CSWAP_CLAUDE_CFG="$claude_cfg" CSWAP_SEQ_JSON="$seq_json" "$py" - <<'PYEOF' 2>/dev/null
+      CSWAP_EMAIL="$email" CSWAP_SEQ_JSON="$seq_json" "$py" - <<'PYEOF' 2>/dev/null
 import json, os
-email = ''
+email = os.environ.get('CSWAP_EMAIL', '')
+alias = ''
 try:
-    with open(os.environ['CSWAP_CLAUDE_CFG'], encoding='utf-8') as f:
-        d = json.load(f)
-    email = (d.get('oauthAccount') or {}).get('emailAddress') or ''
+    with open(os.environ['CSWAP_SEQ_JSON'], encoding='utf-8') as f:
+        seq = json.load(f)
+    for acct in (seq.get('accounts') or {}).values():
+        if acct.get('email') == email:
+            alias = acct.get('alias') or ''
+            break
 except Exception:
     pass
-if not email:
-    print('', end='')
-else:
-    alias = ''
-    try:
-        with open(os.environ['CSWAP_SEQ_JSON'], encoding='utf-8') as f:
-            seq = json.load(f)
-        for acct in (seq.get('accounts') or {}).values():
-            if acct.get('email') == email:
-                alias = acct.get('alias') or ''
-                break
-    except Exception:
-        pass
-    print(alias or email, end='')
+print(alias or email, end='')
 PYEOF
+    else
+      printf '%s' "$email"
     fi
+  fi
+}
+__ratelimit_cache_path() {
+  local email
+  email="$(__oauth_email)"
+  [ -n "$email" ] || { printf ''; return; }
+  printf '/tmp/claude-%s/ratelimit-%s' "$(id -u)" "$email"
+}
+__ratelimit_sync() {
+  # Reconciles this invocation's five_hour_pct/seven_day_pct (already read
+  # into those two globals) against a per-account cache file shared by every
+  # concurrent Claude Code session on this machine, so a session that hasn't
+  # talked to Anthropic in a while doesn't keep showing a percentage another
+  # session already knows is out of date. Per field, whichever side has the
+  # larger used_percentage wins: a window's percentage only goes down when
+  # it actually resets, the five-hour and seven-day windows essentially
+  # never reset at the same instant, so at least one field staying >= is
+  # enough to trust adopting the whole pair together — including the other
+  # field even if it went down, since that is the reset actually taking
+  # effect. No network calls; only ever reads/writes local session data
+  # already delivered for free. Overwrites five_hour_pct/seven_day_pct in
+  # place with the winning values, sanitized but still carrying their
+  # decimals (only the final display truncates them).
+  local cache_file
+  cache_file="$(__ratelimit_cache_path)"
+  [ -n "$cache_file" ] || return 0
+
+  local cached_five=0 cached_seven=0
+  if [ -r "$cache_file" ]; then
+    { read -r cached_five; read -r cached_seven; } < "$cache_file" 2>/dev/null
+    cached_five="$(__norm_num "${cached_five:-0}")"
+    cached_seven="$(__norm_num "${cached_seven:-0}")"
+  fi
+
+  local new_five new_seven
+  new_five="$(__norm_num "$five_hour_pct")"
+  new_seven="$(__norm_num "$seven_day_pct")"
+
+  if __num_ge "$new_five" "$cached_five" || __num_ge "$new_seven" "$cached_seven"; then
+    five_hour_pct="$new_five"
+    seven_day_pct="$new_seven"
+    mkdir -p "/tmp/claude-$(id -u)" 2>/dev/null
+    local tmp_file
+    tmp_file="$(mktemp "${cache_file}.XXXXXX" 2>/dev/null)" || return 0
+    if { printf '%s\n' "$new_five"; printf '%s\n' "$new_seven"; } > "$tmp_file" 2>/dev/null; then
+      mv -f "$tmp_file" "$cache_file" 2>/dev/null
+    else
+      rm -f "$tmp_file" 2>/dev/null
+    fi
+  else
+    five_hour_pct="$cached_five"
+    seven_day_pct="$cached_seven"
   fi
 }
 
@@ -501,6 +580,7 @@ printf '\n'
 __reset
 five_hour_pct="$(__field 'rate_limits.five_hour.used_percentage')"
 seven_day_pct="$(__field 'rate_limits.seven_day.used_percentage')"
+__ratelimit_sync
 five_hour_pct_display="$(__norm_int "$five_hour_pct")"
 seven_day_pct_display="$(__norm_int "$seven_day_pct")"
 if awk -v a="$five_hour_pct" -v b="$seven_day_pct" 'BEGIN{exit !(a+0 > 90 || b+0 > 90)}'; then

@@ -21,3 +21,10 @@ apt_cacher_ng_port: 3142
 apt_https_repo_prefix: >-
   {{ ('http://' ~ apt_cacher_ng_host ~ ':' ~ apt_cacher_ng_port ~ '/HTTPS///')
      if apt_cacher_ng_enabled else 'https://' }}
+
+# System architecture conversion for APT
+apt_architecture:
+  x86_64: amd64
+  aarch64: arm64
+  armv7l: armhf
+  i686: i386

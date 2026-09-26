@@ -44,7 +44,7 @@
     components:
       - dev  # Gitlab needs this only. We can enable others if needed:
              # devops, secops, terminal, desktop
-    architectures: "{{ ansible_facts['architecture'] }}"
+    architectures: "{{ apt_architecture[ansible_facts['architecture']] }}"
     signed_by: /etc/apt/keyrings/wakemeops-keyring.asc
     enabled: true
     install_python_debian: true

@@ -21,6 +21,27 @@
     HOME: "{{ setup_user_home }}"
     TERM: xterm-256color
     LANG: C.UTF-8
+  register: zplug_clone_result
+  ignore_errors: true
+
+# TEMP DEBUG: drop once the intermittent vimrc/install.sh race is root-caused
+- name: DEBUG - show Install zplug output
+  ansible.builtin.debug:
+    msg: |-
+      rc={{ zplug_clone_result.rc | default('skipped') }}
+      --- stdout ---
+      {{ zplug_clone_result.stdout | default('(none)') }}
+      --- stderr ---
+      {{ zplug_clone_result.stderr | default('(none)') }}
+
+- name: DEBUG - stat ~/.zplug/init.zsh right after Install zplug
+  ansible.builtin.stat:
+    path: "{{ setup_user_home }}/.zplug/init.zsh"
+  register: zplug_init_stat
+
+- name: DEBUG - report ~/.zplug/init.zsh presence
+  ansible.builtin.debug:
+    msg: "exists={{ zplug_init_stat.stat.exists }} path={{ setup_user_home }}/.zplug/init.zsh"
 
 - name: Deploy zplug interactive snippets
   ansible.builtin.copy:
@@ -53,10 +74,57 @@
     SHELL: /bin/zsh
     ZPLUG_SKIP_PROMPT: "1"
   register: zplug_install_result
+  ignore_errors: true
   changed_when: >-
     'Installed packages' in zplug_install_result.stdout or
     'Build package' in zplug_install_result.stdout or
     'No packages to install' not in zplug_install_result.stdout
+
+# TEMP DEBUG: drop once the intermittent vimrc/install.sh race is root-caused
+- name: DEBUG - show Install zplug plugins output
+  ansible.builtin.debug:
+    msg: |-
+      rc={{ zplug_install_result.rc | default('skipped') }}
+      --- stdout ---
+      {{ zplug_install_result.stdout | default('(none)') }}
+      --- stderr ---
+      {{ zplug_install_result.stderr | default('(none)') }}
+
+- name: DEBUG - list ~/.zplug/repos after plugin install
+  ansible.builtin.find:
+    paths: "{{ setup_user_home }}/.zplug/repos"
+    recurse: true
+    file_type: any
+  register: zplug_repos_listing
+  ignore_errors: true
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: DEBUG - show ~/.zplug/repos listing
+  ansible.builtin.debug:
+    msg: "{{ zplug_repos_listing.files | default([]) | map(attribute='path') | list }}"
+
+- name: "DEBUG - dump zplug install.log (LTSV: repo, status per repo; see base/core/core.zsh _zplug_status for codes)"
+  ansible.builtin.slurp:
+    src: "{{ setup_user_home }}/.zplug/log/install.log"
+  register: zplug_install_log_b64
+  ignore_errors: true
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: DEBUG - show zplug install.log content
+  ansible.builtin.debug:
+    msg: "{{ zplug_install_log_b64.content | default('') | b64decode }}"
+  when: zplug_install_log_b64.content is defined
+
+- name: DEBUG - stat vimrc install.sh right before Install Vim plugins
+  ansible.builtin.stat:
+    path: "{{ setup_user_home }}/.zplug/repos/timsu92/vimrc/install.sh"
+  register: zplug_vimrc_install_sh_stat
+
+- name: DEBUG - report vimrc install.sh presence
+  ansible.builtin.debug:
+    msg: "exists={{ zplug_vimrc_install_sh_stat.stat.exists }}"
 
 - name: Install Vim plugins
   # might be zplug's hook-build doesn't work in non-interactive shell, so run the install script directly
@@ -71,6 +139,18 @@
     HOME: "{{ setup_user_home }}"
     TERM: xterm-256color
     LANG: C.UTF-8
+  register: zplug_vim_plugins_install_result
+  ignore_errors: true
+
+# TEMP DEBUG: drop once the intermittent vimrc/install.sh race is root-caused
+- name: DEBUG - show Install Vim plugins output
+  ansible.builtin.debug:
+    msg: |-
+      rc={{ zplug_vim_plugins_install_result.rc | default('skipped') }}
+      --- stdout ---
+      {{ zplug_vim_plugins_install_result.stdout | default('(none)') }}
+      --- stderr ---
+      {{ zplug_vim_plugins_install_result.stderr | default('(none)') }}
 
 - name: Clean up stale zplug job lock left by `script -qfc` session teardown
   ansible.builtin.file:

@@ -54,7 +54,7 @@ docker run --rm -v "$PWD":/app:ro -v <dir-with-test-playbook>:/scratch:ro ubuntu
   uv run --project /app --locked ansible-playbook -i localhost, /scratch/test.yml -e ansible_python_interpreter=/usr/bin/python3'
 ```
 
-`sudo` and `acl` are there because the roles `become_user` an unprivileged `setup_user` (normally installed by `common_base`/`proxmox_guest`, absent from a bare image). Expect the second run to be `changed=0`.
+`sudo` and `acl` are there because the roles `become_user` an unprivileged `setup_user` (normally installed by `common_base`/`proxmox_guest`, absent from a bare image). Expect the second run to be `changed=0`. When roles share a file (e.g. `~/.gitconfig`), also run them in both orders and run one of them alone after the others, then check the other roles' settings survived — a single-role test won't catch clobbering. Supply vars normally from `group_vars` yourself (e.g. `apt_https_repo_prefix: "https://"`), or the role fails with "undefined".
 
 ### ansible.cfg location matters
 
@@ -143,6 +143,16 @@ A role that needs to add shell config must not write directly to `~/.zshrc`/`~/.
 Before doing that, check the installer's own script/flags: many install scripts try to append their own integration lines to `~/.bashrc`/`~/.zshrc`, which would conflict with the numbered-snippet system. Suppress that and let the role's snippet be the only integration point — see `roles/fzf/tasks/main.yml`'s `install --completion --key-bindings --no-update-rc --no-bash --no-fish`, and its update script `roles/fzf/files/fzf.update.zsh:17` re-passing the same flags so a re-install triggered by `aptu` doesn't silently reintroduce rc edits.
 
 A role's `files/` mirrors the directory each snippet is deployed to: `files/non-interactive/NN-<tool>.zsh` and `files/interactive/NN-<tool>.zsh` (see `roles/nvm/files/`), with `<program>.update.zsh` directly under `files/`. Don't drop a snippet flat into `files/` — the sub-directory is what says which loader picks it up, and a PATH/env snippet belongs in `non-interactive/` so scripts and non-interactive shells see it too.
+
+### Shared `~/.gitconfig`: `blockinfile` with a per-role marker, never `template`/`copy`
+
+`git`, `github_cli` and `gitlab_cli` all write `~/.gitconfig`, and any of them can run alone (e.g. `claude_code` depends on `git`, so `git` runs without the other two). Replacing the whole file would wipe what the others deployed earlier, so each role owns one block: `blockinfile` with `marker: "# {mark} ANSIBLE MANAGED BLOCK: <role>"`, `create: true`, and `owner`/`group`/`mode` (no `become_user` needed). See `roles/github_cli/tasks/main.yml`, `roles/gitlab_cli/tasks/main.yml`.
+
+- Start every block with a `[section]` header, or its first keys bleed into the previous block's section.
+- Credential helpers: write a blank `helper =` before the real one (that's what `gh auth setup-git` does; it makes git forget broader helpers). `community.general.git_config` rejects empty values, so use `blockinfile`, not `git_config`/`command`, for this.
+- Keep everything in `~/.gitconfig`. `~/.config/git/config` is read *before* it, so a blank `helper =` there can't reset a generic `credential.helper` set in `~/.gitconfig`.
+- For an on/off role var, set `state: "{{ 'present' if <var> else 'absent' }}"` so turning it off removes the block.
+- Adding an old-style whole-file `~/.gitconfig` deploy back is a regression; an existing unmarked file just keeps its old content next to the new block (harmless duplicates).
 
 ### Piping downloaded files to shells
 

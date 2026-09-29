@@ -235,9 +235,6 @@ __norm_num() {
     *) printf '%s' "$1" ;;
   esac
 }
-__num_ge() {
-  awk -v a="$1" -v b="$2" 'BEGIN{exit !(a+0 >= b+0)}'
-}
 __fmt_token_compact() {
   local n
   n="$(__norm_int "$1")"
@@ -457,50 +454,82 @@ __ratelimit_cache_path() {
   [ -n "$email" ] || { printf ''; return; }
   printf '/tmp/claude-%s/ratelimit-%s' "$(id -u)" "$email"
 }
+__ratelimit_pick_field() {
+  # $1 new_pct $2 new_resets_at $3 cached_pct $4 cached_resets_at
+  # Prints "pct resets_at" for the side that wins. resets_at is the window's
+  # identity: it stays fixed while pct climbs within the same window, and
+  # only ever moves forward when the window rolls over. So it's compared
+  # first, and pct only breaks ties within the same window generation — see
+  # __ratelimit_sync for why pct alone isn't safe to compare across sessions.
+  awk -v np="$1" -v nr="$2" -v cp="$3" -v cr="$4" '
+    BEGIN {
+      np+=0; nr+=0; cp+=0; cr+=0
+      if (nr > cr)       { printf "%s %s", np, nr }
+      else if (nr == cr) { if (np >= cp) printf "%s %s", np, nr; else printf "%s %s", cp, cr }
+      else               { printf "%s %s", cp, cr }
+    }'
+}
 __ratelimit_sync() {
   # Reconciles this invocation's five_hour_pct/seven_day_pct (already read
   # into those two globals) against a per-account cache file shared by every
   # concurrent Claude Code session on this machine, so a session that hasn't
   # talked to Anthropic in a while doesn't keep showing a percentage another
-  # session already knows is out of date. Per field, whichever side has the
-  # larger used_percentage wins: a window's percentage only goes down when
-  # it actually resets, the five-hour and seven-day windows essentially
-  # never reset at the same instant, so at least one field staying >= is
-  # enough to trust adopting the whole pair together — including the other
-  # field even if it went down, since that is the reset actually taking
-  # effect. No network calls; only ever reads/writes local session data
-  # already delivered for free. Overwrites five_hour_pct/seven_day_pct in
-  # place with the winning values, sanitized but still carrying their
-  # decimals (only the final display truncates them).
+  # session already knows is out of date.
+  #
+  # Percentages alone aren't safely comparable across sessions: an idle
+  # session re-reports the exact same frozen pair on every render, and that
+  # tie can look "at least as new" as a field another session genuinely
+  # advanced, dragging the shared cache backward. resets_at (a unix
+  # timestamp) fixes this — see __ratelimit_pick_field. Each field (five_hour,
+  # seven_day) is reconciled independently against its own resets_at, so a
+  # reset on one field can never regress the other.
+  #
+  # No network calls; only ever reads/writes local session data already
+  # delivered for free. Cache is sanitized-but-decimal-preserving (only the
+  # final display truncates), and is only rewritten when something actually
+  # changed, so an idle session re-rendering every refreshInterval tick
+  # doesn't churn the file.
   local cache_file
   cache_file="$(__ratelimit_cache_path)"
   [ -n "$cache_file" ] || return 0
 
-  local cached_five=0 cached_seven=0
+  local cached_five=0 cached_five_resets=0 cached_seven=0 cached_seven_resets=0
   if [ -r "$cache_file" ]; then
-    { read -r cached_five; read -r cached_seven; } < "$cache_file" 2>/dev/null
+    { read -r cached_five; read -r cached_five_resets; read -r cached_seven; read -r cached_seven_resets; } < "$cache_file" 2>/dev/null
     cached_five="$(__norm_num "${cached_five:-0}")"
+    cached_five_resets="$(__norm_num "${cached_five_resets:-0}")"
     cached_seven="$(__norm_num "${cached_seven:-0}")"
+    cached_seven_resets="$(__norm_num "${cached_seven_resets:-0}")"
   fi
 
-  local new_five new_seven
+  local new_five new_five_resets new_seven new_seven_resets
   new_five="$(__norm_num "$five_hour_pct")"
+  new_five_resets="$(__norm_num "$(__field 'rate_limits.five_hour.resets_at')")"
   new_seven="$(__norm_num "$seven_day_pct")"
+  new_seven_resets="$(__norm_num "$(__field 'rate_limits.seven_day.resets_at')")"
 
-  if __num_ge "$new_five" "$cached_five" || __num_ge "$new_seven" "$cached_seven"; then
-    five_hour_pct="$new_five"
-    seven_day_pct="$new_seven"
+  local winning_five winning_five_resets winning_seven winning_seven_resets
+  read -r winning_five winning_five_resets <<< "$(__ratelimit_pick_field "$new_five" "$new_five_resets" "$cached_five" "$cached_five_resets")"
+  read -r winning_seven winning_seven_resets <<< "$(__ratelimit_pick_field "$new_seven" "$new_seven_resets" "$cached_seven" "$cached_seven_resets")"
+
+  five_hour_pct="$winning_five"
+  seven_day_pct="$winning_seven"
+
+  if [ "$winning_five" != "$cached_five" ] || [ "$winning_five_resets" != "$cached_five_resets" ] ||
+     [ "$winning_seven" != "$cached_seven" ] || [ "$winning_seven_resets" != "$cached_seven_resets" ]; then
     mkdir -p "/tmp/claude-$(id -u)" 2>/dev/null
     local tmp_file
     tmp_file="$(mktemp "${cache_file}.XXXXXX" 2>/dev/null)" || return 0
-    if { printf '%s\n' "$new_five"; printf '%s\n' "$new_seven"; } > "$tmp_file" 2>/dev/null; then
+    if {
+      printf '%s\n' "$winning_five"
+      printf '%s\n' "$winning_five_resets"
+      printf '%s\n' "$winning_seven"
+      printf '%s\n' "$winning_seven_resets"
+    } > "$tmp_file" 2>/dev/null; then
       mv -f "$tmp_file" "$cache_file" 2>/dev/null
     else
       rm -f "$tmp_file" 2>/dev/null
     fi
-  else
-    five_hour_pct="$cached_five"
-    seven_day_pct="$cached_seven"
   fi
 }
 

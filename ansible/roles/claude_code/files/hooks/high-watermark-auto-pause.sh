@@ -11,6 +11,11 @@ set -u
 # when deciding whether a cswap-managed account is usable.
 RATE_LIMIT_GATE_PCT=97
 
+# Extra seconds to keep pausing after the window's resetsAt, so we don't
+# resume the instant the reset lands (usage data may lag behind the reset).
+# Keep in sync with statusline.sh.
+RATE_LIMIT_RESUME_BUFFER_SEC=120
+
 INPUT="$(cat)"
 
 __field() {
@@ -103,12 +108,37 @@ PYEOF
   printf '%s' "$resume_str"
 }
 
+__publish_hold_until() {
+  # Shares the hold time with statusline.sh (it can't recompute it once
+  # cswap reports "available" after the reset). Account-independent on
+  # purpose, unlike ratelimit-<email>. Only ever moves forward, so
+  # concurrent sessions can't shorten each other's hold. Never deleted:
+  # the reader ignores values already in the past.
+  local new="$1" dir file cur=0 tmp
+  dir="/tmp/claude-$(id -u)"
+  file="$dir/hwap-hold-until"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  [ -r "$file" ] && read -r cur < "$file" 2>/dev/null
+  case "$cur" in ''|*[!0-9]*) cur=0 ;; esac
+  [ "$new" -gt "$cur" ] || return 0
+  tmp="$(mktemp "$file.XXXXXX" 2>/dev/null)" || return 0
+  if printf '%s\n' "$new" > "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$file" 2>/dev/null
+  else
+    rm -f "$tmp" 2>/dev/null
+  fi
+}
+
 __gate() {
   # Blocks (never denies) until some account clears. Re-checks cswap fresh
   # every iteration (capped at 2 minutes between checks) rather than
   # trusting one static estimate, so an out-of-band reset or a newly
   # cleared account is noticed promptly instead of only at the original
   # worst-case estimate.
+  # hold_until remembers the latest resume time (resetsAt + buffer) seen so
+  # far. Once resetsAt passes, cswap reports "available" and the original
+  # resetsAt is gone, so this is what keeps the buffer in effect.
+  local hold_until=0
   while :; do
     local result epoch now wait
     result="$(__cswap_check)"
@@ -118,12 +148,16 @@ __gate() {
         exit 1  # Don't exit with code 2 since Claude Code treats that as a "deny" and aborts the turn; we want to continue instead.
         ;;
     esac
-    if [ "$result" = "available" ]; then
-      return 0
-    fi
-    epoch="$(date -d "$result" +%s 2>/dev/null)" || return 0
     now=$(date +%s)
-    wait=$(( epoch - now ))
+    if [ "$result" != "available" ]; then
+      epoch="$(date -d "$result" +%s 2>/dev/null)" || return 0
+      epoch=$(( epoch + RATE_LIMIT_RESUME_BUFFER_SEC ))
+      if [ "$epoch" -gt "$hold_until" ]; then
+        hold_until="$epoch"
+        __publish_hold_until "$hold_until"
+      fi
+    fi
+    wait=$(( hold_until - now ))
     if [ "$wait" -le 0 ]; then
       return 0
     fi

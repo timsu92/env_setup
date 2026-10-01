@@ -5,6 +5,10 @@ set -u
 # when deciding whether a cswap-managed account is usable.
 RATE_LIMIT_GATE_PCT=97
 
+# Extra seconds the hook keeps pausing after resetsAt. Keep in sync with
+# hooks/high-watermark-auto-pause.sh.
+RATE_LIMIT_RESUME_BUFFER_SEC=120
+
 INPUT="$(cat)"
 export INPUT_JSON="$INPUT"
 
@@ -647,16 +651,33 @@ else
   __out="$(__rel_time "$__v")"
   __emit '1;38;2;224;104;104' "$__out"
 fi
+# The hook's hold time (resetsAt + buffer) outlives the reset itself, when
+# the percentages above have already dropped under the threshold.
+__resume_epoch=""
+__hold_file="/tmp/claude-$(id -u)/hwap-hold-until"
+if [ -r "$__hold_file" ]; then
+  read -r __hold_until < "$__hold_file" 2>/dev/null
+  case "${__hold_until:-}" in
+    ''|*[!0-9]*) ;;
+    *) [ "$__hold_until" -gt "$(date +%s)" ] && __resume_epoch="$__hold_until" ;;
+  esac
+fi
 if awk -v a="$five_hour_pct" -v b="$seven_day_pct" -v t="$RATE_LIMIT_GATE_PCT" 'BEGIN{exit !(a+0>=t || b+0>=t)}'; then
-  __resume_epoch="$(__cswap_resume_at)"
-  if [ -n "$__resume_epoch" ]; then
-    __repeat_char ' ' 1
-    __now=$(date +%s)
-    __wait_ms=$(( (__resume_epoch - __now) * 1000 ))
-    if [ "$__wait_ms" -lt 0 ]; then __wait_ms=0; fi
-    __out="$(__dur_human "$__wait_ms")"
-    __emit '1;3;38;2;125;207;255' "⏸  Paused, resuming in $__out"
+  __cswap_epoch="$(__cswap_resume_at)"
+  if [ -n "$__cswap_epoch" ]; then
+    __cswap_epoch=$(( __cswap_epoch + RATE_LIMIT_RESUME_BUFFER_SEC ))
+    if [ -z "$__resume_epoch" ] || [ "$__cswap_epoch" -gt "$__resume_epoch" ]; then
+      __resume_epoch="$__cswap_epoch"
+    fi
   fi
+fi
+if [ -n "$__resume_epoch" ]; then
+  __repeat_char ' ' 1
+  __now=$(date +%s)
+  __wait_ms=$(( (__resume_epoch - __now) * 1000 ))
+  if [ "$__wait_ms" -lt 0 ]; then __wait_ms=0; fi
+  __out="$(__dur_human "$__wait_ms")"
+  __emit '1;3;38;2;125;207;255' "⏸  Paused, resuming in $__out"
 fi
 __account_label="$(__account_segment)"
 if [ -n "$__account_label" ]; then

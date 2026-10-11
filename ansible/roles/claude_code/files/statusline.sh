@@ -594,6 +594,15 @@ if [ -n "$__sid" ]; then
       __emit '' '  '
       __out="$(__dur_human "$__elapsed_ms")"
       __emit '' "$__out"
+      # How long ago the turn stopped, so an idle session shows its age.
+      __idle_s=$(( $(date +%s) - __ts_stop ))
+      if [ "$__idle_s" -lt 0 ]; then __idle_s=0; fi
+      if [ "$__idle_s" -gt 3600 ]; then
+        __out='>1h'
+      else
+        __out="$(__dur_human $(( __idle_s * 1000 )))"
+      fi
+      __emit '' " 🧊 $__out"
     fi
   elif [ -n "$__ts_start" ]; then
     __now=$(date +%s)

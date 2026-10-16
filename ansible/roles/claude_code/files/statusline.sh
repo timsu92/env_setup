@@ -323,7 +323,7 @@ __cswap_resume_at() {
   json="$("$cswap" list --json 2>/dev/null)" || { printf ''; return; }
   if command -v jq >/dev/null 2>&1; then
     resume_str="$(printf '%s' "$json" | jq -r --argjson threshold "$RATE_LIMIT_GATE_PCT" '
-      [.accounts[] | select(.usageStatus == "ok")] as $ok
+      [.accounts[] | select((.usageStatus == "ok") and (.disabled != true))] as $ok
       | ($ok | any(((.usage.fiveHour.pct // 0) < $threshold) and ((.usage.sevenDay.pct // 0) < $threshold))) as $has_available
       | if $has_available then empty
         else

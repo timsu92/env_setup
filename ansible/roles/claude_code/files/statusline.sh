@@ -323,7 +323,7 @@ __cswap_resume_at() {
   json="$("$cswap" list --json 2>/dev/null)" || { printf ''; return; }
   if command -v jq >/dev/null 2>&1; then
     resume_str="$(printf '%s' "$json" | jq -r --argjson threshold "$RATE_LIMIT_GATE_PCT" '
-      [.accounts[] | select(.usageStatus == "ok")] as $ok
+      [.accounts[] | select((.usageStatus == "ok") and (.disabled != true))] as $ok
       | ($ok | any(((.usage.fiveHour.pct // 0) < $threshold) and ((.usage.sevenDay.pct // 0) < $threshold))) as $has_available
       | if $has_available then empty
         else
@@ -594,6 +594,15 @@ if [ -n "$__sid" ]; then
       __emit '' '  '
       __out="$(__dur_human "$__elapsed_ms")"
       __emit '' "$__out"
+      # How long ago the turn stopped, so an idle session shows its age.
+      __idle_s=$(( $(date +%s) - __ts_stop ))
+      if [ "$__idle_s" -lt 0 ]; then __idle_s=0; fi
+      if [ "$__idle_s" -gt 3600 ]; then
+        __out='>1h'
+      else
+        __out="$(__dur_human $(( __idle_s * 1000 )))"
+      fi
+      __emit '' " 🧊 $__out"
     fi
   elif [ -n "$__ts_start" ]; then
     __now=$(date +%s)

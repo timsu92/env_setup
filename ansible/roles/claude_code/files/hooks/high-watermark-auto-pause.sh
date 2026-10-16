@@ -55,7 +55,7 @@ __cswap_check() {
   json="$("$cswap" list --json 2>/dev/null)" || { printf 'error:cswap_list_failed'; return; }
   if command -v jq >/dev/null 2>&1; then
     resume_str="$(printf '%s' "$json" | jq -r --argjson threshold "$RATE_LIMIT_GATE_PCT" '
-      [.accounts[] | select(.usageStatus == "ok")] as $ok
+      [.accounts[] | select((.usageStatus == "ok") and (.disabled != true))] as $ok
       | ($ok | any(((.usage.fiveHour.pct // 0) < $threshold) and ((.usage.sevenDay.pct // 0) < $threshold))) as $has_available
       | if $has_available then "available"
         else
@@ -129,6 +129,13 @@ __publish_hold_until() {
   fi
 }
 
+__clear_hold_until() {
+  # Only for an early release (another account cleared before the paused
+  # one's resetsAt), where the published hold would otherwise make the
+  # statusline keep claiming a pause that is already over.
+  rm -f "/tmp/claude-$(id -u)/hwap-hold-until" 2>/dev/null
+}
+
 __gate() {
   # Blocks (never denies) until some account clears. Re-checks cswap fresh
   # every iteration (capped at 2 minutes between checks) rather than
@@ -138,7 +145,11 @@ __gate() {
   # hold_until remembers the latest resume time (resetsAt + buffer) seen so
   # far. Once resetsAt passes, cswap reports "available" and the original
   # resetsAt is gone, so this is what keeps the buffer in effect.
-  local hold_until=0
+  # reset_at remembers that raw resetsAt (no buffer). "available" while the
+  # clock is still before it means a *different* account cleared (e.g. one
+  # added mid-pause), not that the paused one reset, so the buffer, which only
+  # exists to wait out a reset that already landed, must not apply.
+  local hold_until=0 reset_at=0
   while :; do
     local result epoch now wait
     result="$(__cswap_check)"
@@ -151,11 +162,15 @@ __gate() {
     now=$(date +%s)
     if [ "$result" != "available" ]; then
       epoch="$(date -d "$result" +%s 2>/dev/null)" || return 0
+      if [ "$epoch" -gt "$reset_at" ]; then reset_at="$epoch"; fi
       epoch=$(( epoch + RATE_LIMIT_RESUME_BUFFER_SEC ))
       if [ "$epoch" -gt "$hold_until" ]; then
         hold_until="$epoch"
         __publish_hold_until "$hold_until"
       fi
+    elif [ "$now" -lt "$reset_at" ]; then
+      __clear_hold_until
+      return 0
     fi
     wait=$(( hold_until - now ))
     if [ "$wait" -le 0 ]; then

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -u
 
-# A rate-limit window at or above this percentage counts as "exhausted"
-# when deciding whether a cswap-managed account is usable.
+# Only a cheap pre-check: below this percentage the active account can't be
+# exhausted, so the (slower) hwap-helper.sh isn't consulted. Keep in sync
+# with hwap-helper.sh, which decides what "exhausted" really means.
 RATE_LIMIT_GATE_PCT=97
 
-# Extra seconds the hook keeps pausing after resetsAt. Keep in sync with
-# hooks/high-watermark-auto-pause.sh.
-RATE_LIMIT_RESUME_BUFFER_SEC=120
+# Relative to this script (~/.claude/), shared with hooks/high-watermark-auto-pause.sh.
+HWAP_HELPER="$(dirname "${BASH_SOURCE[0]}")/hwap-helper.sh"
 
 INPUT="$(cat)"
 export INPUT_JSON="$INPUT"
@@ -307,72 +307,6 @@ __rel_time() {
   h=$((diff/3600)); rem=$(((diff%3600)/60))
   printf 'T-%dh%02dm' "$h" "$rem"
 }
-__cswap_bin() {
-  if command -v cswap >/dev/null 2>&1; then printf 'cswap'; return 0; fi
-  if [ -x "$HOME/.local/bin/cswap" ]; then printf '%s' "$HOME/.local/bin/cswap"; return 0; fi
-  return 1
-}
-__cswap_resume_at() {
-  # Prints the epoch time some cswap-managed account next clears both
-  # fiveHour and sevenDay usage under 97%, or empty if one already does,
-  # cswap is unavailable, or the JSON can't be parsed. resetsAt strings are
-  # all same-width ISO-8601 UTC (+00:00), so lexicographic max/min sorts
-  # the same as chronological order — no date parsing needed inside jq.
-  local cswap json resume_str
-  cswap="$(__cswap_bin)" || { printf ''; return; }
-  json="$("$cswap" list --json 2>/dev/null)" || { printf ''; return; }
-  if command -v jq >/dev/null 2>&1; then
-    resume_str="$(printf '%s' "$json" | jq -r --argjson threshold "$RATE_LIMIT_GATE_PCT" '
-      [.accounts[] | select((.usageStatus == "ok") and (.disabled != true))] as $ok
-      | ($ok | any(((.usage.fiveHour.pct // 0) < $threshold) and ((.usage.sevenDay.pct // 0) < $threshold))) as $has_available
-      | if $has_available then empty
-        else
-          [ $ok[] |
-            ([ (if (.usage.fiveHour.pct // 0) >= $threshold then (.usage.fiveHour.resetsAt // empty) else empty end),
-               (if (.usage.sevenDay.pct // 0) >= $threshold then (.usage.sevenDay.resetsAt // empty) else empty end)
-             ] | map(select(. != null))) as $times
-            | if ($times | length) > 0 then ($times | max) else empty end
-          ] | if length > 0 then min else empty end
-        end
-    ' 2>/dev/null)"
-  else
-    local py=""
-    if command -v python3 >/dev/null 2>&1; then py=python3
-    elif command -v python >/dev/null 2>&1; then py=python
-    fi
-    if [ -n "$py" ]; then
-      resume_str="$(CSWAP_JSON="$json" CSWAP_GATE_PCT="$RATE_LIMIT_GATE_PCT" "$py" - <<'PYEOF' 2>/dev/null
-import json, os
-d = json.loads(os.environ.get('CSWAP_JSON', '{}') or '{}')
-threshold = float(os.environ.get('CSWAP_GATE_PCT'))
-ok = [a for a in d.get('accounts', []) if a.get('usageStatus') == 'ok']
-def pct(a, k):
-    return ((a.get('usage') or {}).get(k) or {}).get('pct') or 0
-def resets(a, k):
-    return ((a.get('usage') or {}).get(k) or {}).get('resetsAt')
-has_available = any(pct(a, 'fiveHour') < threshold and pct(a, 'sevenDay') < threshold for a in ok)
-if has_available:
-    print('', end='')
-else:
-    candidates = []
-    for a in ok:
-        times = [t for t in (
-            resets(a, 'fiveHour') if pct(a, 'fiveHour') >= threshold else None,
-            resets(a, 'sevenDay') if pct(a, 'sevenDay') >= threshold else None,
-        ) if t]
-        if times:
-            candidates.append(max(times))
-    print(min(candidates) if candidates else '', end='')
-PYEOF
-)"
-    fi
-  fi
-  if [ -z "${resume_str:-}" ] || [ "$resume_str" = "null" ]; then
-    printf ''
-    return
-  fi
-  date -d "$resume_str" +%s 2>/dev/null || printf ''
-}
 # Prints the logged-in OAuth account's raw email address (not the cswap
 # alias), or empty if no account is logged in. Reads Claude Code's local
 # config file directly instead of shelling out to `cswap status --json`
@@ -660,24 +594,29 @@ else
   __out="$(__rel_time "$__v")"
   __emit '1;38;2;224;104;104' "$__out"
 fi
-# The hook's hold time (resetsAt + buffer) outlives the reset itself, when
-# the percentages above have already dropped under the threshold.
+# While nothing is usable, hwap-helper.sh knows exactly when the earliest
+# account clears. The hook's hold file only adds the buffer after a reset,
+# when cswap already reports the account as usable again, so it is used only
+# when the helper doesn't say "wait" (or wasn't asked).
 __resume_epoch=""
-__hold_file="/tmp/claude-$(id -u)/hwap-hold-until"
-if [ -r "$__hold_file" ]; then
-  read -r __hold_until < "$__hold_file" 2>/dev/null
-  case "${__hold_until:-}" in
-    ''|*[!0-9]*) ;;
-    *) [ "$__hold_until" -gt "$(date +%s)" ] && __resume_epoch="$__hold_until" ;;
+__hwap_error=""
+if [ ! -x "$HWAP_HELPER" ]; then
+  __hwap_error="hwap_helper_not_found"
+elif awk -v a="$five_hour_pct" -v b="$seven_day_pct" -v t="$RATE_LIMIT_GATE_PCT" 'BEGIN{exit !(a+0>=t || b+0>=t)}'; then
+  __hwap="$("$HWAP_HELPER")"
+  case "$__hwap" in
+    error:*) __hwap_error="${__hwap#error:}" ;;
+    wait\ *) read -r _ __resume_epoch _ <<< "$__hwap" ;;
   esac
 fi
-if awk -v a="$five_hour_pct" -v b="$seven_day_pct" -v t="$RATE_LIMIT_GATE_PCT" 'BEGIN{exit !(a+0>=t || b+0>=t)}'; then
-  __cswap_epoch="$(__cswap_resume_at)"
-  if [ -n "$__cswap_epoch" ]; then
-    __cswap_epoch=$(( __cswap_epoch + RATE_LIMIT_RESUME_BUFFER_SEC ))
-    if [ -z "$__resume_epoch" ] || [ "$__cswap_epoch" -gt "$__resume_epoch" ]; then
-      __resume_epoch="$__cswap_epoch"
-    fi
+if [ -z "$__resume_epoch" ]; then
+  __hold_file="/tmp/claude-$(id -u)/hwap-hold-until"
+  if [ -r "$__hold_file" ]; then
+    read -r __hold_until < "$__hold_file" 2>/dev/null
+    case "${__hold_until:-}" in
+      ''|*[!0-9]*) ;;
+      *) [ "$__hold_until" -gt "$(date +%s)" ] && __resume_epoch="$__hold_until" ;;
+    esac
   fi
 fi
 if [ -n "$__resume_epoch" ]; then
@@ -687,6 +626,10 @@ if [ -n "$__resume_epoch" ]; then
   if [ "$__wait_ms" -lt 0 ]; then __wait_ms=0; fi
   __out="$(__dur_human "$__wait_ms")"
   __emit '1;3;38;2;125;207;255' "⏸  Paused, resuming in $__out"
+fi
+if [ -n "$__hwap_error" ]; then
+  __repeat_char ' ' 1
+  __emit '1;38;2;224;104;104' "⚠ hwap error:$__hwap_error"
 fi
 __account_label="$(__account_segment)"
 if [ -n "$__account_label" ]; then

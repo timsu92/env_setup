@@ -3,6 +3,10 @@
   ansible.builtin.include_tasks:
     file: hooks-dir.yml
 
+- name: Install hwap-helper script
+  ansible.builtin.include_tasks:
+    file: hwap-helper.yml
+
 - name: Deploy high-watermark-auto-pause hook script
   ansible.builtin.copy:
     src: hooks/high-watermark-auto-pause.sh

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Claude statusline renderer installer.
 # Modify the fields after the "Edit fields below" line.
+#
+# Exit codes: 0 = settings.json changed, 10 = already correct (no change
+# needed, no backup written), anything else = failure.
 set -euo pipefail
 
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
@@ -22,7 +25,21 @@ BANNER_EOF
 
 SETTINGS="$CLAUDE_DIR/settings.json"
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-cp "$SETTINGS" "$SETTINGS.bak.$(date +%s)"
+
+# Replaces $SETTINGS with the merged file $1, keeping a timestamped backup of
+# the old one. Does nothing (and returns 10) when the content is identical.
+__commit_if_changed() {
+  local merged="$1" before after
+  before="$(cat "$SETTINGS")"
+  after="$(cat "$merged")"
+  if [ "$before" = "$after" ]; then
+    rm -f "$merged"
+    return 10
+  fi
+  cp "$SETTINGS" "$SETTINGS.bak.$(date +%s)"
+  mv "$merged" "$SETTINGS"
+  return 0
+}
 
 __offer_self_heal() {
   local err_msg="$1"
@@ -53,12 +70,13 @@ __merge_with_jq() {
   local tmp
   tmp="$(mktemp)"
   jq --arg cmd "$SL" '. + { statusLine: { type:"command", command:$cmd, refreshInterval:1 } }' "$SETTINGS" > "$tmp"
-  mv "$tmp" "$SETTINGS"
+  __commit_if_changed "$tmp"
 }
 
 __merge_with_python() {
-  local py="$1"
-  STATUSLINE_PATH="$SL" SETTINGS_PATH="$SETTINGS" "$py" - <<'PYEOF'
+  local py="$1" tmp
+  tmp="$(mktemp)"
+  STATUSLINE_PATH="$SL" SETTINGS_PATH="$SETTINGS" MERGED_PATH="$tmp" "$py" - <<'PYEOF'
 import json, os, sys
 p = os.environ['SETTINGS_PATH']
 sl = os.environ['STATUSLINE_PATH']
@@ -70,20 +88,29 @@ except Exception:
 if not isinstance(d, dict):
     d = {}
 d['statusLine'] = {'type': 'command', 'command': sl, 'refreshInterval': 1}
-with open(p, 'w', encoding='utf-8') as f:
-    json.dump(d, f, indent=2)
+with open(os.environ['MERGED_PATH'], 'w', encoding='utf-8') as f:
+    json.dump(d, f, indent=2, ensure_ascii=False)
 PYEOF
+  __commit_if_changed "$tmp"
+}
+
+# Runs one merge backend. Both 0 (changed) and 10 (already correct) count as
+# the backend having worked, so the next one is only tried after a real failure.
+__merge_rc=1
+__try_merge() {
+  "$@" 2>/dev/null && __merge_rc=0 || __merge_rc=$?
+  [ "$__merge_rc" -eq 0 ] || [ "$__merge_rc" -eq 10 ]
 }
 
 __merge_ok=0
 if [ "$__merge_ok" = "0" ] && command -v jq >/dev/null 2>&1; then
-  if __merge_with_jq 2>/dev/null; then __merge_ok=1; fi
+  if __try_merge __merge_with_jq; then __merge_ok=1; fi
 fi
 if [ "$__merge_ok" = "0" ] && command -v python3 >/dev/null 2>&1; then
-  if __merge_with_python python3 2>/dev/null; then __merge_ok=1; fi
+  if __try_merge __merge_with_python python3; then __merge_ok=1; fi
 fi
 if [ "$__merge_ok" = "0" ] && command -v python >/dev/null 2>&1; then
-  if __merge_with_python python 2>/dev/null; then __merge_ok=1; fi
+  if __try_merge __merge_with_python python; then __merge_ok=1; fi
 fi
 if [ "$__merge_ok" = "0" ]; then
   if __offer_self_heal "all JSON merge backends failed (need jq or python)"; then
@@ -94,5 +121,9 @@ if [ "$__merge_ok" = "0" ]; then
   exit 1
 fi
 
+if [ "$__merge_rc" -eq 10 ]; then
+  echo "statusLine already configured, nothing to change" >&2
+  exit 10
+fi
 __banner 32 "installed successfully — restart Claude Code to see it"
 exit 0

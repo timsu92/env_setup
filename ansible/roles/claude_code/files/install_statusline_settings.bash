@@ -69,14 +69,17 @@ PROMPT_EOF
 __merge_with_jq() {
   local tmp
   tmp="$(mktemp)"
-  jq --arg cmd "$SL" '. + { statusLine: { type:"command", command:$cmd, refreshInterval:1 } }' "$SETTINGS" > "$tmp"
+  # Called from an `&&` list, where set -e is off, so a failure must be
+  # checked by hand or an empty $tmp would replace settings.json.
+  jq --arg cmd "$SL" '. + { statusLine: { type:"command", command:$cmd, refreshInterval:1 } }' "$SETTINGS" > "$tmp" ||
+    { rm -f "$tmp"; return 1; }
   __commit_if_changed "$tmp"
 }
 
 __merge_with_python() {
   local py="$1" tmp
   tmp="$(mktemp)"
-  STATUSLINE_PATH="$SL" SETTINGS_PATH="$SETTINGS" MERGED_PATH="$tmp" "$py" - <<'PYEOF'
+  STATUSLINE_PATH="$SL" SETTINGS_PATH="$SETTINGS" MERGED_PATH="$tmp" "$py" - <<'PYEOF' || { rm -f "$tmp"; return 1; }
 import json, os, sys
 p = os.environ['SETTINGS_PATH']
 sl = os.environ['STATUSLINE_PATH']
@@ -94,23 +97,21 @@ PYEOF
   __commit_if_changed "$tmp"
 }
 
-# Runs one merge backend. Both 0 (changed) and 10 (already correct) count as
-# the backend having worked, so the next one is only tried after a real failure.
-__merge_rc=1
-__try_merge() {
-  "$@" 2>/dev/null && __merge_rc=0 || __merge_rc=$?
-  [ "$__merge_rc" -eq 0 ] || [ "$__merge_rc" -eq 10 ]
-}
-
+# A backend's exit status is 0 (changed) or 10 (already correct) when it
+# worked, so the next backend is only tried after a real failure.
 __merge_ok=0
+__merge_rc=1
 if [ "$__merge_ok" = "0" ] && command -v jq >/dev/null 2>&1; then
-  if __try_merge __merge_with_jq; then __merge_ok=1; fi
+  __merge_with_jq 2>/dev/null && __merge_rc=0 || __merge_rc=$?
+  case "$__merge_rc" in 0|10) __merge_ok=1 ;; esac
 fi
 if [ "$__merge_ok" = "0" ] && command -v python3 >/dev/null 2>&1; then
-  if __try_merge __merge_with_python python3; then __merge_ok=1; fi
+  __merge_with_python python3 2>/dev/null && __merge_rc=0 || __merge_rc=$?
+  case "$__merge_rc" in 0|10) __merge_ok=1 ;; esac
 fi
 if [ "$__merge_ok" = "0" ] && command -v python >/dev/null 2>&1; then
-  if __try_merge __merge_with_python python; then __merge_ok=1; fi
+  __merge_with_python python 2>/dev/null && __merge_rc=0 || __merge_rc=$?
+  case "$__merge_rc" in 0|10) __merge_ok=1 ;; esac
 fi
 if [ "$__merge_ok" = "0" ]; then
   if __offer_self_heal "all JSON merge backends failed (need jq or python)"; then

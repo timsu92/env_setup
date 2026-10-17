@@ -123,7 +123,7 @@ if [ "$__merge_ok" = "0" ]; then
 fi
 
 if [ "$__merge_rc" -eq 10 ]; then
-  echo "statusLine already configured, nothing to change" >&2
+  __banner 32 "statusLine already configured, nothing to change"
   exit 10
 fi
 __banner 32 "installed successfully — restart Claude Code to see it"

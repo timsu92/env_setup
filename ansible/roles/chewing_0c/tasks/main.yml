@@ -1,0 +1,81 @@
+---
+# 0c (靈犀注音)：https://0c.biggo.com/
+# 0c only supports Ubuntu >=24.04 and Debian >=13 (glibc >= 2.38)
+# 0c only supports amd64
+# 0c's installer (install.py) refuses to run as root, so a root setup_user (container/devcontainer) is unsupported
+
+- name: Install fcitx5 and WebKitGTK 4.1
+  ansible.builtin.apt:
+    name:
+      - fcitx5>=5.1.7
+      - fcitx5-config-qt
+      - python3
+      - libwebkit2gtk-4.1-0  # 靈犀注音設定, but all settings can be set using the CLI, so this is optional
+    state: present
+  when: chewing_0c_in_supported_env
+
+# 0c updates itself after the first install, so "installed" is only checked for being empty:
+# comparing it with chewing_0c_version would try to downgrade a self-updated 0c.
+- name: Check whether 0c is already installed
+  ansible.builtin.stat:
+    path: "{{ setup_user_home }}/.local/bin/0c-update"
+  register: chewing_0c_installed_bin
+  when: chewing_0c_in_supported_env
+
+- name: Query installed 0c version
+  ansible.builtin.command:
+    cmd: "{{ setup_user_home }}/.local/bin/0c-update status --json"
+  register: chewing_0c_status
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+  changed_when: false
+  check_mode: false  # read-only, and the next task needs its output even in --check
+  when: chewing_0c_in_supported_env and chewing_0c_installed_bin.stat.exists
+
+- name: Decide whether 0c has to be installed
+  ansible.builtin.set_fact:
+    chewing_0c_needs_install: >-
+      {{ not chewing_0c_installed_bin.stat.exists
+         or (chewing_0c_status.stdout | from_json)['installed'] == '' }}
+  when: chewing_0c_in_supported_env
+
+- name: Download 0c installer/updater
+  ansible.builtin.get_url:
+    url: "{{ chewing_0c_0c_update_url }}"
+    dest: /tmp/0c-update
+    mode: '0700'
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    checksum: "sha256:{{ chewing_0c_0c_update_sha256 }}"
+  changed_when: false
+  when: chewing_0c_in_supported_env and chewing_0c_needs_install
+
+# Results go to stdout. stderr only carries side notes (e.g. "systemd --user" being unreachable
+# in containers) while the exit code stays 0, so it must not be treated as a failure.
+- name: Run 0c installer/updater
+  ansible.builtin.command:
+    cmd: "/tmp/0c-update install -online -feed {{ chewing_0c_feed }} -channel {{ chewing_0c_channel }}"
+  register: chewing_0c_install
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+  # The installer prints this on stdout when the installed version is already the latest
+  changed_when: "'不重新安裝' not in chewing_0c_install.stdout"
+  when: chewing_0c_in_supported_env and chewing_0c_needs_install
+
+- name: Warn that the 0c installer found nothing to install
+  ansible.builtin.debug:
+    msg: >-
+      [WARNING] 0c-update reported 0c as already installed although `status --json` said otherwise:
+      {{ chewing_0c_install.stdout_lines | select('search', '不重新安裝') | first }}
+  when: chewing_0c_in_supported_env and chewing_0c_needs_install and chewing_0c_install is not skipped and not chewing_0c_install.changed
+
+- name: Remove 0c installer/updater
+  ansible.builtin.file:
+    path: /tmp/0c-update
+    state: absent
+  changed_when: false
+  when: chewing_0c_in_supported_env and chewing_0c_needs_install

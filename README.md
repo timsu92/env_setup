@@ -90,6 +90,7 @@ Roles implement individual capabilities. Each role encapsulates everything neede
 | `vim` | vim editor |
 | `helm` | Helm (k8s package manager) |
 | `xpra` | Xpra remote desktop |
+| `chewing_0c` | 0c (靈犀注音) input method on fcitx5, installed through its own `0c-update`. Skipped unless Ubuntu >=24.04 / Debian >=13 on amd64 with a non-root `setup_user` (the installer refuses root) |
 | `pigz` | pigz (parallel gzip) |
 | `fzf` | fzf fuzzy finder |
 | `github_cli` | GitHub CLI (gh) |

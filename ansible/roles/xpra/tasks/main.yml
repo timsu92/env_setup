@@ -112,16 +112,6 @@
     state: present
     update_cache: true
 
-# xpra can't send unicode input to a remote session, so we need a input method
-# to type in the xpra server.
-- name: Install fcitx5 chewing
-  ansible.builtin.apt:
-    name:
-      - fcitx5
-      - fcitx5-chewing
-      - chewing-editor  # 自訂詞彙編輯器
-    state: present
-
 - name: Ask xpra to start fctix5 when starting a session
   ansible.builtin.lineinfile:
     path: "{{ setup_user_home }}/.config/xpra/xpra.conf"

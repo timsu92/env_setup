@@ -1,0 +1,4 @@
+---
+dependencies:
+  - chewing_0c  # xpra can't send unicode input to a remote session, so we need
+                # a input method to type in the xpra server.

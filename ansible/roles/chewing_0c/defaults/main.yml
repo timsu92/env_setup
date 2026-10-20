@@ -1,0 +1,19 @@
+---
+# 0c only supports Ubuntu >=24.04 and Debian >=13 (glibc >= 2.38)
+# 0c only supports amd64
+# 0c's installer (install.py) refuses to run as root, so a root setup_user (container/devcontainer) is unsupported
+chewing_0c_in_supported_env: >-
+  {{ (
+      ansible_facts['distribution'] == 'Ubuntu' and ansible_facts['distribution_major_version'] | int >= 24
+      or (ansible_facts['distribution'] == 'Debian' and ansible_facts['distribution_major_version'] | int >= 13)
+     )
+     and ansible_facts['architecture'] == 'x86_64'
+     and setup_user != 'root' }}
+
+# The true installer/updater "0c-update"
+# Version, sha256sum, feed, and channel can be checked at https://s3.biggo.com/0c-releases/feeds/install.sh
+chewing_0c_version: 0.2.2
+chewing_0c_0c_update_sha256: 38498b2fdfc7aaddcea7ee57640c0ec3e4ef7d61c71a7e64350fb707b12f8b78
+chewing_0c_0c_update_url: https://s3.biggo.com/0c-releases/releases/{{ chewing_0c_version }}/bootstrap/linux-amd64/0c-update
+chewing_0c_feed: https://s3.biggo.com/0c-releases/feeds/public-beta.json
+chewing_0c_channel: public-beta

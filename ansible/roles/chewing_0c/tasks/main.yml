@@ -79,3 +79,44 @@
     state: absent
   changed_when: false
   when: chewing_0c_in_supported_env and chewing_0c_needs_install
+
+# argv instead of cmd: selection-keys may contain ";", which a shell would split on.
+# No -apply here: the engine only reads settings when it starts, and -apply makes it restart,
+# which is only worth doing when something actually changed (see the next task).
+- name: Deploy 0c settings
+  ansible.builtin.command:
+    argv: "{{ [setup_user_home ~ '/.local/bin/0c-update', 'set'] + chewing_0c_set_args + ['-json'] }}"
+  register: chewing_0c_set
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+  # `set` rewrites user.json every time, so "changed" has to come from the from/to it reports
+  changed_when: >-
+    (chewing_0c_set.stdout | from_json).changes | map(attribute='from') | list
+    != (chewing_0c_set.stdout | from_json).changes | map(attribute='to') | list
+  when: chewing_0c_in_supported_env and chewing_0c_settings | length > 0
+
+# Setting the same values again changes nothing on disk, it only asks the running engine to hand
+# over once it is not composing, so the next keystroke starts it with the new settings.
+# The engine not running (container, no systemd --user) is a normal outcome, not a failure.
+- name: Apply 0c settings to the running engine
+  ansible.builtin.command:
+    argv: "{{ [setup_user_home ~ '/.local/bin/0c-update', 'set'] + chewing_0c_set_args + ['-apply', '-json'] }}"
+  register: chewing_0c_apply
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+  changed_when: "(chewing_0c_apply.stdout | from_json).apply.state == 'applied'"
+  when: chewing_0c_in_supported_env and chewing_0c_set is changed
+
+- name: Warn that 0c settings were saved but not applied
+  ansible.builtin.debug:
+    msg: >-
+      [WARNING] 0c settings are saved but the running engine did not pick them up
+      ({{ (chewing_0c_apply.stdout | from_json).apply.state }}): they apply after the next login.
+  when:
+    - chewing_0c_in_supported_env
+    - chewing_0c_apply is not skipped
+    - (chewing_0c_apply.stdout | from_json).apply.state in ['deferred_composing', 'timeout', 'failed']

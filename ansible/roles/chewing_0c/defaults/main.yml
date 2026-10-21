@@ -17,3 +17,40 @@ chewing_0c_0c_update_sha256: 38498b2fdfc7aaddcea7ee57640c0ec3e4ef7d61c71a7e64350
 chewing_0c_0c_update_url: https://s3.biggo.com/0c-releases/releases/{{ chewing_0c_version }}/bootstrap/linux-amd64/0c-update
 chewing_0c_feed: https://s3.biggo.com/0c-releases/feeds/public-beta.json
 chewing_0c_channel: public-beta
+
+# Settings deployed with `0c-update set <key> <value> ...`, in kebab-case as the CLI wants them.
+# Values must stay quoted strings: an unquoted on/off becomes a YAML boolean, and selection-keys
+# must not lose its leading digits. Keys left out keep whatever the user has set (or the default).
+# Reference: https://0c.biggo.com/docs/cli/0c-update/
+chewing_0c_settings:
+  selection: "neural"  # neural | statistical
+  punctuation: "off"  # add punctuation on commit (beta)
+  document-context: "on"  # choose characters by the text just committed
+  mixed-input: "on"  # type English inside zhuyin
+  english-autocomplete: "off"
+  esc-clear: "on"
+  space-selects: "off"
+  advance-after-select: "on"
+  output-simplified: "off"
+  emoji-equals-first: "on"
+  ctrl-punctuation: "on"
+  caps-lock-english: "on"  # Windows and Linux only
+  toggle-key: "both"  # right | both | left | none, which Shift switches zhuyin/English
+  start-mode: "zhuyin"  # zhuyin | english
+  mode-memory: "native"  # native | shared
+  candidate-cursor: "after"  # before | after
+  candidate-layout: "vertical"  # vertical | grid
+  emoji-shortcut: "off"  # off | equals
+  keyboard-layout: "standard"  # standard | eten
+  selection-keys: "1234567890"  # 1234567890 | 1234qweras | asdfghjkl;
+  # Fuzzy zhuyin, each:
+  #   off
+  #   select: list near sound words in selection (default)
+  #   auto: changed to a better word if the context suggests it obviously (beta)
+  fuzzy-z-zh: "auto"    # ㄗ / ㄓ
+  fuzzy-c-ch: "auto"    # ㄘ / ㄔ
+  fuzzy-s-sh: "auto"    # ㄙ / ㄕ
+  fuzzy-en-eng: "auto"  # ㄣ / ㄥ
+
+# "key value key value ..." for `0c-update set`, built from chewing_0c_settings
+chewing_0c_set_args: "{{ chewing_0c_settings.keys() | zip(chewing_0c_settings.values()) | flatten }}"

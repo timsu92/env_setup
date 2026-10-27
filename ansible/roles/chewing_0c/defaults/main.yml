@@ -12,8 +12,8 @@ chewing_0c_in_supported_env: >-
 
 # The true installer/updater "0c-update"
 # Version, sha256sum, feed, and channel can be checked at https://s3.biggo.com/0c-releases/feeds/install.sh
-chewing_0c_version: 0.2.2
-chewing_0c_0c_update_sha256: 38498b2fdfc7aaddcea7ee57640c0ec3e4ef7d61c71a7e64350fb707b12f8b78
+chewing_0c_version: 0.2.6
+chewing_0c_0c_update_sha256: 99a0c93d240c4fe39484386753388c4dd526e0557538bc71cf029fec4bc006f1
 chewing_0c_0c_update_url: https://s3.biggo.com/0c-releases/releases/{{ chewing_0c_version }}/bootstrap/linux-amd64/0c-update
 chewing_0c_feed: https://s3.biggo.com/0c-releases/feeds/public-beta.json
 chewing_0c_channel: public-beta
@@ -21,6 +21,7 @@ chewing_0c_channel: public-beta
 # Settings deployed with `0c-update set <key> <value> ...`, in kebab-case as the CLI wants them.
 # Values must stay quoted strings: an unquoted on/off becomes a YAML boolean, and selection-keys
 # must not lose its leading digits. Keys left out keep whatever the user has set (or the default).
+# Run `0c-update status -json | jq -r .settings` to see the current settings.
 # Reference: https://0c.biggo.com/docs/cli/0c-update/
 chewing_0c_settings:
   selection: "neural"  # neural | statistical

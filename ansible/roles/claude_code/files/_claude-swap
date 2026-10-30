@@ -1,0 +1,171 @@
+#compdef claude-swap cswap
+
+# claude-swap ships no completion of its own, and its argparse parsers are built
+# inside functions, so shtab/argcomplete have nothing to hook. Read the command
+# table from `claude-swap --help` at TAB time instead: a verb added by an
+# upgrade shows up with no regeneration step. Accounts come from `list --json`.
+
+# NUM|EMAIL / <a> / <b> are accounts, <path> / [path] are files.
+_claude_swap_argtype() {
+  case $1 in
+    '<num|email>'|'<a>'|'<b>') REPLY=accounts ;;
+    '<path>'|'[path]') REPLY=files ;;
+    *) REPLY= ;;
+  esac
+}
+
+# Fill the caller's verbs, verb_desc, verb_arg1, verb_arg2, opt_names, opt_meta
+# (zsh dynamic scoping) from the `Commands:`, `Aliases:` and `options:` blocks.
+_claude_swap_parse_help() {
+  setopt localoptions extendedglob  # for the `##` leading-space strip below
+  local line rest cmd verb args pair target t meta section=
+  local -a toks names
+
+  for line in "${(@f)$(command claude-swap --help 2>/dev/null)}"; do
+    if [[ -z $line ]]; then
+      section=
+      continue
+    fi
+    case $line in
+      'Commands:') section=cmds; continue ;;
+      'options:') section=opts; continue ;;
+      'Aliases: '*)
+        for pair in ${=${line#Aliases: }}; do
+          target=${pair#*=}
+          verbs+=${pair%%=*}
+          verb_desc[${pair%%=*}]="= $target"
+          verb_arg1[${pair%%=*}]=${verb_arg1[$target]}
+          verb_arg2[${pair%%=*}]=${verb_arg2[$target]}
+        done
+        continue
+        ;;
+    esac
+
+    if [[ $section == cmds && $line == '  claude-swap '* ]]; then
+      # "  claude-swap <verb> <args...>   <description>": the description is
+      # separated from the usage by a run of two or more spaces.
+      rest=${line#  claude-swap }
+      cmd=${rest%%  *}
+      verb=${cmd%% *}
+      args=${cmd#$verb}
+      toks=( ${=args} )
+      if [[ -z ${verb_desc[$verb]} ]]; then
+        verbs+=$verb
+        verb_desc[$verb]=${${rest#$cmd}## #}
+      fi
+      if [[ -n $toks[1] ]]; then
+        _claude_swap_argtype $toks[1]
+        [[ -n $REPLY ]] && verb_arg1[$verb]=$REPLY
+      fi
+      if [[ -n $toks[2] ]]; then
+        _claude_swap_argtype $toks[2]
+        [[ -n $REPLY ]] && verb_arg2[$verb]=$REPLY
+      fi
+    elif [[ $section == opts && $line == '  -'* ]]; then
+      # "  -h, --help" / "  --strategy {a,b}" / "  --slot NUM": flags first,
+      # then an optional metavar that means the flag takes a value.
+      rest=${line#  }
+      toks=( ${=${rest%%  *}} )
+      names=()
+      meta=
+      for t in $toks; do
+        if [[ $t == -* ]]; then
+          names+=${t%,}
+        else
+          meta=$t
+        fi
+      done
+      for t in $names; do
+        opt_names+=$t
+        [[ -n $meta ]] && opt_meta[$t]=$meta
+      done
+    fi
+  done
+}
+
+# "number:email", "email:account N" and "alias:account N email" candidates, so
+# any of the three spellings completes.
+_claude_swap_accounts() {
+  local json py
+  local -a accounts
+  json=$(command claude-swap list --json 2>/dev/null) || return 1
+  read -r -d '' py <<'PY'
+import json, sys
+
+def esc(s):
+    return s.replace("\\", "\\\\").replace(":", "\\:")
+
+for a in json.loads(sys.argv[1]).get("accounts", []):
+    num, email = str(a["number"]), a["email"]
+    tag = " (active)" if a.get("active") else ""
+    print(f"{num}:{email}{tag}")
+    print(f"{esc(email)}:account {num}{tag}")
+    if a.get("alias"):
+        print(f"{esc(a['alias'])}:account {num} {email}{tag}")
+PY
+  accounts=( ${(f)"$(python3 -I -c "$py" "$json" 2>/dev/null)"} )
+  _describe -t accounts 'account' accounts
+}
+
+_claude-swap() {
+  local -a verbs opt_names described
+  local -A verb_desc verb_arg1 verb_arg2 opt_meta
+  local cur=$words[CURRENT] prev=$words[CURRENT-1]
+  local verb v w meta kind i n=0
+
+  # Everything after `--` is forwarded to claude verbatim.
+  for (( i = 2; i < CURRENT; i++ )); do
+    [[ $words[i] == -- ]] && return 1
+  done
+
+  _claude_swap_parse_help
+
+  # The value of a flag that takes one (--strategy {a,b}, --account NUM|EMAIL).
+  if [[ $prev == -* && -n ${opt_meta[$prev]} ]]; then
+    meta=$opt_meta[$prev]
+    case $meta in
+      '{'*'}') compadd -- ${(s:,:)${${meta#\{}%\}}} ;;
+      'NUM|EMAIL') _claude_swap_accounts ;;
+      *) _message -e values $meta ;;
+    esac
+    return
+  fi
+
+  if [[ $cur == -* ]]; then
+    compadd -- $opt_names
+    return
+  fi
+
+  if (( CURRENT == 2 )); then
+    for v in $verbs; do
+      described+=( "${v}:${verb_desc[$v]//:/\\:}" )
+    done
+    _describe -t commands 'command' described
+    return
+  fi
+
+  verb=$words[2]
+  [[ $verb == -* ]] && return 1
+
+  # Count the positionals already typed after the verb, skipping flag values.
+  for (( i = 3; i < CURRENT; i++ )); do
+    w=$words[i]
+    if [[ $w == -* ]]; then
+      [[ -n ${opt_meta[$w]} ]] && (( i++ ))
+    else
+      (( n++ ))
+    fi
+  done
+
+  case $(( n + 1 )) in
+    1) kind=$verb_arg1[$verb] ;;
+    2) kind=$verb_arg2[$verb] ;;
+  esac
+
+  case $kind in
+    accounts) _claude_swap_accounts ;;
+    files) _files ;;
+  esac
+}
+
+_claude-swap "$@"

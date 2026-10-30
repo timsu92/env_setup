@@ -14,6 +14,18 @@
   become: true
   become_user: "{{ setup_user }}"
 
+# claude-swap has no completion of its own and its argparse parsers aren't
+# reachable from outside (shtab/argcomplete have nothing to hook), so this file
+# reads `claude-swap --help` and `list --json` when TAB is pressed. It therefore
+# keeps up with upgrades by itself and needs no regeneration in the update script.
+- name: Deploy zsh completion for claude-swap
+  ansible.builtin.copy:
+    src: _claude-swap
+    dest: "{{ setup_user_home }}/.config/zsh/completions/_claude-swap"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+
 - name: Deploy aptu update script for claude-swap
   ansible.builtin.copy:
     src: claude-swap.update.zsh

@@ -168,4 +168,6 @@ _claude-swap() {
   esac
 }
 
-_claude-swap "$@"
+# Autoloaded by compinit this runs as `_claude-swap`; claude-swap.update.zsh
+# sources the file to smoke-test the parser, and must not trigger a completion.
+[[ $funcstack[1] == _claude-swap ]] && _claude-swap "$@"

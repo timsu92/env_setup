@@ -20,6 +20,8 @@
     - role: zsh
     - role: zplug
     - role: starship
+    - role: github_cli
+    - role: gitlab_cli
     - role: claude_code
     - role: fzf
     - role: htop

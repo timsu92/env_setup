@@ -128,7 +128,7 @@ The question to ask for each task: does it need `$HOME` to resolve to `setup_use
 
 ### Role internals: task-file splitting
 
-Roles with more than one logical concern split `tasks/main.yml` into named files and pull them in with `include_tasks`, e.g. `roles/claude_code/tasks/main.yml` includes `claude-swap.yml`, `rtk.yml`, `winlab-skills.yml`, `hung-yi-lee-skill.yml`, `cswap-daemon.yml`. When adding a new sub-concern to an existing role, follow this pattern (new file + `include_tasks` line) instead of growing `main.yml` monolithically.
+Roles with more than one logical concern split `tasks/main.yml` into named files and pull them in with `include_tasks`, e.g. `roles/claude_code/tasks/main.yml` includes `claude-swap.yml`, `rtk.yml`, `winlab-skills.yml`, `hung-yi-lee-skill.yml`, `statusline.yml`. When adding a new sub-concern to an existing role, follow this pattern (new file + `include_tasks` line) instead of growing `main.yml` monolithically.
 
 ### Multi-distro support target
 

@@ -56,8 +56,8 @@
 - name: Install hung-yi-lee-skill
   ansible.builtin.include_tasks: hung-yi-lee-skill.yml
 
-- name: Install cswap auto switch account daemon
-  ansible.builtin.include_tasks: cswap-daemon.yml
+- name: Remove leftovers of the retired cswap auto setup
+  ansible.builtin.include_tasks: cswap-auto-cleanup.yml
 
 - name: Install drawio-mcp
   ansible.builtin.include_tasks: drawio-mcp.yml

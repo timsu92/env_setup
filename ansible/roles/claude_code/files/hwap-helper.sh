@@ -13,7 +13,8 @@
 #   error:<reason>              couldn't decide; callers must surface this
 #                               loudly instead of treating it as "clear"
 #
-# A window is "exhausted" while pct >= RATE_LIMIT_GATE_PCT and the clock is
+# A window is "exhausted" while pct >= its own threshold (the 5-hour and 7-day
+# windows have separate ones below) and the clock is
 # before resetsAt + RATE_LIMIT_RESUME_BUFFER_SEC. cswap polls exhausted
 # accounts only about every ten minutes, so right after a reset it can still
 # report the old pct with a resetsAt already in the past ("reset in 0m"). The
@@ -21,8 +22,9 @@
 # it has run out the window counts as cleared whatever the stale pct says.
 set -u
 
-# A rate-limit window at or above this percentage counts as "exhausted".
-RATE_LIMIT_GATE_PCT=97
+# A rate-limit window at or above its percentage counts as "exhausted".
+RATE_LIMIT_GATE_PCT_5H=97
+RATE_LIMIT_GATE_PCT_7D=99
 
 # Extra seconds to treat a window as exhausted after its resetsAt, so we don't
 # resume the instant the reset lands (usage data may lag behind the reset).
@@ -39,11 +41,12 @@ now="$(date +%s)"
 out=""
 if command -v jq >/dev/null 2>&1; then
   out="$(printf '%s' "$json" | jq -r \
-    --argjson thr "$RATE_LIMIT_GATE_PCT" --argjson buf "$RATE_LIMIT_RESUME_BUFFER_SEC" --argjson now "$now" '
+    --argjson thr5 "$RATE_LIMIT_GATE_PCT_5H" --argjson thr7 "$RATE_LIMIT_GATE_PCT_7D" --argjson buf "$RATE_LIMIT_RESUME_BUFFER_SEC" --argjson now "$now" '
     def ts: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601;
     def pct($k): (.usage // {})[$k].pct // 0;
     def rst($k): (.usage // {})[$k].resetsAt | if . == null then null else ts end;
-    def exhausted($k): pct($k) >= $thr and (rst($k) == null or rst($k) + $buf > $now);
+    def thr($k): if $k == "fiveHour" then $thr5 else $thr7 end;
+    def exhausted($k): pct($k) >= thr($k) and (rst($k) == null or rst($k) + $buf > $now);
     def usable: (exhausted("fiveHour") | not) and (exhausted("sevenDay") | not);
     # Epoch this account clears, or null when a window gives no resetsAt.
     def clears_at:
@@ -73,13 +76,13 @@ else
   elif command -v python >/dev/null 2>&1; then py=python
   fi
   [ -n "$py" ] || { printf 'error:no_json_parser'; exit 0; }
-  out="$(HWAP_JSON="$json" HWAP_THR="$RATE_LIMIT_GATE_PCT" HWAP_BUF="$RATE_LIMIT_RESUME_BUFFER_SEC" HWAP_NOW="$now" \
+  out="$(HWAP_JSON="$json" HWAP_THR_5H="$RATE_LIMIT_GATE_PCT_5H" HWAP_THR_7D="$RATE_LIMIT_GATE_PCT_7D" HWAP_BUF="$RATE_LIMIT_RESUME_BUFFER_SEC" HWAP_NOW="$now" \
     "$py" - <<'PYEOF' 2>/dev/null
 import json, os, re
 from datetime import datetime
 
 d = json.loads(os.environ['HWAP_JSON'])
-thr = float(os.environ['HWAP_THR'])
+thr = {'fiveHour': float(os.environ['HWAP_THR_5H']), 'sevenDay': float(os.environ['HWAP_THR_7D'])}
 buf = int(os.environ['HWAP_BUF'])
 now = int(os.environ['HWAP_NOW'])
 
@@ -97,7 +100,7 @@ def rst(a, k):
     return ts(r) if r else None
 
 def exhausted(a, k):
-    if pct(a, k) < thr:
+    if pct(a, k) < thr[k]:
         return False
     r = rst(a, k)
     return r is None or r + buf > now

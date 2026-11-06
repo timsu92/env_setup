@@ -1,0 +1,11 @@
+---
+# Machines provisioned before `cswap auto` was retired still carry its zsh
+# snippet, lock and log. The ~/.cache directory itself is left alone.
+- name: Remove leftovers of the retired cswap auto setup
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ setup_user_home }}/.config/zsh/interactive/62-cswap-auto.zsh"
+    - "{{ setup_user_home }}/.cache/cswap-auto.lock"
+    - "{{ setup_user_home }}/.cache/cswap-auto.log"

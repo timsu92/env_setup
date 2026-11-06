@@ -502,15 +502,20 @@ if [ -x "$HWAP_HELPER" ]; then
 fi
 # Where the numbers come from. Mid-turn, Claude Code's own are fresh. Idle, they
 # are frozen (and may even belong to the account before a switch), so use
-# cswap's for the active account; if cswap can't give them, keep Claude Code's
-# but flag them as possibly old rather than showing a made-up 0%.
+# cswap's for the active account (its last good ones when it can't fetch right
+# now); if cswap has nothing, keep Claude Code's but flag them as possibly old
+# rather than showing a made-up 0%.
 __usage_age=""
 __usage_stale=0
 if [ "$__turn_running" != 1 ]; then
   read -r __u_tag __u_age __u_p5 __u_r5 __u_p7 __u_r7 <<< "$__hwap_usage"
-  if [ "${__u_tag:-}" = usage ] && [[ "${__u_age:-}" =~ ^[0-9]+$ ]]; then
+  if { [ "${__u_tag:-}" = usage ] || [ "${__u_tag:-}" = lastgood ]; } && [[ "${__u_age:-}" =~ ^[0-9]+$ ]]; then
     __usage_age="$__u_age"
     if [ "$__usage_age" -gt 180 ]; then __usage_stale=1; fi
+    # "lastgood": cswap can't fetch this account right now (say its token
+    # expired) and hands over its own last numbers instead. They are a rescue
+    # value, so they always look old, however recent they are.
+    if [ "$__u_tag" = lastgood ]; then __usage_stale=1; fi
     five_hour_pct="$(__norm_num "${__u_p5:-}")"
     seven_day_pct="$(__norm_num "${__u_p7:-}")"
     __five_resets="$(__norm_int "${__u_r5:-}")"

@@ -19,8 +19,15 @@
 #                               age_s is usageAgeSeconds truncated, the pcts are
 #                               as cswap gives them, the resets are epochs (0
 #                               when cswap gives no resetsAt)
-#   usage none                  no active account, its usageStatus isn't ok, no
-#                               usageAgeSeconds, or cswap failed (any error:*)
+#   lastgood <age_s> <pct5> <resets5> <pct7> <resets7>
+#                               same fields, but from cswap's lastGoodUsage: the
+#                               active account's usageStatus isn't ok (say
+#                               token_expired) so cswap has no usage for it, yet
+#                               it still holds that account's own last numbers
+#   usage none                  no active account, or nothing to show: usageStatus
+#                               ok without usage/usageAgeSeconds, not ok without
+#                               a usable lastGoodUsage + lastGoodAgeSeconds, or
+#                               cswap failed (any error:*)
 # Without the flag only the first line is printed, exactly as before.
 #
 # A window is "exhausted" while pct >= its own threshold (the 5-hour and 7-day
@@ -173,12 +180,17 @@ if [ "$with_usage" = 1 ]; then
   if command -v jq >/dev/null 2>&1; then
     usage_line="$(printf '%s' "$json" | jq -r '
       def ts: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601;
-      def rst($k): .usage[$k].resetsAt | if . == null then 0 else ts end;
+      def rst($u; $k): ($u[$k] // {}).resetsAt | if . == null then 0 else ts end;
+      def line($tag; $u; $age):
+        "\($tag) \($age | floor) \($u.fiveHour.pct // 0) \(rst($u; "fiveHour")) \($u.sevenDay.pct // 0) \(rst($u; "sevenDay"))";
       ((.accounts // []) | map(select(.active == true)) | .[0]) as $a
-      | if $a == null or $a.usageStatus != "ok" or $a.usage == null or $a.usage == {} or $a.usageAgeSeconds == null
-        then "usage none"
-        else "usage \($a.usageAgeSeconds | floor) \($a.usage.fiveHour.pct // 0) \($a | rst("fiveHour")) \($a.usage.sevenDay.pct // 0) \($a | rst("sevenDay"))"
-        end
+      | if $a == null then "usage none"
+        elif $a.usageStatus == "ok" then
+          if $a.usage == null or $a.usage == {} or $a.usageAgeSeconds == null then "usage none"
+          else line("usage"; $a.usage; $a.usageAgeSeconds) end
+        elif ($a.lastGoodUsage | type) == "object" and $a.lastGoodUsage != {} and $a.lastGoodAgeSeconds != null
+        then line("lastgood"; $a.lastGoodUsage; $a.lastGoodAgeSeconds)
+        else "usage none" end
     ' 2>/dev/null)" || usage_line="usage none"
   else
     usage_line="$(HWAP_JSON="$json" "$py" - <<'PYEOF' 2>/dev/null
@@ -188,17 +200,27 @@ from datetime import datetime
 def ts(s):
     return int(datetime.fromisoformat(re.sub(r'\.\d+', '', s).replace('Z', '+00:00')).timestamp())
 
-d = json.loads(os.environ['HWAP_JSON'])
-a = next((x for x in (d.get('accounts') or []) if x.get('active') is True), None)
-if a is None or a.get('usageStatus') != 'ok' or not a.get('usage') or a.get('usageAgeSeconds') is None:
-    print('usage none', end='')
-else:
+def line(tag, u, age):
     def win(k):
-        return a['usage'].get(k) or {}
+        return u.get(k) or {}
     def rst(k):
         r = win(k).get('resetsAt')
         return ts(r) if r else 0
-    print('usage %d %s %d %s %d' % (int(a['usageAgeSeconds']), win('fiveHour').get('pct') or 0, rst('fiveHour'), win('sevenDay').get('pct') or 0, rst('sevenDay')), end='')
+    return '%s %d %s %d %s %d' % (tag, int(age), win('fiveHour').get('pct') or 0, rst('fiveHour'), win('sevenDay').get('pct') or 0, rst('sevenDay'))
+
+d = json.loads(os.environ['HWAP_JSON'])
+a = next((x for x in (d.get('accounts') or []) if x.get('active') is True), None)
+if a is None:
+    print('usage none', end='')
+elif a.get('usageStatus') == 'ok':
+    if not a.get('usage') or a.get('usageAgeSeconds') is None:
+        print('usage none', end='')
+    else:
+        print(line('usage', a['usage'], a['usageAgeSeconds']), end='')
+elif isinstance(a.get('lastGoodUsage'), dict) and a['lastGoodUsage'] and a.get('lastGoodAgeSeconds') is not None:
+    print(line('lastgood', a['lastGoodUsage'], a['lastGoodAgeSeconds']), end='')
+else:
+    print('usage none', end='')
 PYEOF
 )" || usage_line="usage none"
   fi

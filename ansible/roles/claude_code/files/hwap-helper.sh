@@ -13,6 +13,16 @@
 #   error:<reason>              couldn't decide; callers must surface this
 #                               loudly instead of treating it as "clear"
 #
+# With --with-usage (used by statusline.sh) a second line follows, from the same
+# single `cswap list --json` call, about the active account:
+#   usage <age_s> <pct5> <resets5> <pct7> <resets7>
+#                               age_s is usageAgeSeconds truncated, the pcts are
+#                               as cswap gives them, the resets are epochs (0
+#                               when cswap gives no resetsAt)
+#   usage none                  no active account, its usageStatus isn't ok, no
+#                               usageAgeSeconds, or cswap failed (any error:*)
+# Without the flag only the first line is printed, exactly as before.
+#
 # A window is "exhausted" while pct >= its own threshold (the 5-hour and 7-day
 # windows have separate ones below) and the clock is
 # before resetsAt + RATE_LIMIT_RESUME_BUFFER_SEC. cswap polls exhausted
@@ -21,6 +31,16 @@
 # buffer keeps that stale data from being trusted for a bit longer, and once
 # it has run out the window counts as cleared whatever the stale pct says.
 set -u
+
+with_usage=0
+[ "${1:-}" = "--with-usage" ] && with_usage=1
+
+# Prints the answer ($1), plus the usage line ($2, default "usage none") in
+# --with-usage mode. Every exit goes through here so no path forgets line 2.
+emit() {
+  printf '%s' "$1"
+  if [ "$with_usage" = 1 ]; then printf '\n%s' "${2:-usage none}"; fi
+}
 
 # A rate-limit window at or above its percentage counts as "exhausted".
 RATE_LIMIT_GATE_PCT_5H=97
@@ -34,8 +54,8 @@ cswap=""
 if command -v cswap >/dev/null 2>&1; then cswap=cswap
 elif [ -x "$HOME/.local/bin/cswap" ]; then cswap="$HOME/.local/bin/cswap"
 fi
-[ -n "$cswap" ] || { printf 'error:cswap_not_found'; exit 0; }
-json="$("$cswap" list --json 2>/dev/null)" || { printf 'error:cswap_list_failed'; exit 0; }
+[ -n "$cswap" ] || { emit 'error:cswap_not_found'; exit 0; }
+json="$("$cswap" list --json 2>/dev/null)" || { emit 'error:cswap_list_failed'; exit 0; }
 now="$(date +%s)"
 
 out=""
@@ -75,7 +95,7 @@ else
   if command -v python3 >/dev/null 2>&1; then py=python3
   elif command -v python >/dev/null 2>&1; then py=python
   fi
-  [ -n "$py" ] || { printf 'error:no_json_parser'; exit 0; }
+  [ -n "$py" ] || { emit 'error:no_json_parser'; exit 0; }
   out="$(HWAP_JSON="$json" HWAP_THR_5H="$RATE_LIMIT_GATE_PCT_5H" HWAP_THR_7D="$RATE_LIMIT_GATE_PCT_7D" HWAP_BUF="$RATE_LIMIT_RESUME_BUFFER_SEC" HWAP_NOW="$now" \
     "$py" - <<'PYEOF' 2>/dev/null
 import json, os, re
@@ -144,7 +164,43 @@ PYEOF
 fi
 
 if [ -z "$out" ]; then
-  printf 'error:cswap_output_unparsable'
+  emit 'error:cswap_output_unparsable'
   exit 0
 fi
-printf '%s' "$out"
+
+usage_line="usage none"
+if [ "$with_usage" = 1 ]; then
+  if command -v jq >/dev/null 2>&1; then
+    usage_line="$(printf '%s' "$json" | jq -r '
+      def ts: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601;
+      def rst($k): .usage[$k].resetsAt | if . == null then 0 else ts end;
+      ((.accounts // []) | map(select(.active == true)) | .[0]) as $a
+      | if $a == null or $a.usageStatus != "ok" or $a.usage == null or $a.usageAgeSeconds == null
+        then "usage none"
+        else "usage \($a.usageAgeSeconds | floor) \($a.usage.fiveHour.pct // 0) \($a | rst("fiveHour")) \($a.usage.sevenDay.pct // 0) \($a | rst("sevenDay"))"
+        end
+    ' 2>/dev/null)" || usage_line="usage none"
+  else
+    usage_line="$(HWAP_JSON="$json" "$py" - <<'PYEOF' 2>/dev/null
+import json, os, re
+from datetime import datetime
+
+def ts(s):
+    return int(datetime.fromisoformat(re.sub(r'\.\d+', '', s).replace('Z', '+00:00')).timestamp())
+
+d = json.loads(os.environ['HWAP_JSON'])
+a = next((x for x in (d.get('accounts') or []) if x.get('active') is True), None)
+if a is None or a.get('usageStatus') != 'ok' or not a.get('usage') or a.get('usageAgeSeconds') is None:
+    print('usage none', end='')
+else:
+    def win(k):
+        return a['usage'].get(k) or {}
+    def rst(k):
+        r = win(k).get('resetsAt')
+        return ts(r) if r else 0
+    print('usage %d %s %d %s %d' % (int(a['usageAgeSeconds']), win('fiveHour').get('pct') or 0, rst('fiveHour'), win('sevenDay').get('pct') or 0, rst('sevenDay')), end='')
+PYEOF
+)" || usage_line="usage none"
+  fi
+fi
+emit "$out" "$usage_line"

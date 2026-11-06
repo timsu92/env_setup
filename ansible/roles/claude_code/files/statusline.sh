@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -u
 
-# Only a cheap pre-check: below this percentage the active account can't be
-# exhausted, so the (slower) hwap-helper.sh isn't consulted. Keep in sync
-# with hwap-helper.sh, which decides what "exhausted" really means.
-RATE_LIMIT_GATE_PCT=97
-
 # Relative to this script (~/.claude/), shared with hooks/high-watermark-auto-pause.sh.
 HWAP_HELPER="$(dirname "${BASH_SOURCE[0]}")/hwap-helper.sh"
 
@@ -602,7 +597,7 @@ __resume_epoch=""
 __hwap_error=""
 if [ ! -x "$HWAP_HELPER" ]; then
   __hwap_error="hwap_helper_not_found"
-elif awk -v a="$five_hour_pct" -v b="$seven_day_pct" -v t="$RATE_LIMIT_GATE_PCT" 'BEGIN{exit !(a+0>=t || b+0>=t)}'; then
+else
   __hwap="$("$HWAP_HELPER")"
   case "$__hwap" in
     error:*) __hwap_error="${__hwap#error:}" ;;

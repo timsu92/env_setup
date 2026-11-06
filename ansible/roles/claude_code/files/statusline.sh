@@ -215,6 +215,16 @@ __emit() {
   printf '%s' "$text"
   if [ -n "$style" ]; then __reset; fi
 }
+# Like __emit, for a usage percentage: when __usage_stale is 1 the number is
+# drawn dimmed. Bold and underline are dropped in that case (faint and bold
+# don't combine the same way in every terminal) and the colour keeps the tier.
+__pct_emit() {
+  local style="$1" text="$2"
+  if [ "${__usage_stale:-0}" = 1 ]; then
+    style="2;${style#[14];}"
+  fi
+  __emit "$style" "$text"
+}
 __norm_int() {
   # Coerce a possibly-decimal/empty/garbage field value to a non-negative
   # integer string.
@@ -527,31 +537,34 @@ else
 fi
 __repeat_char ' ' 1
 if awk -v v="$five_hour_pct" 'BEGIN{exit !(v+0 < 75)}'; then
-  __emit '38;2;158;206;106' "$five_hour_pct_display"
-  __emit '38;2;158;206;106' '%'
+  __pct_emit '38;2;158;206;106' "$five_hour_pct_display"
+  __pct_emit '38;2;158;206;106' '%'
 elif awk -v v="$five_hour_pct" 'BEGIN{exit !(v+0 < 85)}'; then
-  __emit '4;38;2;224;175;104' "$five_hour_pct_display"
-  __emit '4;38;2;224;175;104' '%'
+  __pct_emit '4;38;2;224;175;104' "$five_hour_pct_display"
+  __pct_emit '4;38;2;224;175;104' '%'
 else
-  __emit '1;38;2;224;104;104' "$five_hour_pct_display"
-  __emit '1;38;2;224;104;104' '%'
+  __pct_emit '1;38;2;224;104;104' "$five_hour_pct_display"
+  __pct_emit '1;38;2;224;104;104' '%'
   __v="$__five_resets"
   __out="$(__rel_time "$__v")"
   __emit '1;38;2;224;104;104' "$__out"
 fi
 __emit '' '/'
 if awk -v v="$seven_day_pct" 'BEGIN{exit !(v+0 < 75)}'; then
-  __emit '38;2;158;206;106' "$seven_day_pct_display"
-  __emit '38;2;158;206;106' '%'
+  __pct_emit '38;2;158;206;106' "$seven_day_pct_display"
+  __pct_emit '38;2;158;206;106' '%'
 elif awk -v v="$seven_day_pct" 'BEGIN{exit !(v+0 < 85)}'; then
-  __emit '4;38;2;224;175;104' "$seven_day_pct_display"
-  __emit '4;38;2;224;175;104' '%'
+  __pct_emit '4;38;2;224;175;104' "$seven_day_pct_display"
+  __pct_emit '4;38;2;224;175;104' '%'
 else
-  __emit '1;38;2;224;104;104' "$seven_day_pct_display"
-  __emit '1;38;2;224;104;104' '%'
+  __pct_emit '1;38;2;224;104;104' "$seven_day_pct_display"
+  __pct_emit '1;38;2;224;104;104' '%'
   __v="$__seven_resets"
   __out="$(__rel_time "$__v")"
   __emit '1;38;2;224;104;104' "$__out"
+fi
+if [ -n "$__usage_age" ] && [ "$__usage_stale" = 1 ]; then
+  __emit '2' " ($(__dur_human $((__usage_age * 1000))) ago)"
 fi
 # While nothing is usable, hwap-helper.sh knows exactly when the earliest
 # account clears. The hook's hold file only adds the buffer after a reset,

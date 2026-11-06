@@ -175,7 +175,7 @@ if [ "$with_usage" = 1 ]; then
       def ts: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601;
       def rst($k): .usage[$k].resetsAt | if . == null then 0 else ts end;
       ((.accounts // []) | map(select(.active == true)) | .[0]) as $a
-      | if $a == null or $a.usageStatus != "ok" or $a.usage == null or $a.usageAgeSeconds == null
+      | if $a == null or $a.usageStatus != "ok" or $a.usage == null or $a.usage == {} or $a.usageAgeSeconds == null
         then "usage none"
         else "usage \($a.usageAgeSeconds | floor) \($a.usage.fiveHour.pct // 0) \($a | rst("fiveHour")) \($a.usage.sevenDay.pct // 0) \($a | rst("sevenDay"))"
         end

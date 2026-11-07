@@ -410,6 +410,84 @@ __load_turn_stamps() {
   fi
 }
 
+# Writes the hint file the hook reads through hwap-helper.sh (see there for the
+# format and the matching rule): Claude Code's own numbers for the account in
+# use, one file per account (<key> from the helper's usage line). Only a window
+# whose flag (<m5>/<m7>, set by the helper when the stdin reset equals cswap's
+# for the active account) is 1 is written; the other window keeps what the file
+# already holds (a missing or malformed file counts as 0 0 0 0), and with
+# neither flag set the file is left alone. The numbers are the __stdin_* copies
+# taken before the display source selection. Atomic, and never a failure.
+__write_usage_hint() {
+  local key="$1" m5="$2" m7="$3"
+  { [ "$m5" = 1 ] || [ "$m7" = 1 ]; } || return 0
+  [ "$key" != - ] && [[ "$key" =~ ^[A-Za-z0-9._@+-]+$ ]] || return 0
+  local dir f cur p5=0 r5=0 p7=0 r7=0 tmp
+  dir="${HWAP_HINT_DIR:-/tmp/claude-$(id -u)}"
+  f="$dir/usage-$key"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  cur="$(cat "$f" 2>/dev/null)"
+  if [[ "$cur" =~ ^(0|[1-9][0-9]*)(\.[0-9]+)?\ [0-9]{1,15}\ (0|[1-9][0-9]*)(\.[0-9]+)?\ [0-9]{1,15}$ ]]; then
+    read -r p5 r5 p7 r7 <<< "$cur"
+  fi
+  # Usage only goes up inside one window, and other sessions of this account
+  # (or one after Esc, whose stdin is frozen) write older readings: when the
+  # file already holds this very window (same reset), keep the higher pct.
+  local np
+  if [ "$m5" = 1 ]; then
+    np="$(__norm_num "$__stdin_p5")"
+    if [ "$r5" = "$__stdin_r5" ] && awk -v a="$p5" -v b="$np" 'BEGIN{exit !(a+0 > b+0)}'; then np="$p5"; fi
+    p5="$np"; r5="$__stdin_r5"
+  fi
+  if [ "$m7" = 1 ]; then
+    np="$(__norm_num "$__stdin_p7")"
+    if [ "$r7" = "$__stdin_r7" ] && awk -v a="$p7" -v b="$np" 'BEGIN{exit !(a+0 > b+0)}'; then np="$p7"; fi
+    p7="$np"; r7="$__stdin_r7"
+  fi
+  tmp="$(mktemp "$dir/.usage-tmp.XXXXXX" 2>/dev/null)" || return 0
+  if printf '%s %s %s %s\n' "$p5" "$r5" "$p7" "$r7" > "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp"
+  else
+    rm -f "$tmp"
+  fi
+  return 0
+}
+
+# TEMPORARY, to find out how far Claude Code's resets_at is from cswap's resetsAt
+# (rounded or truncated?), which sets the tolerance in hwap-helper.sh. Mid-turn,
+# with a usable account key, it shows "Δ5h:<stdin - cswap>s Δ7d:..s" dim on the
+# usage line ("✗" when the helper did not count the window as a match, "n/a"
+# when either side has no reset) and keeps the last 20 observations in
+# <hint dir>/hint-log-<key>. Delete this function, its call and HINT_OBSERVE
+# once the tolerance is settled.
+HINT_OBSERVE=1
+__hint_obs_fmt() { # <diff or na> <match flag> -> "+1s", "0s", "-2s✗" or "n/a"
+  local d="$1" m="$2" out
+  case "$d" in na) printf 'n/a'; return ;; 0|-*) out="${d}s" ;; *) out="+${d}s" ;; esac
+  [ "$m" = 1 ] || out="$out✗"
+  printf '%s' "$out"
+}
+__hint_observe() {
+  local key="$1" m5="$2" m7="$3" c5="$4" c7="$5" d5 d7 t5 t7 dir f tmp
+  __hint_dbg=""
+  [ "$HINT_OBSERVE" = 1 ] || return 0
+  [ "$key" != - ] && [[ "$key" =~ ^[A-Za-z0-9._@+-]+$ ]] || return 0
+  c5="$(__norm_int "$c5")"; c7="$(__norm_int "$c7")"
+  if [ "$__stdin_r5" -gt 0 ] && [ "$c5" -gt 0 ]; then d5=$((__stdin_r5 - c5)); else d5=na; fi
+  if [ "$__stdin_r7" -gt 0 ] && [ "$c7" -gt 0 ]; then d7=$((__stdin_r7 - c7)); else d7=na; fi
+  t5="$(__hint_obs_fmt "$d5" "$m5")"; t7="$(__hint_obs_fmt "$d7" "$m7")"
+  [ "$t5" = 'n/a' ] && [ "$t7" = 'n/a' ] && return 0
+  __hint_dbg="Δ5h:$t5 Δ7d:$t7"
+  dir="${HWAP_HINT_DIR:-/tmp/claude-$(id -u)}"; f="$dir/hint-log-$key"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  tmp="$(mktemp "$dir/.hint-log-tmp.XXXXXX" 2>/dev/null)" || return 0
+  { tail -n 19 "$f" 2>/dev/null
+    printf '%s stdin5=%s cswap5=%s diff5=%s m5=%s stdin7=%s cswap7=%s diff7=%s m7=%s\n' \
+      "$(date +%s)" "$__stdin_r5" "$c5" "$d5" "$m5" "$__stdin_r7" "$c7" "$d7" "$m7"
+  } > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp"
+  return 0
+}
+
 # Edit fields below
 if [ "$(__field 'fast_mode')" = 'true' ]; then
   __emit '' '⚡'
@@ -491,12 +569,16 @@ five_hour_pct="$(__field 'rate_limits.five_hour.used_percentage')"
 seven_day_pct="$(__field 'rate_limits.seven_day.used_percentage')"
 __five_resets="$(__field 'rate_limits.five_hour.resets_at')"
 __seven_resets="$(__field 'rate_limits.seven_day.resets_at')"
+# Claude Code's own numbers, kept before the source selection below may replace
+# them with cswap's: they are what the hint file gets.
+__stdin_p5="$five_hour_pct"; __stdin_p7="$seven_day_pct"
+__stdin_r5="$(__norm_int "$__five_resets")"; __stdin_r7="$(__norm_int "$__seven_resets")"
 # One hwap-helper.sh call per render: its first line is the pause/switch answer
 # used further down, its second line is the active cswap account's usage.
 __hwap=""
 __hwap_usage=""
 if [ -x "$HWAP_HELPER" ]; then
-  __hwap_out="$("$HWAP_HELPER" --with-usage)"
+  __hwap_out="$("$HWAP_HELPER" --with-usage --stdin-resets "$__stdin_r5" "$__stdin_r7")"
   __hwap="${__hwap_out%%$'\n'*}"
   case "$__hwap_out" in *$'\n'*) __hwap_usage="${__hwap_out#*$'\n'}" ;; esac
 fi
@@ -507,8 +589,15 @@ fi
 # rather than showing a made-up 0%.
 __usage_age=""
 __usage_stale=0
-if [ "$__turn_running" != 1 ]; then
-  read -r __u_tag __u_age __u_p5 __u_r5 __u_p7 __u_r7 <<< "$__hwap_usage"
+__hint_dbg=""
+read -r __u_tag __u_age __u_p5 __u_r5 __u_p7 __u_r7 __u_key __u_m5 __u_m7 <<< "$__hwap_usage"
+if [ "$__turn_running" = 1 ]; then
+  # Mid-turn Claude Code's numbers are on screen, and are also handed to the hook.
+  if [ "${__u_tag:-}" = usage ]; then
+    __write_usage_hint "${__u_key:-}" "${__u_m5:-0}" "${__u_m7:-0}"
+    __hint_observe "${__u_key:-}" "${__u_m5:-0}" "${__u_m7:-0}" "${__u_r5:-0}" "${__u_r7:-0}"
+  fi
+else
   if { [ "${__u_tag:-}" = usage ] || [ "${__u_tag:-}" = lastgood ]; } && [[ "${__u_age:-}" =~ ^[0-9]+$ ]]; then
     __usage_age="$__u_age"
     if [ "$__usage_age" -gt 180 ]; then __usage_stale=1; fi
@@ -571,6 +660,7 @@ fi
 if [ -n "$__usage_age" ] && [ "$__usage_stale" = 1 ]; then
   __emit '2' " ($(__dur_human $((__usage_age * 1000))) ago)"
 fi
+if [ -n "$__hint_dbg" ]; then __emit '2' " $__hint_dbg"; fi
 # While nothing is usable, hwap-helper.sh knows exactly when the earliest
 # account clears. The hook's hold file only adds the buffer after a reset,
 # when cswap already reports the account as usable again, so it is used only

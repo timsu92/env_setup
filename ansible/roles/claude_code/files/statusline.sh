@@ -410,6 +410,37 @@ __load_turn_stamps() {
   fi
 }
 
+# Writes the hint file the hook reads through hwap-helper.sh (see there for the
+# format and the matching rule): Claude Code's own numbers for the account in
+# use, one file per account (<key> from the helper's usage line). Only a window
+# whose flag (<m5>/<m7>, set by the helper when the stdin reset equals cswap's
+# for the active account) is 1 is written; the other window keeps what the file
+# already holds (a missing or malformed file counts as 0 0 0 0), and with
+# neither flag set the file is left alone. The numbers are the __stdin_* copies
+# taken before the display source selection. Atomic, and never a failure.
+__write_usage_hint() {
+  local key="$1" m5="$2" m7="$3"
+  { [ "$m5" = 1 ] || [ "$m7" = 1 ]; } || return 0
+  [ "$key" != - ] && [[ "$key" =~ ^[A-Za-z0-9._@+-]+$ ]] || return 0
+  local dir f cur p5=0 r5=0 p7=0 r7=0 tmp
+  dir="${HWAP_HINT_DIR:-/tmp/claude-$(id -u)}"
+  f="$dir/usage-$key"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  cur="$(cat "$f" 2>/dev/null)"
+  if [[ "$cur" =~ ^(0|[1-9][0-9]*)(\.[0-9]+)?\ [0-9]{1,15}\ (0|[1-9][0-9]*)(\.[0-9]+)?\ [0-9]{1,15}$ ]]; then
+    read -r p5 r5 p7 r7 <<< "$cur"
+  fi
+  if [ "$m5" = 1 ]; then p5="$(__norm_num "$__stdin_p5")"; r5="$__stdin_r5"; fi
+  if [ "$m7" = 1 ]; then p7="$(__norm_num "$__stdin_p7")"; r7="$__stdin_r7"; fi
+  tmp="$(mktemp "$dir/.usage-tmp.XXXXXX" 2>/dev/null)" || return 0
+  if printf '%s %s %s %s\n' "$p5" "$r5" "$p7" "$r7" > "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp"
+  else
+    rm -f "$tmp"
+  fi
+  return 0
+}
+
 # Edit fields below
 if [ "$(__field 'fast_mode')" = 'true' ]; then
   __emit '' '⚡'
@@ -491,12 +522,16 @@ five_hour_pct="$(__field 'rate_limits.five_hour.used_percentage')"
 seven_day_pct="$(__field 'rate_limits.seven_day.used_percentage')"
 __five_resets="$(__field 'rate_limits.five_hour.resets_at')"
 __seven_resets="$(__field 'rate_limits.seven_day.resets_at')"
+# Claude Code's own numbers, kept before the source selection below may replace
+# them with cswap's: they are what the hint file gets.
+__stdin_p5="$five_hour_pct"; __stdin_p7="$seven_day_pct"
+__stdin_r5="$(__norm_int "$__five_resets")"; __stdin_r7="$(__norm_int "$__seven_resets")"
 # One hwap-helper.sh call per render: its first line is the pause/switch answer
 # used further down, its second line is the active cswap account's usage.
 __hwap=""
 __hwap_usage=""
 if [ -x "$HWAP_HELPER" ]; then
-  __hwap_out="$("$HWAP_HELPER" --with-usage)"
+  __hwap_out="$("$HWAP_HELPER" --with-usage --stdin-resets "$__stdin_r5" "$__stdin_r7")"
   __hwap="${__hwap_out%%$'\n'*}"
   case "$__hwap_out" in *$'\n'*) __hwap_usage="${__hwap_out#*$'\n'}" ;; esac
 fi
@@ -507,8 +542,11 @@ fi
 # rather than showing a made-up 0%.
 __usage_age=""
 __usage_stale=0
-if [ "$__turn_running" != 1 ]; then
-  read -r __u_tag __u_age __u_p5 __u_r5 __u_p7 __u_r7 __u_key __u_m5 __u_m7 <<< "$__hwap_usage"
+read -r __u_tag __u_age __u_p5 __u_r5 __u_p7 __u_r7 __u_key __u_m5 __u_m7 <<< "$__hwap_usage"
+if [ "$__turn_running" = 1 ]; then
+  # Mid-turn Claude Code's numbers are on screen, and are also handed to the hook.
+  if [ "${__u_tag:-}" = usage ]; then __write_usage_hint "${__u_key:-}" "${__u_m5:-0}" "${__u_m7:-0}"; fi
+else
   if { [ "${__u_tag:-}" = usage ] || [ "${__u_tag:-}" = lastgood ]; } && [[ "${__u_age:-}" =~ ^[0-9]+$ ]]; then
     __usage_age="$__u_age"
     if [ "$__usage_age" -gt 180 ]; then __usage_stale=1; fi

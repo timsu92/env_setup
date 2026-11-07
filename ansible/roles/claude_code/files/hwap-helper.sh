@@ -90,13 +90,56 @@ fi
 json="$("$cswap" list --json 2>/dev/null)" || { emit 'error:cswap_list_failed'; exit 0; }
 now="$(date +%s)"
 
+# Hint files: statusline.sh writes Claude Code's own numbers for the account in
+# use to <hint dir>/usage-<key> (see "usage" above for <key>) while a session is
+# mid-turn, as "<pct5> <resets5> <pct7> <resets7>". They are collected into
+# {"<key>": [pct5, resets5, pct7, resets7], ...}; a file that is missing,
+# unreadable, vanishes meanwhile or isn't exactly that shape is skipped, which
+# means "no hint". HWAP_HINT_DIR is only a test seam.
+hint_dir="${HWAP_HINT_DIR:-/tmp/claude-$UID}"
+hints_json='{}'
+if [ -d "$hint_dir" ]; then
+  hint_sep=""
+  hints_body=""
+  for hint_file in "$hint_dir"/usage-*; do
+    [ -f "$hint_file" ] || continue
+    hint_key="${hint_file##*/usage-}"
+    [[ "$hint_key" =~ ^[A-Za-z0-9._@+-]+$ ]] || continue
+    hint_content="$(cat "$hint_file" 2>/dev/null)" || continue
+    [[ "$hint_content" =~ ^(0|[1-9][0-9]*)(\.[0-9]+)?\ [0-9]{1,15}\ (0|[1-9][0-9]*)(\.[0-9]+)?\ [0-9]{1,15}$ ]] || continue
+    read -r hint_p5 hint_r5 hint_p7 hint_r7 <<< "$hint_content"
+    hints_body="$hints_body$hint_sep\"$hint_key\":[$hint_p5,$((10#$hint_r5)),$hint_p7,$((10#$hint_r7))]"
+    hint_sep=","
+  done
+  hints_json="{$hints_body}"
+fi
+
+# jq: the hint file key of an account (same rule as the Python key() below).
+JQ_KEY_DEFS='
+  def clean: gsub("[^A-Za-z0-9._@+-]"; "_");
+  def key($a):
+    if ($a.email // "") == "" then "-"
+    else "\($a.email | clean)-\(if ($a.organizationUuid // "") == "" then "personal" else ($a.organizationUuid | clean) end)" end;
+'
+
 out=""
 if command -v jq >/dev/null 2>&1; then
   out="$(printf '%s' "$json" | jq -r \
+    --argjson hints "$hints_json" --argjson tol "$RATE_LIMIT_HINT_TOLERANCE_SEC" \
     --argjson thr5 "$RATE_LIMIT_GATE_PCT_5H" --argjson thr7 "$RATE_LIMIT_GATE_PCT_7D" --argjson buf "$RATE_LIMIT_RESUME_BUFFER_SEC" --argjson now "$now" '
     def ts: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601;
-    def pct($k): (.usage // {})[$k].pct // 0;
     def rst($k): (.usage // {})[$k].resetsAt | if . == null then null else ts end;
+    '"$JQ_KEY_DEFS"'
+    # The cswap pct, raised to the hint file pct when the account is ok and the
+    # hint reset time is the same window (within the tolerance). Never lowers.
+    def pct($k):
+      ((.usage // {})[$k].pct // 0) as $c
+      | if .usageStatus == "ok" and ($hints[key(.)] != null) then
+          $hints[key(.)] as $h
+          | (if $k == "fiveHour" then [$h[0], $h[1]] else [$h[2], $h[3]] end) as [$hp, $hr]
+          | rst($k) as $cr
+          | if $hr != 0 and $cr != null and $cr != 0 and (($hr - $cr) | fabs) <= $tol then ([$c, $hp] | max) else $c end
+        else $c end;
     def thr($k): if $k == "fiveHour" then $thr5 else $thr7 end;
     def exhausted($k): pct($k) >= thr($k) and (rst($k) == null or rst($k) + $buf > $now);
     def usable: (exhausted("fiveHour") | not) and (exhausted("sevenDay") | not);
@@ -128,7 +171,7 @@ else
   elif command -v python >/dev/null 2>&1; then py=python
   fi
   [ -n "$py" ] || { emit 'error:no_json_parser'; exit 0; }
-  out="$(HWAP_JSON="$json" HWAP_THR_5H="$RATE_LIMIT_GATE_PCT_5H" HWAP_THR_7D="$RATE_LIMIT_GATE_PCT_7D" HWAP_BUF="$RATE_LIMIT_RESUME_BUFFER_SEC" HWAP_NOW="$now" \
+  out="$(HWAP_JSON="$json" HWAP_HINTS="$hints_json" HWAP_TOL="$RATE_LIMIT_HINT_TOLERANCE_SEC" HWAP_THR_5H="$RATE_LIMIT_GATE_PCT_5H" HWAP_THR_7D="$RATE_LIMIT_GATE_PCT_7D" HWAP_BUF="$RATE_LIMIT_RESUME_BUFFER_SEC" HWAP_NOW="$now" \
     "$py" - <<'PYEOF' 2>/dev/null
 import json, os, re
 from datetime import datetime
@@ -137,6 +180,17 @@ d = json.loads(os.environ['HWAP_JSON'])
 thr = {'fiveHour': float(os.environ['HWAP_THR_5H']), 'sevenDay': float(os.environ['HWAP_THR_7D'])}
 buf = int(os.environ['HWAP_BUF'])
 now = int(os.environ['HWAP_NOW'])
+tol = int(os.environ['HWAP_TOL'])
+hints = json.loads(os.environ['HWAP_HINTS'])
+
+def clean(x):
+    return re.sub(r'[^A-Za-z0-9._@+-]', '_', x)
+
+# Same rule as the jq key() and the key() of the usage line below: keep in sync.
+def key(a):
+    if not a.get('email'):
+        return '-'
+    return '%s-%s' % (clean(a['email']), clean(a['organizationUuid']) if a.get('organizationUuid') else 'personal')
 
 def ts(s):
     return int(datetime.fromisoformat(re.sub(r'\.\d+', '', s).replace('Z', '+00:00')).timestamp())
@@ -144,12 +198,22 @@ def ts(s):
 def win(a, k):
     return (a.get('usage') or {}).get(k) or {}
 
-def pct(a, k):
-    return win(a, k).get('pct') or 0
-
 def rst(a, k):
     r = win(a, k).get('resetsAt')
     return ts(r) if r else None
+
+# cswap's pct, raised to the hint file's pct when the account is ok and the
+# hint's reset time is the same window's (within the tolerance). Never lowers.
+def pct(a, k):
+    c = win(a, k).get('pct') or 0
+    h = hints.get(key(a)) if a.get('usageStatus') == 'ok' else None
+    if h is None:
+        return c
+    hp, hr = (h[0], h[1]) if k == 'fiveHour' else (h[2], h[3])
+    cr = rst(a, k)
+    if hr != 0 and cr and abs(hr - cr) <= tol:
+        return max(c, hp)
+    return c
 
 def exhausted(a, k):
     if pct(a, k) < thr[k]:
@@ -209,10 +273,7 @@ if [ "$with_usage" = 1 ]; then
       def rst($u; $k): ($u[$k] // {}).resetsAt | if . == null then 0 else ts end;
       def line($tag; $u; $age):
         "\($tag) \($age | floor) \($u.fiveHour.pct // 0) \(rst($u; "fiveHour")) \($u.sevenDay.pct // 0) \(rst($u; "sevenDay"))";
-      def clean: gsub("[^A-Za-z0-9._@+-]"; "_");
-      def key($a):
-        if ($a.email // "") == "" then "-"
-        else "\($a.email | clean)-\(if ($a.organizationUuid // "") == "" then "personal" else ($a.organizationUuid | clean) end)" end;
+      '"$JQ_KEY_DEFS"'
       def flag($s; $c): if $s != 0 and $c != 0 and (($s - $c) | fabs) <= $tol then 1 else 0 end;
       ((.accounts // []) | map(select(.active == true)) | .[0]) as $a
       | if $a == null then "usage none"

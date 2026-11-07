@@ -508,7 +508,7 @@ fi
 __usage_age=""
 __usage_stale=0
 if [ "$__turn_running" != 1 ]; then
-  read -r __u_tag __u_age __u_p5 __u_r5 __u_p7 __u_r7 <<< "$__hwap_usage"
+  read -r __u_tag __u_age __u_p5 __u_r5 __u_p7 __u_r7 __u_key __u_m5 __u_m7 <<< "$__hwap_usage"
   if { [ "${__u_tag:-}" = usage ] || [ "${__u_tag:-}" = lastgood ]; } && [[ "${__u_age:-}" =~ ^[0-9]+$ ]]; then
     __usage_age="$__u_age"
     if [ "$__usage_age" -gt 180 ]; then __usage_stale=1; fi

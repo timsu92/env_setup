@@ -15,10 +15,17 @@
 #
 # With --with-usage (used by statusline.sh) a second line follows, from the same
 # single `cswap list --json` call, about the active account:
-#   usage <age_s> <pct5> <resets5> <pct7> <resets7>
+#   usage <age_s> <pct5> <resets5> <pct7> <resets7> <key> <m5> <m7>
 #                               age_s is usageAgeSeconds truncated, the pcts are
 #                               as cswap gives them, the resets are epochs (0
-#                               when cswap gives no resetsAt)
+#                               when cswap gives no resetsAt). <key> names the
+#                               active account in a hint file name:
+#                               <email>-<organizationUuid or "personal">, each
+#                               part with [^A-Za-z0-9._@+-] turned into _, or -
+#                               when the account has no email. <m5>/<m7> are 1
+#                               when the --stdin-resets value for that window
+#                               and cswap's reset are both non-zero and within
+#                               RATE_LIMIT_HINT_TOLERANCE_SEC, else 0.
 #   lastgood <age_s> <pct5> <resets5> <pct7> <resets7>
 #                               same fields, but from cswap's lastGoodUsage: the
 #                               active account's usageStatus isn't ok (say
@@ -30,6 +37,10 @@
 #                               cswap failed (any error:*)
 # Without the flag only the first line is printed, exactly as before.
 #
+# --with-usage may be followed by --stdin-resets <r5> <r7>: Claude Code's own
+# resets_at (epoch seconds) for the 5-hour and 7-day windows. Anything that is
+# not all digits counts as 0. Without it <m5> and <m7> are 0.
+#
 # A window is "exhausted" while pct >= its own threshold (the 5-hour and 7-day
 # windows have separate ones below) and the clock is
 # before resetsAt + RATE_LIMIT_RESUME_BUFFER_SEC. cswap polls exhausted
@@ -40,7 +51,16 @@
 set -u
 
 with_usage=0
-[ "${1:-}" = "--with-usage" ] && with_usage=1
+stdin_r5=0
+stdin_r7=0
+if [ "${1:-}" = "--with-usage" ]; then
+  with_usage=1
+  if [ "${2:-}" = "--stdin-resets" ]; then
+    # digits only (at most 15, so jq numbers stay exact), else 0; 10# drops leading zeros
+    [[ "${3:-}" =~ ^[0-9]{1,15}$ ]] && stdin_r5=$((10#$3))
+    [[ "${4:-}" =~ ^[0-9]{1,15}$ ]] && stdin_r7=$((10#$4))
+  fi
+fi
 
 # Prints the answer ($1), plus the usage line ($2, default "usage none") in
 # --with-usage mode. Every exit goes through here so no path forgets line 2.
@@ -56,6 +76,11 @@ RATE_LIMIT_GATE_PCT_7D=99
 # Extra seconds to treat a window as exhausted after its resetsAt, so we don't
 # resume the instant the reset lands (usage data may lag behind the reset).
 RATE_LIMIT_RESUME_BUFFER_SEC=120
+
+# Claude Code's resets_at and cswap's resetsAt count as the same window when
+# they differ by at most this many seconds (cswap's carries fractions, and it
+# is unknown whether Claude Code rounds or truncates).
+RATE_LIMIT_HINT_TOLERANCE_SEC=3
 
 cswap=""
 if command -v cswap >/dev/null 2>&1; then cswap=cswap
@@ -178,22 +203,29 @@ fi
 usage_line="usage none"
 if [ "$with_usage" = 1 ]; then
   if command -v jq >/dev/null 2>&1; then
-    usage_line="$(printf '%s' "$json" | jq -r '
+    usage_line="$(printf '%s' "$json" | jq -r \
+      --argjson tol "$RATE_LIMIT_HINT_TOLERANCE_SEC" --argjson sr5 "$stdin_r5" --argjson sr7 "$stdin_r7" '
       def ts: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601;
       def rst($u; $k): ($u[$k] // {}).resetsAt | if . == null then 0 else ts end;
       def line($tag; $u; $age):
         "\($tag) \($age | floor) \($u.fiveHour.pct // 0) \(rst($u; "fiveHour")) \($u.sevenDay.pct // 0) \(rst($u; "sevenDay"))";
+      def clean: gsub("[^A-Za-z0-9._@+-]"; "_");
+      def key($a):
+        if ($a.email // "") == "" then "-"
+        else "\($a.email | clean)-\(if ($a.organizationUuid // "") == "" then "personal" else ($a.organizationUuid | clean) end)" end;
+      def flag($s; $c): if $s != 0 and $c != 0 and (($s - $c) | fabs) <= $tol then 1 else 0 end;
       ((.accounts // []) | map(select(.active == true)) | .[0]) as $a
       | if $a == null then "usage none"
         elif $a.usageStatus == "ok" then
           if $a.usage == null or $a.usage == {} or $a.usageAgeSeconds == null then "usage none"
-          else line("usage"; $a.usage; $a.usageAgeSeconds) end
+          else line("usage"; $a.usage; $a.usageAgeSeconds)
+               + " \(key($a)) \(flag($sr5; rst($a.usage; "fiveHour"))) \(flag($sr7; rst($a.usage; "sevenDay")))" end
         elif ($a.lastGoodUsage | type) == "object" and $a.lastGoodUsage != {} and $a.lastGoodAgeSeconds != null
         then line("lastgood"; $a.lastGoodUsage; $a.lastGoodAgeSeconds)
         else "usage none" end
     ' 2>/dev/null)" || usage_line="usage none"
   else
-    usage_line="$(HWAP_JSON="$json" "$py" - <<'PYEOF' 2>/dev/null
+    usage_line="$(HWAP_JSON="$json" HWAP_TOL="$RATE_LIMIT_HINT_TOLERANCE_SEC" HWAP_SR5="$stdin_r5" HWAP_SR7="$stdin_r7" "$py" - <<'PYEOF' 2>/dev/null
 import json, os, re
 from datetime import datetime
 
@@ -208,6 +240,20 @@ def line(tag, u, age):
         return ts(r) if r else 0
     return '%s %d %s %d %s %d' % (tag, int(age), win('fiveHour').get('pct') or 0, rst('fiveHour'), win('sevenDay').get('pct') or 0, rst('sevenDay'))
 
+def clean(x):
+    return re.sub(r'[^A-Za-z0-9._@+-]', '_', x)
+
+def key(a):
+    if not a.get('email'):
+        return '-'
+    return '%s-%s' % (clean(a['email']), clean(a['organizationUuid']) if a.get('organizationUuid') else 'personal')
+
+def flag(s, c):
+    return 1 if s != 0 and c != 0 and abs(s - c) <= tol else 0
+
+tol = int(os.environ['HWAP_TOL'])
+sr5 = int(os.environ['HWAP_SR5'])
+sr7 = int(os.environ['HWAP_SR7'])
 d = json.loads(os.environ['HWAP_JSON'])
 a = next((x for x in (d.get('accounts') or []) if x.get('active') is True), None)
 if a is None:
@@ -216,7 +262,11 @@ elif a.get('usageStatus') == 'ok':
     if not a.get('usage') or a.get('usageAgeSeconds') is None:
         print('usage none', end='')
     else:
-        print(line('usage', a['usage'], a['usageAgeSeconds']), end='')
+        u = a['usage']
+        def r(k):
+            x = (u.get(k) or {}).get('resetsAt')
+            return ts(x) if x else 0
+        print('%s %s %d %d' % (line('usage', u, a['usageAgeSeconds']), key(a), flag(sr5, r('fiveHour')), flag(sr7, r('sevenDay'))), end='')
 elif isinstance(a.get('lastGoodUsage'), dict) and a['lastGoodUsage'] and a.get('lastGoodAgeSeconds') is not None:
     print(line('lastgood', a['lastGoodUsage'], a['lastGoodAgeSeconds']), end='')
 else:

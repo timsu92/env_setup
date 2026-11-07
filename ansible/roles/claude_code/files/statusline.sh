@@ -430,8 +430,20 @@ __write_usage_hint() {
   if [[ "$cur" =~ ^(0|[1-9][0-9]*)(\.[0-9]+)?\ [0-9]{1,15}\ (0|[1-9][0-9]*)(\.[0-9]+)?\ [0-9]{1,15}$ ]]; then
     read -r p5 r5 p7 r7 <<< "$cur"
   fi
-  if [ "$m5" = 1 ]; then p5="$(__norm_num "$__stdin_p5")"; r5="$__stdin_r5"; fi
-  if [ "$m7" = 1 ]; then p7="$(__norm_num "$__stdin_p7")"; r7="$__stdin_r7"; fi
+  # Usage only goes up inside one window, and other sessions of this account
+  # (or one after Esc, whose stdin is frozen) write older readings: when the
+  # file already holds this very window (same reset), keep the higher pct.
+  local np
+  if [ "$m5" = 1 ]; then
+    np="$(__norm_num "$__stdin_p5")"
+    if [ "$r5" = "$__stdin_r5" ] && awk -v a="$p5" -v b="$np" 'BEGIN{exit !(a+0 > b+0)}'; then np="$p5"; fi
+    p5="$np"; r5="$__stdin_r5"
+  fi
+  if [ "$m7" = 1 ]; then
+    np="$(__norm_num "$__stdin_p7")"
+    if [ "$r7" = "$__stdin_r7" ] && awk -v a="$p7" -v b="$np" 'BEGIN{exit !(a+0 > b+0)}'; then np="$p7"; fi
+    p7="$np"; r7="$__stdin_r7"
+  fi
   tmp="$(mktemp "$dir/.usage-tmp.XXXXXX" 2>/dev/null)" || return 0
   if printf '%s %s %s %s\n' "$p5" "$r5" "$p7" "$r7" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp"

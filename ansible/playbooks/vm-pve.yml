@@ -33,4 +33,5 @@
     - role: htop
     - role: copy_fail_fix
     - role: dirty_frag_fix
+    - role: screen
     - role: apt_reboot_if_required

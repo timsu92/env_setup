@@ -1,0 +1,22 @@
+---
+# screen: install GNU screen and add config to ~/.screenrc
+# screen reads /etc/screenrc first and then ~/.screenrc, so the block only adds to the system defaults.
+
+- name: Install screen
+  ansible.builtin.package:
+    name: screen
+    state: present
+
+- name: Configure screen
+  ansible.builtin.blockinfile:
+    path: "{{ setup_user_home }}/.screenrc"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: screen"
+    create: true
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0600"
+    block: |
+      # Draw full-screen programs on the alternate screen and restore the original screen after they exit.
+      altscreen on
+
+      startup_message off

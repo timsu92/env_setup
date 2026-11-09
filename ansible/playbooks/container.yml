@@ -16,4 +16,5 @@
         vim_profile: minimal
     - role: git
     - role: htop
+    - role: screen
     - role: apt_reboot_if_required

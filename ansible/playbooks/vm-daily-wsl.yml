@@ -35,4 +35,5 @@
     - role: gitlab_cli
     - role: bun
     - role: uv
+    - role: screen
     - role: apt_reboot_if_required

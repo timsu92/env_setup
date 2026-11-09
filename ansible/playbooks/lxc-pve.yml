@@ -37,4 +37,5 @@
     - role: claude_code
     - role: fzf
     - role: htop
+    - role: screen
     - role: apt_reboot_if_required

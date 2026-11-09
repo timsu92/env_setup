@@ -67,6 +67,7 @@ Roles implement individual capabilities. Each role encapsulates everything neede
 |------|-------------|
 | `git` | git + global config |
 | `tmux` | terminal multiplexer |
+| `screen` | GNU screen + managed `~/.screenrc` block |
 | `zsh` | zsh core + modular loader |
 | `nvm` | nvm install + zsh nvm snippets |
 | `node` | Node.js install via nvm |

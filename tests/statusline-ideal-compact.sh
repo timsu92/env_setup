@@ -5,7 +5,7 @@ FILES="$TESTS_DIR/../ansible/roles/claude_code/files"
 BASH_BIN="$(command -v bash)"
 T="$ISO/t"
 mkdir -p "$T/deploy" "$T/nolib" "$T/ledger" "$T/cfg"
-# A process whose environment holds no TMUX/STY: the "claude" that __ic_backend inspects.
+# A process whose environment holds no TMUX/STY: the "claude" that __mux_backend inspects.
 env -i sleep 600 & BARE_PID=$!
 # The fake tmux reports this shell (BARE_PID's parent) as the pane pid, so a
 # tmux backend is seen as hosting claude.

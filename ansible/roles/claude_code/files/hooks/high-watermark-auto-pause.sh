@@ -41,7 +41,7 @@ PYEOF
 
 __stamp_turn() {
   local which="$1" tdir
-  tdir="$(__ic_session_dir "$(__field 'transcript_path')" "$(__field 'session_id')")"
+  tdir="$(__session_dir "$(__field 'transcript_path')" "$(__field 'session_id')")"
   [ -n "$tdir" ] || return 0
   mkdir -p "$tdir"
   date +%s > "$tdir/$which"

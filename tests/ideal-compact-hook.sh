@@ -5,12 +5,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/isolation.sh"
 source "$TESTS_DIR/lib/rows.sh"
 SRC="$TESTS_DIR/../ansible/roles/claude_code/files"
 T="$(mktemp -d)"
-# IC_CLAUDE_PID: a process the test owns with an empty environment, so __ic_backend
+# IC_CLAUDE_PID: a process the test owns with an empty environment, so __mux_backend
 # never picks up the multiplexer of the shell that started the test from /proc.
 env -i sleep 3600 & CLEAN_PID=$!
 export IC_CLAUDE_PID=$CLEAN_PID
 # The fake tmux reports this shell as the pane pid: the parent of every claude
-# stand-in, so __ic_backend sees the pane as hosting claude.
+# stand-in, so __mux_backend sees the pane as hosting claude.
 export FAKE_PANE_PID=$$
 # KILLS: every background process a row starts (hooks, claude stand-ins), killed on exit
 KILLS=()
@@ -144,7 +144,7 @@ printf 'usage KEY1 50 %s 20 %s 97 99 120 3\n' $((NOW + 9000)) $((NOW + 90000)) >
 # ---- __ic_takeover with a stale expected phase changes nothing ----
 tk() {  # tk <expected> [arg]: runs the hook's __ic_takeover on the current state, prints its rc
   bash -c '
-    . "$1/common-helpers.sh"; __IC_HELPER="$1/hwap-helper.sh"
+    . "$1/common-helpers.sh"; __HWAP_HELPER="$1/hwap-helper.sh"
     SDIR="$2" TPATH="$3" CWD="$4" LOCK="$2/ideal-compact-state.lock"
     __IC_IN_CS=0 __IC_SIGNALED=0
     eval "$(sed -n "/^__cs_lock() {/,/^}/p; /^__cs_unlock() {/p; /^__cs_leave() {/,/^}/p; /^__hist_path() {/,/^}/p; /^__ic_takeover() {/,/^}/p" "$1/hooks/ideal-compact.sh")"

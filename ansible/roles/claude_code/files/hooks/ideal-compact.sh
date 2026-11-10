@@ -48,7 +48,7 @@ PYEOF
 EVENT="$(__field hook_event_name)"
 TPATH="$(__field transcript_path)"
 CWD="$(__field cwd)"
-SDIR="$(__ic_session_dir "$TPATH" "$(__field session_id)")"
+SDIR="$(__session_dir "$TPATH" "$(__field session_id)")"
 [ -n "$SDIR" ] || exit 0
 LOCK="$SDIR/ideal-compact-state.lock"
 
@@ -58,9 +58,9 @@ LOCK="$SDIR/ideal-compact-state.lock"
 __hist_path() {
   local pdir
   if [ -n "$IC_ledger" ]; then
-    pdir="$(__ic_project_dir "$(dirname "$IC_ledger")" "$TPATH")"
+    pdir="$(__project_dir "$(dirname "$IC_ledger")" "$TPATH")"
   else
-    pdir="$(__ic_project_dir "$CWD" "$TPATH")"
+    pdir="$(__project_dir "$CWD" "$TPATH")"
   fi
   if [ -n "$pdir" ]; then printf '%s/ideal-compact-history' "$pdir"; else printf /dev/null; fi
 }
@@ -70,15 +70,15 @@ __hist_path() {
 # signal that arrives in between only sets __IC_SIGNALED; __cs_unlock replays
 # it. The handler itself takes the lock, which would never return while this
 # process already holds it (locks never nest).
-__IC_IN_CS=0 __IC_SIGNALED=0 __IC_SLEEP_PID=
+__IC_IN_CS=0 __IC_SIGNALED=0 __SLEEP_PID=
 __cs_lock() {
   __IC_IN_CS=1
-  if ! __ic_lock "$LOCK"; then __cs_leave; return 1; fi
+  if ! __lock "$LOCK"; then __cs_leave; return 1; fi
   # Test seam: holds the lock a moment so a signal lands inside it.
   [ -n "${IC_TEST_CS_SLEEP:-}" ] && sleep "$IC_TEST_CS_SLEEP"
   return 0
 }
-__cs_unlock() { __ic_unlock; __cs_leave; }
+__cs_unlock() { __unlock; __cs_leave; }
 __cs_leave() {
   __IC_IN_CS=0
   [ "$__IC_SIGNALED" = 1 ] && __on_signal
@@ -97,15 +97,15 @@ __cs_leave() {
 __ic_takeover() {
   local expected="$1" fail="${2:-}" cur='' acc='' hist budget bwin='' key r5 r7
   local s_key='' s_win='' s_resets=0
-  if [ -x "$__IC_HELPER" ]; then
-    cur="$("$__IC_HELPER" current 2>/dev/null)"
-    acc="$("$__IC_HELPER" accounts 2>/dev/null)"
+  if [ -x "$__HWAP_HELPER" ]; then
+    cur="$("$__HWAP_HELPER" current 2>/dev/null)"
+    acc="$("$__HWAP_HELPER" accounts 2>/dev/null)"
   fi
   case "$cur" in error:*) cur='' ;; esac
-  __ic_state_read "$SDIR"
+  __state_read "$SDIR"
   hist="$(__hist_path)"
   if [ -n "$cur" ]; then
-    budget="$(__ic_budget "$hist" "$cur" "$acc")"
+    budget="$(__budget_tasks "$hist" "$cur" "$acc")"
     bwin="${budget#* }"
     # `current` is: tag key p5 r5 p7 r7 ...
     read -r _ key _ r5 _ r7 _ <<< "$cur"
@@ -116,7 +116,7 @@ __ic_takeover() {
     esac
   fi
   __cs_lock || return 1
-  __ic_state_read "$SDIR"
+  __state_read "$SDIR"
   if [ "$expected" = nonstandby ]; then
     [ "$IC_phase" != standby ] || { __cs_unlock; return 1; }
   else
@@ -125,10 +125,10 @@ __ic_takeover() {
   if [ -z "$bwin" ]; then
     s_key="$IC_armed_key" s_win="$IC_armed_win" s_resets="$IC_armed_resets"
   fi
-  __ic_set_phase standby
+  __phase_set standby
   IC_suppress=1 IC_suppress_key="$s_key" IC_suppress_win="$s_win" IC_suppress_resets="${s_resets:-0}"
   [ -n "$fail" ] && IC_inputbox_fail=1
-  __ic_state_write "$SDIR"
+  __state_write "$SDIR"
   __cs_unlock
   return 0
 }
@@ -136,25 +136,25 @@ __ic_takeover() {
 # Every event first lets an overdue phase go back to standby (with suppress),
 # so the handlers below never see an expired one.
 __ttl_step() {
-  __ic_lock "$LOCK" || exit 0
-  __ic_state_read "$SDIR"
-  if __ic_ttl_check "$(date +%s)"; then __ic_state_write "$SDIR"; fi
-  __ic_unlock
+  __lock "$LOCK" || exit 0
+  __state_read "$SDIR"
+  if __phase_ttl_check "$(date +%s)"; then __state_write "$SDIR"; fi
+  __unlock
 }
 
 # New session (not the one /compact restarts): nothing of an old flow applies.
 # dirty stays, it counts activity that already happened.
 __on_session_start() {
   case "$(__field source)" in startup|resume|clear) ;; *) return 0 ;; esac
-  __ic_lock "$LOCK" || return 0
-  __ic_state_read "$SDIR"
+  __lock "$LOCK" || return 0
+  __state_read "$SDIR"
   if [ "$IC_phase" != standby ] || [ "$IC_skip" != 0 ] || [ "$IC_suppress" != 0 ] || [ -n "$IC_ledger" ] \
      || [ -n "$IC_pending_inject" ] || [ "$IC_ledger_done" != 0 ]; then
-    __ic_set_phase standby
+    __phase_set standby
     IC_suppress=0 IC_suppress_key='' IC_suppress_win='' IC_suppress_resets=0 IC_ledger='' IC_ledger_done=0
-    __ic_state_write "$SDIR"
+    __state_write "$SDIR"
   fi
-  __ic_unlock
+  __unlock
 }
 
 __on_prompt() {
@@ -171,28 +171,28 @@ __on_prompt() {
   elif [ "$prompt" = "$IDEAL_COMPACT_CONTINUE_TEXT" ]; then
     kind=continue
   fi
-  __ic_lock "$LOCK" || return 0
-  __ic_state_read "$SDIR"
+  __lock "$LOCK" || return 0
+  __state_read "$SDIR"
   IC_dirty=$(( IC_dirty + 1 ))
   case "$kind" in
     skip)
       IC_skip=1 ;;
     standby)
-      case "$IC_phase" in armed|stopped) __ic_set_phase standby ;; esac
+      case "$IC_phase" in armed|stopped) __phase_set standby ;; esac
       IC_skip=0 IC_suppress=0 IC_suppress_key='' IC_suppress_win='' IC_suppress_resets=0 ;;
     continue)
       # Our own keyed 繼續 ends the flow. The same word typed in any other
       # phase is an ordinary prompt.
       if [ "$IC_phase" = continuing ]; then
-        __ic_set_phase standby
+        __phase_set standby
         IC_suppress=0 IC_suppress_key='' IC_suppress_win='' IC_suppress_resets=0
       else
         kind=other
       fi ;;
   esac
   seen="$IC_phase"
-  __ic_state_write "$SDIR"
-  __ic_unlock
+  __state_write "$SDIR"
+  __unlock
   if [ "$kind" = other ] && [ "$seen" != standby ]; then
     __ic_takeover nonstandby || true
   fi
@@ -200,17 +200,17 @@ __on_prompt() {
 
 __on_precompact() {
   local seen moved=0
-  __ic_lock "$LOCK" || return 0
-  __ic_state_read "$SDIR"
+  __lock "$LOCK" || return 0
+  __state_read "$SDIR"
   IC_dirty=$(( IC_dirty + 1 ))
   if [ "$IC_phase" = to-compact ] && [ "$(__field trigger)" = manual ]; then
     # Our own /compact reached the CLI.
-    __ic_set_phase compacting
+    __phase_set compacting
     moved=1
   fi
   seen="$IC_phase"
-  __ic_state_write "$SDIR"
-  __ic_unlock
+  __state_write "$SDIR"
+  __unlock
   # Any other compaction while the flow is active is not ours.
   if [ "$moved" = 0 ] && [ "$seen" != standby ]; then
     __ic_takeover nonstandby || true
@@ -224,7 +224,7 @@ CUR='' CUR_ASKED=0
 __get_cur() {
   [ "$CUR_ASKED" = 1 ] && return 0
   CUR_ASKED=1
-  [ -x "$__IC_HELPER" ] && CUR="$("$__IC_HELPER" current 2>/dev/null)"
+  [ -x "$__HWAP_HELPER" ] && CUR="$("$__HWAP_HELPER" current 2>/dev/null)"
   return 0
 }
 
@@ -318,7 +318,7 @@ __find_ledger() {
         seen="$root"
         for f in "$root"/.superpowers/sdd/*/progress.md; do
           [ -f "$f" ] || continue
-          [ "$(__ic_ledger_plan "$f")" = "$plan" ] && { __phys "$f"; return 0; }
+          [ "$(__ledger_plan "$f")" = "$plan" ] && { __phys "$f"; return 0; }
         done
       done
     fi
@@ -366,35 +366,35 @@ __on_post_tool_use() {
   local sub=0 pend='' ledger hist='' pdir done latest record=0 completion=0 d0 res
   local seen changed=0 acc budget n bwin backend key r5 r7 text='' kind=''
   [ -n "$(__field agent_id)" ] && sub=1
-  __ic_state_read "$SDIR"
+  __state_read "$SDIR"
   # The agent called a tool after it stopped: it is working again.
   if [ "$IC_phase" = stopped ]; then
-    __ic_lock "$LOCK" || return 0
-    __ic_state_read "$SDIR"
-    if [ "$IC_phase" = stopped ]; then __ic_set_phase armed; __ic_state_write "$SDIR"; fi
-    __ic_unlock
+    __lock "$LOCK" || return 0
+    __state_read "$SDIR"
+    if [ "$IC_phase" = stopped ]; then __phase_set armed; __state_write "$SDIR"; fi
+    __unlock
     return 0
   fi
   # A text queued by a subagent call reaches the main agent now, if it still fits.
   if [ "$sub" = 0 ] && [ -n "$IC_pending_inject" ]; then
-    __ic_lock "$LOCK" || return 0
-    __ic_state_read "$SDIR"
+    __lock "$LOCK" || return 0
+    __state_read "$SDIR"
     case "$IC_pending_inject:$IC_phase" in
       pause:armed) pend="$IDEAL_COMPACT_PAUSE_TEXT" ;;
       cancel:standby) pend="$IDEAL_COMPACT_CANCEL_TEXT" ;;
     esac
     IC_pending_inject=''
-    __ic_state_write "$SDIR"
-    __ic_unlock
+    __state_write "$SDIR"
+    __unlock
   fi
 
   ledger="$(__find_ledger "$TI")"
   if [ -n "$ledger" ] && [ "$ledger" != "$IC_ledger" ]; then
-    __ic_lock "$LOCK" || return 0
-    __ic_state_read "$SDIR"
+    __lock "$LOCK" || return 0
+    __state_read "$SDIR"
     IC_ledger="$ledger" IC_ledger_done=0
-    __ic_state_write "$SDIR"
-    __ic_unlock
+    __state_write "$SDIR"
+    __unlock
   fi
   [ -n "$ledger" ] || ledger="$IC_ledger"
 
@@ -404,12 +404,12 @@ __on_post_tool_use() {
   # again on every call. A lower count (the ledger was recreated) is recorded
   # as a new baseline, once per count.
   if [ -n "$ledger" ] && [ -r "$ledger" ]; then
-    pdir="$(__ic_project_dir "$(dirname "$ledger")" "$TPATH")"
+    pdir="$(__project_dir "$(dirname "$ledger")" "$TPATH")"
     if [ -n "$pdir" ]; then
       hist="$pdir/ideal-compact-history"
-      done="$(__ic_ledger_done "$ledger")"
+      done="$(__ledger_done "$ledger")"
       case "$done" in ''|*[!0-9]*) done=0 ;; esac
-      latest="$(__ic_history_latest "$hist" "$ledger" | awk -F'\t' '{ print $3 }')"
+      latest="$(__history_latest "$hist" "$ledger" | awk -F'\t' '{ print $3 }')"
       case "$latest" in *[!0-9]*) latest='' ;; esac
       if [ "$done" -ge 1 ] && { [ -z "$latest" ] || [ "$done" -gt "$latest" ]; } && [ "$done" -gt "$IC_ledger_done" ]; then
         completion=1 record=1
@@ -420,24 +420,24 @@ __on_post_tool_use() {
   fi
   if [ "$record" = 1 ]; then
     __get_cur
-    __ic_state_read "$SDIR"
+    __state_read "$SDIR"
     d0="$IC_dirty"
-    res="$(__ic_history_record "$hist" "$ledger" "$done" "$CUR" "$d0")"
-    if __ic_lock "$LOCK"; then
-      __ic_state_read "$SDIR"
+    res="$(__history_record "$hist" "$ledger" "$done" "$CUR" "$d0")"
+    if __lock "$LOCK"; then
+      __state_read "$SDIR"
       # Only what this record carried: a prompt meanwhile stays counted.
       case "$res" in baseline|counted) IC_dirty=$(( IC_dirty > d0 ? IC_dirty - d0 : 0 )) ;; esac
       [ "$IC_ledger" = "$ledger" ] && IC_ledger_done="$done"
-      __ic_state_write "$SDIR"
-      __ic_unlock
+      __state_write "$SDIR"
+      __unlock
     fi
   fi
 
   # Evaluate on a completion, or in armed when the account or a window's
   # reset changed (main agent only). Other phases only record. A subagent's
   # call cannot carry text to the controller, so its text is queued in
-  # pending_inject (set after __ic_set_phase, which clears it).
-  __ic_state_read "$SDIR"
+  # pending_inject (set after __phase_set, which clears it).
+  __state_read "$SDIR"
   seen="$IC_phase"
   if [ "$seen" = standby ] || [ "$seen" = armed ]; then
     # Built only where it is used: arming on a completion, or armed.
@@ -447,20 +447,20 @@ __on_post_tool_use() {
   if [ "$completion" = 1 ] || [ "$changed" = 1 ]; then
     __get_cur
     acc=''
-    [ -x "$__IC_HELPER" ] && acc="$("$__IC_HELPER" accounts 2>/dev/null)"
+    [ -x "$__HWAP_HELPER" ] && acc="$("$__HWAP_HELPER" accounts 2>/dev/null)"
     if [ -z "$hist" ]; then
-      pdir="$(__ic_project_dir "$CWD" "$TPATH")"
+      pdir="$(__project_dir "$CWD" "$TPATH")"
       hist=/dev/null
       [ -n "$pdir" ] && hist="$pdir/ideal-compact-history"
     fi
-    case "$CUR" in error:*|'') budget='unknown -' ;; *) budget="$(__ic_budget "$hist" "$CUR" "$acc")" ;; esac
+    case "$CUR" in error:*|'') budget='unknown -' ;; *) budget="$(__budget_tasks "$hist" "$CUR" "$acc")" ;; esac
     n="${budget%% *}" bwin="${budget#* }"
     case "$n" in ''|*[!0-9]*) n='' ;; esac
     key='' r5='' r7=''
     case "$CUR" in error:*|'') ;; *) read -r _ key _ r5 _ r7 _ <<< "$CUR" ;; esac
-    backend="$(__ic_backend)"
-    __ic_lock "$LOCK" || return 0
-    __ic_state_read "$SDIR"
+    backend="$(__mux_backend)"
+    __lock "$LOCK" || return 0
+    __state_read "$SDIR"
     if [ "$IC_phase" = standby ] && [ "$seen" = standby ]; then
       if [ "$IC_suppress" = 1 ]; then
         if [ -n "$IC_suppress_key" ]; then
@@ -470,17 +470,17 @@ __on_post_tool_use() {
         fi || IC_suppress=0 IC_suppress_key='' IC_suppress_win='' IC_suppress_resets=0
       fi
       if [ "$IC_suppress" = 0 ] && [ -n "$n" ] && [ "$n" -le "$IDEAL_COMPACT_ARM_TASKS" ] && [ -n "$backend" ]; then
-        __ic_set_phase armed
+        __phase_set armed
         IC_armed_key="$key" IC_armed_win="$bwin"
         if [ "$bwin" = 7d ]; then IC_armed_resets="$r7"; else IC_armed_resets="$r5"; fi
         [ "$sub" = 0 ] && IC_cheap_obs="$OBS"
         kind=pause
       fi
       [ "$sub" = 1 ] && [ -n "$kind" ] && IC_pending_inject="$kind"
-      __ic_state_write "$SDIR"
+      __state_write "$SDIR"
     elif [ "$IC_phase" = armed ] && [ "$seen" = armed ]; then
       if [ -z "$backend" ] || { [ -n "$n" ] && [ "$n" -gt "$IDEAL_COMPACT_WARN_TASKS" ]; }; then
-        __ic_set_phase standby
+        __phase_set standby
         kind=cancel
       elif [ -n "$n" ] && [ "$n" -le "$IDEAL_COMPACT_ARM_TASKS" ]; then
         # Still armed: follow the account and window the budget is now counted on.
@@ -490,9 +490,9 @@ __on_post_tool_use() {
       fi
       [ "$sub" = 0 ] && [ -n "$OBS" ] && IC_cheap_obs="$OBS"
       [ "$sub" = 1 ] && [ -n "$kind" ] && IC_pending_inject="$kind"
-      __ic_state_write "$SDIR"
+      __state_write "$SDIR"
     fi
-    __ic_unlock
+    __unlock
   fi
   [ "$sub" = 1 ] && return 0
   case "$kind" in
@@ -522,13 +522,13 @@ __on_stop() {
   [ "$(__trim "$last")" = "$IDEAL_COMPACT_MARKER" ] || last=''
   [ "$(__trim "$(__field background_tasks)")" = '[]' ] && [ "$(__trim "$(__field session_crons)")" = '[]' ] && quiet=1
   [ -n "$last" ] && [ "$quiet" = 1 ] && ok=1
-  __ic_lock "$LOCK" || return 0
-  __ic_state_read "$SDIR"
+  __lock "$LOCK" || return 0
+  __state_read "$SDIR"
   case "$IC_phase:$ok" in
-    armed:1|stopped:1) __ic_set_phase stopped; __ic_state_write "$SDIR" ;;
-    stopped:0) __ic_set_phase armed; __ic_state_write "$SDIR" ;;
+    armed:1|stopped:1) __phase_set stopped; __state_write "$SDIR" ;;
+    stopped:0) __phase_set armed; __state_write "$SDIR" ;;
   esac
-  __ic_unlock
+  __unlock
 }
 
 # The user is away (idle_prompt) while stopped: send /compact, or 繼續 when
@@ -542,25 +542,25 @@ __on_notification() {
   local backend box cur='' acc='' budget n next text
   local -a bw
   [ "$(__field notification_type)" = idle_prompt ] || return 0
-  __ic_state_read "$SDIR"
+  __state_read "$SDIR"
   [ "$IC_phase" = stopped ] && [ "$IC_skip" = 0 ] || return 0
-  backend="$(__ic_backend)"
+  backend="$(__mux_backend)"
   if [ -z "$backend" ]; then
     __ic_takeover stopped || true
     return 0
   fi
   read -r -a bw <<< "$backend"
-  if [ -x "$__IC_HELPER" ]; then
-    cur="$("$__IC_HELPER" current 2>/dev/null)"
-    acc="$("$__IC_HELPER" accounts 2>/dev/null)"
+  if [ -x "$__HWAP_HELPER" ]; then
+    cur="$("$__HWAP_HELPER" current 2>/dev/null)"
+    acc="$("$__HWAP_HELPER" accounts 2>/dev/null)"
   fi
   n=''
   case "$cur" in
     error:*|'') ;;
-    *) budget="$(__ic_budget "$(__hist_path)" "$cur" "$acc")"; n="${budget%% *}" ;;
+    *) budget="$(__budget_tasks "$(__hist_path)" "$cur" "$acc")"; n="${budget%% *}" ;;
   esac
   case "$n" in ''|*[!0-9]*) n='' ;; esac
-  box="$(__ic_inputbox_state "${bw[@]}")"
+  box="$(__mux_inputbox_state "${bw[@]}")"
   case "$box" in
     empty|placeholder) ;;
     draft) __ic_takeover stopped || true; return 0 ;;
@@ -571,20 +571,20 @@ __on_notification() {
   else
     next=to-compact text="/compact $IDEAL_COMPACT_COMPACT_TEXT"
   fi
-  __ic_lock "$LOCK" || return 0
-  __ic_state_read "$SDIR"
+  __lock "$LOCK" || return 0
+  __state_read "$SDIR"
   # A check that answered empty/placeholder resets inputbox_fail in this write
   # whatever the re-read finds.
   IC_inputbox_fail=0
   if [ "$IC_phase" != stopped ] || [ "$IC_skip" != 0 ]; then
-    __ic_state_write "$SDIR"
-    __ic_unlock
+    __state_write "$SDIR"
+    __unlock
     return 0
   fi
-  __ic_set_phase "$next"
-  __ic_state_write "$SDIR"
-  __ic_unlock
-  __ic_send "${bw[@]}" "$text" || true
+  __phase_set "$next"
+  __state_write "$SDIR"
+  __unlock
+  __mux_send "${bw[@]}" "$text" || true
 }
 
 # ---- PostCompact: switch account, wait for budget, send 繼續 ----
@@ -600,15 +600,15 @@ __on_signal() {
   if [ "$__IC_IN_CS" = 1 ]; then __IC_SIGNALED=1; return 0; fi
   # From here on a second signal only sets the flag; this path exits anyway.
   __IC_SIGNALED=0 __IC_IN_CS=1
-  [ -n "${__IC_SLEEP_PID:-}" ] && kill "$__IC_SLEEP_PID" 2>/dev/null
-  if __ic_lock "$LOCK"; then
-    __ic_state_read "$SDIR"
+  [ -n "${__SLEEP_PID:-}" ] && kill "$__SLEEP_PID" 2>/dev/null
+  if __lock "$LOCK"; then
+    __state_read "$SDIR"
     if [ "$IC_phase" = waiting ]; then
-      __ic_set_phase standby
+      __phase_set standby
       IC_suppress=1 IC_suppress_key="$IC_armed_key" IC_suppress_win="$IC_armed_win" IC_suppress_resets="$IC_armed_resets"
-      __ic_state_write "$SDIR"
+      __state_write "$SDIR"
     fi
-    __ic_unlock
+    __unlock
   fi
   __clear_hold_until
   rm -f "$SDIR/checkpoint-hold-until" 2>/dev/null
@@ -620,9 +620,9 @@ __on_signal() {
 # Reads without the lock (every write is atomic). Also __gate's abort_fn.
 __ic_wait_abort() {
   local pid s
-  __ic_state_read "$SDIR"
+  __state_read "$SDIR"
   [ "$IC_phase" = waiting ] || return 1
-  pid="$(__ic_claude_pid)"
+  pid="$(__proc_claude_pid)"
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
   { read -r s < "/proc/$pid/stat"; } 2>/dev/null || return 1
   s="${s##*) }"
@@ -631,20 +631,20 @@ __ic_wait_abort() {
 
 # __ic_sleep <seconds>: an interruptible sleep (see the section comment).
 __ic_sleep() {
-  sleep "$1" >/dev/null 2>&1 & __IC_SLEEP_PID=$!
-  wait "$__IC_SLEEP_PID"
-  __IC_SLEEP_PID=
+  sleep "$1" >/dev/null 2>&1 & __SLEEP_PID=$!
+  wait "$__SLEEP_PID"
+  __SLEEP_PID=
 }
 
 # __pick_switch <hist> <current> <accounts>: switches to the account
-# __ic_pick_account names; 0 when it did. The number switched to last
+# __budget_pick_account names; 0 when it did. The number switched to last
 # (PC_LAST_SWITCH) is not tried again until the next wait, so a switch that
 # did not take effect cannot spin.
 PC_LAST_SWITCH='' PC_HOLD_KEY=''
 __pick_switch() {
   local n cswap
   case "$2" in error:*|'') return 1 ;; esac
-  n="$(__ic_pick_account "$1" "$2" "$3")"
+  n="$(__budget_pick_account "$1" "$2" "$3")"
   [ -n "$n" ] && [ "$n" != "$PC_LAST_SWITCH" ] || return 1
   cswap="$(__cswap_bin)" || return 1
   "$cswap" switch "$n" >/dev/null 2>&1
@@ -655,9 +655,9 @@ __pick_switch() {
 # __helper_now: CUR and ACC, the helper's `current` and `accounts` (empty on failure).
 __helper_now() {
   CUR='' ACC=''
-  [ -x "$__IC_HELPER" ] || return 0
-  CUR="$("$__IC_HELPER" current 2>/dev/null)"
-  ACC="$("$__IC_HELPER" accounts 2>/dev/null)"
+  [ -x "$__HWAP_HELPER" ] || return 0
+  CUR="$("$__HWAP_HELPER" current 2>/dev/null)"
+  ACC="$("$__HWAP_HELPER" accounts 2>/dev/null)"
   case "$CUR" in error:*) CUR='' ;; esac
   return 0
 }
@@ -672,16 +672,16 @@ __on_post_compact() {
   local hist budget n bwin r5 r7 buf r hold now s tmp told=0 rc box backend pchold go key
   local maxw="${IC_MAX_WAIT_SEC:-120}"   # test seam: the longest sleep of one round
   local -a bw
-  __ic_state_read "$SDIR"
+  __state_read "$SDIR"
   [ "$IC_phase" = compacting ] || return 0
   pchold="$SDIR/checkpoint-hold-until"
   trap __on_signal TERM HUP
   trap 'rm -f "$SDIR/checkpoint-hold-until" 2>/dev/null' EXIT
   __cs_lock || return 0
-  __ic_state_read "$SDIR"
+  __state_read "$SDIR"
   if [ "$IC_phase" != compacting ]; then __cs_unlock; return 0; fi
-  __ic_set_phase waiting
-  __ic_state_write "$SDIR"
+  __phase_set waiting
+  __state_write "$SDIR"
   __cs_unlock
   # One left behind by a run that was killed (SIGKILL runs no trap).
   rm -f "$pchold" 2>/dev/null
@@ -692,14 +692,14 @@ __on_post_compact() {
   while :; do
     __ic_wait_abort || return 0
     __gate __ic_wait_abort; rc=$?
-    __IC_SLEEP_PID=
+    __SLEEP_PID=
     case "$rc" in 3) break ;; 4) return 0 ;; esac
     # Budget and pick every round, so a more ample account that shows up
     # while waiting is switched to. go=0: the budget still has no room.
     now="$(date +%s)" go=1 key='' r=''
     __helper_now
     if [ -n "$CUR" ]; then
-      budget="$(__ic_budget "$hist" "$CUR" "$ACC")"
+      budget="$(__budget_tasks "$hist" "$CUR" "$ACC")"
       n="${budget%% *}" bwin="${budget#* }"
       # `current` is: tag key p5 r5 p7 r7 thr5 thr7 buf tol
       read -r _ key _ r5 _ r7 _ _ buf _ <<< "$CUR"
@@ -744,32 +744,32 @@ __on_post_compact() {
   done
 
   __ic_wait_abort || return 0
-  backend="$(__ic_backend)"
+  backend="$(__mux_backend)"
   if [ -z "$backend" ]; then
     __ic_takeover waiting || true
     return 0
   fi
   read -r -a bw <<< "$backend"
-  box="$(__ic_inputbox_state "${bw[@]}")"
+  box="$(__mux_inputbox_state "${bw[@]}")"
   case "$box" in
     empty|placeholder) ;;
     draft) __ic_takeover waiting || true; return 0 ;;
     *) __ic_takeover waiting 1 || true; return 0 ;;
   esac
   __cs_lock || return 0
-  __ic_state_read "$SDIR"
+  __state_read "$SDIR"
   IC_inputbox_fail=0
   if [ "$IC_phase" != waiting ]; then
-    __ic_state_write "$SDIR"
+    __state_write "$SDIR"
     __cs_unlock
     return 0
   fi
-  __ic_set_phase continuing
-  __ic_state_write "$SDIR"
+  __phase_set continuing
+  __state_write "$SDIR"
   # The lock is released but signals stay deferred through the send, so the
   # text and its CR go out as a unit; a signal meanwhile is replayed after.
-  __ic_unlock
-  __ic_send "${bw[@]}" "$IDEAL_COMPACT_CONTINUE_TEXT" || true
+  __unlock
+  __mux_send "${bw[@]}" "$IDEAL_COMPACT_CONTINUE_TEXT" || true
   __cs_leave
 }
 
@@ -779,7 +779,7 @@ __on_post_compact() {
 TI=''
 if [ "$EVENT" = PostToolUse ]; then
   TI="$(__field tool_input)"
-  __ic_state_read "$SDIR"
+  __state_read "$SDIR"
   if [ "$IC_phase" = standby ] && [ -z "$IC_pending_inject" ]; then
     case "$TI" in *progress.md*|*task-done*) ;; *) exit 0 ;; esac
   fi

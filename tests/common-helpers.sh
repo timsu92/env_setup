@@ -31,7 +31,7 @@ seq_set() { printf '%s\n' "$@" > "$STUB_SEQ"; }
 run_gate() {
   local s e rc
   s=$(date +%s.%N)
-  bash -c '. "$1"; __IC_HELPER="$2"; __gate "${3:-}"; echo "rc=$?"' _ "$T/common-helpers.sh" "$T/hwap-helper.sh" "${1:-}" 2>"$T/err" >"$T/out"
+  bash -c '. "$1"; __HWAP_HELPER="$2"; __gate "${3:-}"; echo "rc=$?"' _ "$T/common-helpers.sh" "$T/hwap-helper.sh" "${1:-}" 2>"$T/err" >"$T/out"
   e=$(date +%s.%N)
   rc="$(grep -o 'rc=[0-9]*' "$T/out")"
   printf '%s secs=%s' "$rc" "$(awk -v a="$s" -v b="$e" 'BEGIN{printf "%.1f", b-a}')"
@@ -49,8 +49,8 @@ for v in PAUSE COMPACT CANCEL; do
 done
 pause="$(bash -c '. "$1"; printf %s "$IDEAL_COMPACT_PAUSE_TEXT"' _ "$T/common-helpers.sh")"
 case "$pause" in *'`[[STOP_FOR_COMPACT]]`'*'`/loop`執行中'*) pass text-pause-ticks "backticks kept verbatim" ;; *) bad text-pause-ticks "ticks" "$pause" ;; esac
-[ "$(bash -c '. "$1"; printf %s "$__IC_HELPER"' _ "$T/common-helpers.sh")" = "$T/hwap-helper.sh" ] \
-  && pass helper-path "default __IC_HELPER sits next to the library" || bad helper-path "default" ""
+[ "$(bash -c '. "$1"; printf %s "$__HWAP_HELPER"' _ "$T/common-helpers.sh")" = "$T/hwap-helper.sh" ] \
+  && pass helper-path "default __HWAP_HELPER sits next to the library" || bad helper-path "default" ""
 
 # ---- __gate ----
 NOW=$(date +%s)
@@ -84,7 +84,7 @@ r="$(run_gate abort_never)"; case "$r" in rc=0*) pass gate-abort-ok "abort fn re
 
 # SIGTERM during a long wait ends a subshell with a TERM trap at once
 NOW=$(date +%s); seq_set "wait $((NOW + 300)) $((NOW + 299))"
-( . "$T/common-helpers.sh"; __IC_HELPER="$T/hwap-helper.sh"; trap 'exit 0' TERM; __gate; exit 9 ) >/dev/null 2>&1 &
+( . "$T/common-helpers.sh"; __HWAP_HELPER="$T/hwap-helper.sh"; trap 'exit 0' TERM; __gate; exit 9 ) >/dev/null 2>&1 &
 pid=$!
 sleep 0.7
 spid="$(pgrep -P "$pid" sleep)"  # the orphaned sleep, cleaned up below
@@ -110,36 +110,36 @@ mv "$T/common-helpers.sh.off" "$T/common-helpers.sh"
 
 # ---- path helpers ----
 ic() { bash -c 'set -u; . "$1"; shift; "$@"' _ "$T/common-helpers.sh" "$@"; }
-tp="$(ic __ic_translated_path "$HOME/.claude/projects/-home-tim-projects-env-setup/abc.jsonl")"
+tp="$(ic __translated_path "$HOME/.claude/projects/-home-tim-projects-env-setup/abc.jsonl")"
 [ "$tp" = "-home-tim-projects-env-setup" ] && pass translated "transcript path -> project dir name" || bad translated "got" "$tp"
-[ -z "$(ic __ic_translated_path '')" ] && pass translated-empty "empty input -> empty" || bad translated-empty "not empty" ""
-[ "$(ic __ic_session_dir "/h/projects/-p/abc.jsonl" sid1)" = "$IC_TMP_BASE/-p/sid1" ] \
-  && pass session-dir "<base>/<translated>/<sid>" || bad session-dir "got" "$(ic __ic_session_dir "/h/projects/-p/abc.jsonl" sid1)"
-[ -z "$(ic __ic_session_dir '' sid1)" ] && [ -z "$(ic __ic_session_dir "/h/projects/-p/abc.jsonl" '')" ] \
+[ -z "$(ic __translated_path '')" ] && pass translated-empty "empty input -> empty" || bad translated-empty "not empty" ""
+[ "$(ic __session_dir "/h/projects/-p/abc.jsonl" sid1)" = "$IC_TMP_BASE/-p/sid1" ] \
+  && pass session-dir "<base>/<translated>/<sid>" || bad session-dir "got" "$(ic __session_dir "/h/projects/-p/abc.jsonl" sid1)"
+[ -z "$(ic __session_dir '' sid1)" ] && [ -z "$(ic __session_dir "/h/projects/-p/abc.jsonl" '')" ] \
   && pass session-dir-empty "empty transcript or sid -> empty" || bad session-dir-empty "not empty" ""
 [ ! -e "$IC_TMP_BASE/-p" ] && pass session-dir-nomkdir "prints only, creates nothing" || bad session-dir-nomkdir "created" "$IC_TMP_BASE/-p"
 
 REPO_ROOT="$(cd "$TESTS_DIR/.." && pwd)"
 want="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir | sed 's#/\.git$##; s/[^A-Za-z0-9]/-/g')"
 [ -n "$want" ] || { echo "cannot compute expected repo key"; exit 2; }
-[ "$(ic __ic_repo_key "$REPO_ROOT")" = "$want" ] && pass repo-key-root "this checkout -> $want" || bad repo-key-root "got" "$(ic __ic_repo_key "$REPO_ROOT")"
-[ "$(ic __ic_repo_key "$REPO_ROOT/ansible/roles")" = "$want" ] && pass repo-key-subdir "subdirectory -> same key" || bad repo-key-subdir "got" "$(ic __ic_repo_key "$REPO_ROOT/ansible/roles")"
+[ "$(ic __repo_key "$REPO_ROOT")" = "$want" ] && pass repo-key-root "this checkout -> $want" || bad repo-key-root "got" "$(ic __repo_key "$REPO_ROOT")"
+[ "$(ic __repo_key "$REPO_ROOT/ansible/roles")" = "$want" ] && pass repo-key-subdir "subdirectory -> same key" || bad repo-key-subdir "got" "$(ic __repo_key "$REPO_ROOT/ansible/roles")"
 
 # a throwaway repo with a linked worktree: both give the main repo's key (never touches the real repo)
 GR="$T/gitrepo"; GW="$T/gitwt"
 git init -q "$GR" && git -C "$GR" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init \
   && git -C "$GR" worktree add -q "$GW" -b wt >/dev/null 2>&1
 want_tmp="$(printf '%s' "$GR" | sed 's/[^A-Za-z0-9]/-/g')"
-[ "$(ic __ic_repo_key "$GR")" = "$want_tmp" ] && pass repo-key-tmp "temp repo -> its path" || bad repo-key-tmp "got" "$(ic __ic_repo_key "$GR")"
-[ "$(ic __ic_repo_key "$GW")" = "$want_tmp" ] && pass repo-key-worktree "linked worktree -> main repo's key" || bad repo-key-worktree "got" "$(ic __ic_repo_key "$GW")"
+[ "$(ic __repo_key "$GR")" = "$want_tmp" ] && pass repo-key-tmp "temp repo -> its path" || bad repo-key-tmp "got" "$(ic __repo_key "$GR")"
+[ "$(ic __repo_key "$GW")" = "$want_tmp" ] && pass repo-key-worktree "linked worktree -> main repo's key" || bad repo-key-worktree "got" "$(ic __repo_key "$GW")"
 
 NG="$T/nogit"; mkdir -p "$NG"
-[ -z "$(ic __ic_repo_key "$NG")" ] && pass repo-key-nogit "outside git -> empty" || bad repo-key-nogit "not empty" "$(ic __ic_repo_key "$NG")"
-[ -z "$(ic __ic_repo_key '')" ] && pass repo-key-empty "empty dir -> empty" || bad repo-key-empty "not empty" ""
-[ "$(ic __ic_project_dir "$GW" "/h/projects/-p/abc.jsonl")" = "$IC_TMP_BASE/$want_tmp" ] \
-  && pass project-dir-git "git: <base>/<repo key>" || bad project-dir-git "got" "$(ic __ic_project_dir "$GW" "/h/projects/-p/abc.jsonl")"
-[ "$(ic __ic_project_dir "$NG" "/h/projects/-p/abc.jsonl")" = "$IC_TMP_BASE/-p" ] \
-  && pass project-dir-nogit "no git: falls back to the translated path" || bad project-dir-nogit "got" "$(ic __ic_project_dir "$NG" "/h/projects/-p/abc.jsonl")"
+[ -z "$(ic __repo_key "$NG")" ] && pass repo-key-nogit "outside git -> empty" || bad repo-key-nogit "not empty" "$(ic __repo_key "$NG")"
+[ -z "$(ic __repo_key '')" ] && pass repo-key-empty "empty dir -> empty" || bad repo-key-empty "not empty" ""
+[ "$(ic __project_dir "$GW" "/h/projects/-p/abc.jsonl")" = "$IC_TMP_BASE/$want_tmp" ] \
+  && pass project-dir-git "git: <base>/<repo key>" || bad project-dir-git "got" "$(ic __project_dir "$GW" "/h/projects/-p/abc.jsonl")"
+[ "$(ic __project_dir "$NG" "/h/projects/-p/abc.jsonl")" = "$IC_TMP_BASE/-p" ] \
+  && pass project-dir-nogit "no git: falls back to the translated path" || bad project-dir-nogit "got" "$(ic __project_dir "$NG" "/h/projects/-p/abc.jsonl")"
 
 # ---- the hook's turn stamps ----
 sdir="$IC_TMP_BASE/-proj-a/s9"
@@ -165,43 +165,43 @@ DEFAULTS="$(printf '%s\n' phase=standby phase_at=0 skip=0 suppress=0 suppress_ke
 sc() { bash -c 'set -u; . "$1"; shift; eval "$1"' _ "$T/common-helpers.sh" "$1"; }
 
 SD="$T/sess/s1"
-out="$(sc "IC_phase=armed IC_dirty=7 IC_cheap_obs=old; __ic_state_read '$T/sess/missing'; $DUMP" 2>&1)"
+out="$(sc "IC_phase=armed IC_dirty=7 IC_cheap_obs=old; __state_read '$T/sess/missing'; $DUMP" 2>&1)"
 [ "$out" = "$DEFAULTS" ] && pass state-missing "missing file -> every IC_<key> at its default (and stale values reset)" || bad state-missing "got" "$out"
-out="$(sc "__ic_state_read ''; $DUMP" 2>&1)"
+out="$(sc "__state_read ''; $DUMP" 2>&1)"
 [ "$out" = "$DEFAULTS" ] && pass state-no-dir "empty session dir -> defaults" || bad state-no-dir "got" "$out"
 
-sc "IC_phase=to-compact IC_phase_at=1700000000 IC_skip=1 IC_suppress=1 IC_suppress_key=sk IC_suppress_win=5h IC_suppress_resets=1700000500 IC_dirty=3 IC_ledger=/a/b/ledger.md IC_ledger_done=4 IC_armed_key=ak IC_armed_win=7d IC_armed_resets=1700009999 IC_cheap_obs='3 4  5=x' IC_inputbox_fail=2 IC_pending_inject='繼續 now'; __ic_state_write '$SD'"
+sc "IC_phase=to-compact IC_phase_at=1700000000 IC_skip=1 IC_suppress=1 IC_suppress_key=sk IC_suppress_win=5h IC_suppress_resets=1700000500 IC_dirty=3 IC_ledger=/a/b/ledger.md IC_ledger_done=4 IC_armed_key=ak IC_armed_win=7d IC_armed_resets=1700009999 IC_cheap_obs='3 4  5=x' IC_inputbox_fail=2 IC_pending_inject='繼續 now'; __state_write '$SD'"
 [ -f "$SD/ideal-compact-state" ] && [ "$(ls -A "$SD" | wc -l)" = 1 ] && pass state-write "mkdir -p, one file, no temp left behind" || bad state-write "dir" "$(ls -A "$SD" 2>&1)"
 want="$(printf '%s\n' phase=to-compact phase_at=1700000000 skip=1 suppress=1 suppress_key=sk suppress_win=5h suppress_resets=1700000500 dirty=3 ledger=/a/b/ledger.md ledger_done=4 armed_key=ak armed_win=7d armed_resets=1700009999 'cheap_obs=3 4  5=x' inputbox_fail=2 'pending_inject=繼續 now')"
-[ "$(sc "__ic_state_read '$SD'; $DUMP")" = "$want" ] && pass state-roundtrip "every key survives write -> read (spaces, '=' and CJK in values)" || bad state-roundtrip "got" "$(sc "__ic_state_read '$SD'; $DUMP")"
+[ "$(sc "__state_read '$SD'; $DUMP")" = "$want" ] && pass state-roundtrip "every key survives write -> read (spaces, '=' and CJK in values)" || bad state-roundtrip "got" "$(sc "__state_read '$SD'; $DUMP")"
 [ "$(cat "$SD/ideal-compact-state")" = "$want" ] && pass state-format "plain key=value lines" || bad state-format "file" "$(cat "$SD/ideal-compact-state")"
 
 mkdir -p "$T/g"
 printf 'phase=bogus\n\nphase_at\n=x\nskip=1\ndirty=abc\nsuppress_key=kk\nunknown=zz\nsuppress_resets=-5\nlinewithout\nledger_done=x1\narmed_win=7d\ncheap_obs=a=b c\narme' > "$T/g/ideal-compact-state"
-out="$(sc "__ic_state_read '$T/g'; $DUMP" 2>&1)"
+out="$(sc "__state_read '$T/g'; $DUMP" 2>&1)"
 want="$(printf '%s\n' phase=standby phase_at=0 skip=1 suppress=0 suppress_key=kk suppress_win= suppress_resets=0 dirty=0 ledger= ledger_done=0 armed_key= armed_win=7d armed_resets=0 'cheap_obs=a=b c' inputbox_fail=0 pending_inject=)"
 [ "$out" = "$want" ] && pass state-garbage "bogus phase, '=x', no-'=', non-numbers, unknown key, truncated tail -> defaults, rest kept, no output" || bad state-garbage "got" "$out"
 : > "$T/g/ideal-compact-state"
-[ "$(sc "__ic_state_read '$T/g'; $DUMP" 2>&1)" = "$DEFAULTS" ] && pass state-empty "empty file -> defaults" || bad state-empty "got" "$(sc "__ic_state_read '$T/g'; $DUMP" 2>&1)"
+[ "$(sc "__state_read '$T/g'; $DUMP" 2>&1)" = "$DEFAULTS" ] && pass state-empty "empty file -> defaults" || bad state-empty "got" "$(sc "__state_read '$T/g'; $DUMP" 2>&1)"
 for ph in standby armed waiting to-compact compacting continuing stopped; do
   printf 'phase=%s\n' "$ph" > "$T/g/ideal-compact-state"
-  [ "$(sc "__ic_state_read '$T/g'; echo \$IC_phase")" = "$ph" ] && pass "state-phase-$ph" "read as is" || bad "state-phase-$ph" "got" "$(sc "__ic_state_read '$T/g'; echo \$IC_phase")"
+  [ "$(sc "__state_read '$T/g'; echo \$IC_phase")" = "$ph" ] && pass "state-phase-$ph" "read as is" || bad "state-phase-$ph" "got" "$(sc "__state_read '$T/g'; echo \$IC_phase")"
 done
 
-# __ic_set_phase
-out="$(sc "IC_phase=armed IC_skip=1 IC_pending_inject=x IC_phase_at=5; b=\$(date +%s); __ic_set_phase standby; a=\$(date +%s); echo \"\$IC_phase \$IC_skip [\$IC_pending_inject] \$((IC_phase_at>=b && IC_phase_at<=a))\"")"
+# __phase_set
+out="$(sc "IC_phase=armed IC_skip=1 IC_pending_inject=x IC_phase_at=5; b=\$(date +%s); __phase_set standby; a=\$(date +%s); echo \"\$IC_phase \$IC_skip [\$IC_pending_inject] \$((IC_phase_at>=b && IC_phase_at<=a))\"")"
 [ "$out" = "standby 0 [] 1" ] && pass setphase-standby "standby clears skip and pending_inject, stamps phase_at" || bad setphase-standby "got" "$out"
-out="$(sc "IC_phase=armed IC_skip=1 IC_pending_inject=x; __ic_set_phase to-compact; echo \"\$IC_phase \$IC_skip [\$IC_pending_inject]\"")"
+out="$(sc "IC_phase=armed IC_skip=1 IC_pending_inject=x; __phase_set to-compact; echo \"\$IC_phase \$IC_skip [\$IC_pending_inject]\"")"
 [ "$out" = "to-compact 1 []" ] && pass setphase-other "other phase keeps skip, clears pending_inject" || bad setphase-other "got" "$out"
 
-# __ic_ttl_check: rows are "phase ttl"
+# __phase_ttl_check: rows are "phase ttl"
 suppress_kw='armed_key=AK
 armed_win=5h
 armed_resets=1700004000'
 ttl_run() {  # ttl_run <phase> <age> -> "rc phase suppress key/win/resets skip"
   local d="$T/ttl"; rm -rf "$d"; mkdir -p "$d"
   printf 'phase=%s\nphase_at=1700000000\nskip=1\ndirty=2\n%s\n' "$1" "$suppress_kw" > "$d/ideal-compact-state"
-  sc "__ic_state_read '$d'; __ic_ttl_check $((1700000000 + $2)); r=\$?; echo \"\$r \$IC_phase \$IC_suppress \$IC_suppress_key/\$IC_suppress_win/\$IC_suppress_resets \$IC_skip \$IC_dirty\""
+  sc "__state_read '$d'; __phase_ttl_check $((1700000000 + $2)); r=\$?; echo \"\$r \$IC_phase \$IC_suppress \$IC_suppress_key/\$IC_suppress_win/\$IC_suppress_resets \$IC_skip \$IC_dirty\""
 }
 for row in "to-compact 120" "continuing 120" "compacting 900" "stopped 900"; do
   set -- $row
@@ -213,56 +213,56 @@ for ph in armed waiting standby; do
 done
 [ "$(ttl_run to-compact 119)" = "1 to-compact 0 //0 1 2" ] && pass ttl-young "well under the TTL -> unchanged" || bad ttl-young "got" "$(ttl_run to-compact 119)"
 
-# __ic_phase_display
+# __phase_display
 d="$T/disp"; mkdir -p "$d"
 printf 'phase=to-compact\nphase_at=%s\nskip=1\narmed_key=AK\n' "$(( $(date +%s) - 500 ))" > "$d/ideal-compact-state"
 before="$(cksum < "$d/ideal-compact-state")"
-out="$(sc "IC_phase=armed IC_armed_key=mine IC_dirty=9; p=\$(__ic_phase_display '$d' \$(date +%s)); echo \"\$p \$IC_phase \$IC_armed_key \$IC_dirty\"")"
+out="$(sc "IC_phase=armed IC_armed_key=mine IC_dirty=9; p=\$(__phase_display '$d' \$(date +%s)); echo \"\$p \$IC_phase \$IC_armed_key \$IC_dirty\"")"
 [ "$out" = "standby armed mine 9" ] && pass display-expired "expired to-compact shows standby, caller's IC_* untouched" || bad display-expired "got" "$out"
 [ "$before" = "$(cksum < "$d/ideal-compact-state")" ] && pass display-readonly "file byte-identical afterwards" || bad display-readonly "file changed" ""
 printf 'phase=compacting\nphase_at=%s\n' "$(( $(date +%s) - 500 ))" > "$d/ideal-compact-state"
-[ "$(sc "__ic_phase_display '$d' \$(date +%s)")" = "compacting" ] && pass display-live "unexpired phase shown as is" || bad display-live "got" "$(sc "__ic_phase_display '$d' \$(date +%s)")"
-[ "$(sc "__ic_phase_display '$T/nodir' \$(date +%s)")" = "standby" ] && pass display-missing "no state file -> standby" || bad display-missing "got" "$(sc "__ic_phase_display '$T/nodir' \$(date +%s)")"
+[ "$(sc "__phase_display '$d' \$(date +%s)")" = "compacting" ] && pass display-live "unexpired phase shown as is" || bad display-live "got" "$(sc "__phase_display '$d' \$(date +%s)")"
+[ "$(sc "__phase_display '$T/nodir' \$(date +%s)")" = "standby" ] && pass display-missing "no state file -> standby" || bad display-missing "got" "$(sc "__phase_display '$T/nodir' \$(date +%s)")"
 
 # locks
-out="$(sc "__ic_lock '$T/lk/new/x.lock'; r1=\$?; f1=\$__IC_LOCK_FD; __ic_lock '$T/lk/new/y.lock'; f2=\$__IC_LOCK_FD; echo \"\$r1 \$((f1>=10)) \$((f1!=f2)) \$([ -e /proc/self/fd/\$f1 ] && echo open)\"; __ic_unlock; echo \"\$([ -e /proc/self/fd/\$f2 ] && echo open || echo closed) \$([ -e /proc/self/fd/\$f1 ] && echo open || echo closed)\"")"
+out="$(sc "__lock '$T/lk/new/x.lock'; r1=\$?; f1=\$__LOCK_FD; __lock '$T/lk/new/y.lock'; f2=\$__LOCK_FD; echo \"\$r1 \$((f1>=10)) \$((f1!=f2)) \$([ -e /proc/self/fd/\$f1 ] && echo open)\"; __unlock; echo \"\$([ -e /proc/self/fd/\$f2 ] && echo open || echo closed) \$([ -e /proc/self/fd/\$f1 ] && echo open || echo closed)\"")"
 [ "$out" = "0 1 1 open
 closed open" ] && pass lock-fd "missing dir created, each call its own fd, unlock closes the current one" || bad lock-fd "got" "$out"
-sc "__ic_lock '$T/lk/h.lock'; sleep 1; __ic_unlock" &
+sc "__lock '$T/lk/h.lock'; sleep 1; __unlock" &
 hp=$!; sleep 0.3
 s=$(date +%s.%N)
-sc "__ic_lock '$T/lk/h.lock'; __ic_unlock"
+sc "__lock '$T/lk/h.lock'; __unlock"
 e=$(date +%s.%N); wait "$hp"
 awk -v a="$s" -v b="$e" 'BEGIN{exit !(b-a>=0.5)}' && pass lock-blocks "a second locker waits for the holder ($(awk -v a="$s" -v b="$e" 'BEGIN{printf "%.1f", b-a}') s)" || bad lock-blocks "did not wait" ""
-sc "__ic_lock '$T/lk/h.lock'; __ic_unlock; __ic_unlock; echo done" >/dev/null 2>&1 && pass unlock-twice "unlock without a lock is harmless" || bad unlock-twice "failed" ""
+sc "__lock '$T/lk/h.lock'; __unlock; __unlock; echo done" >/dev/null 2>&1 && pass unlock-twice "unlock without a lock is harmless" || bad unlock-twice "failed" ""
 s=$(date +%s.%N)
-sc "__ic_lock '$T/lk/h.lock'; __ic_unlock"
+sc "__lock '$T/lk/h.lock'; __unlock"
 e=$(date +%s.%N)
 awk -v a="$s" -v b="$e" 'BEGIN{exit !(b-a<0.5)}' && pass lock-released "free again after unlock" || bad lock-released "still held" ""
 
-# __ic_lock must not leave a stderr redirect behind in the caller's shell
-out="$(sc "__ic_lock '$T/lk/err.lock'; echo e >&2; __ic_unlock; echo e2 >&2" 2>&1)"
+# __lock must not leave a stderr redirect behind in the caller's shell
+out="$(sc "__lock '$T/lk/err.lock'; echo e >&2; __unlock; echo e2 >&2" 2>&1)"
 [ "$out" = "e
-e2" ] && pass lock-stderr "stderr still reaches the caller after __ic_lock" || bad lock-stderr "got" "$out"
+e2" ] && pass lock-stderr "stderr still reaches the caller after __lock" || bad lock-stderr "got" "$out"
 # leading zeros read as decimal numbers
 printf 'dirty=08\nphase_at=0009\nskip=00\n' > "$T/g/ideal-compact-state"
-out="$(sc "__ic_state_read '$T/g'; echo \"\$((IC_dirty+1)) \$((IC_phase_at+1)) \$((IC_skip+1))\"" 2>&1)"
+out="$(sc "__state_read '$T/g'; echo \"\$((IC_dirty+1)) \$((IC_phase_at+1)) \$((IC_skip+1))\"" 2>&1)"
 [ "$out" = "9 10 1" ] && pass state-leading-zero "08/0009/00 -> 8/9/0, safe in \$(( ))" || bad state-leading-zero "got" "$out"
 
 # two writers, 50 read-modify-write rounds each under the lock -> dirty ends at 100
 CD="$T/conc"; mkdir -p "$CD"
-rmw='for i in $(seq 50); do __ic_lock "$2/ideal-compact-state.lock"; __ic_state_read "$2"; IC_dirty=$((IC_dirty+1)); __ic_state_write "$2"; __ic_unlock; done'
+rmw='for i in $(seq 50); do __lock "$2/ideal-compact-state.lock"; __state_read "$2"; IC_dirty=$((IC_dirty+1)); __state_write "$2"; __unlock; done'
 bash -c '. "$1"; '"$rmw" _ "$T/common-helpers.sh" "$CD" & w1=$!
 bash -c '. "$1"; '"$rmw" _ "$T/common-helpers.sh" "$CD" & w2=$!
 wait "$w1" "$w2"
-[ "$(sc "__ic_state_read '$CD'; echo \$IC_dirty")" = 100 ] && pass lock-concurrent "2 writers x 50 rounds -> dirty=100" || bad lock-concurrent "got" "$(sc "__ic_state_read '$CD'; echo \$IC_dirty")"
+[ "$(sc "__state_read '$CD'; echo \$IC_dirty")" = 100 ] && pass lock-concurrent "2 writers x 50 rounds -> dirty=100" || bad lock-concurrent "got" "$(sc "__state_read '$CD'; echo \$IC_dirty")"
 
 
 # ---- ledger counting, plan lookup ----
 LD="$T/led"; mkdir -p "$LD"
 printf '# Plan 6 progress ledger\nTask 1: complete (a)\nTask 2: complete\nTask 2: complete (rerun)\nTask 3: pending\n  Task 4: complete\n' > "$LD/l1.md"
-[ "$(sc "__ic_ledger_done '$LD/l1.md'")" = 2 ] && pass ledger-done "distinct N among 'Task N: complete' lines (rerun counted once)" || bad ledger-done "got" "$(sc "__ic_ledger_done '$LD/l1.md'")"
-[ "$(sc "__ic_ledger_done '$LD/none.md'")" = 0 ] && pass ledger-done-missing "no ledger -> 0" || bad ledger-done-missing "got" "$(sc "__ic_ledger_done '$LD/none.md'")"
+[ "$(sc "__ledger_done '$LD/l1.md'")" = 2 ] && pass ledger-done "distinct N among 'Task N: complete' lines (rerun counted once)" || bad ledger-done "got" "$(sc "__ledger_done '$LD/l1.md'")"
+[ "$(sc "__ledger_done '$LD/none.md'")" = 0 ] && pass ledger-done-missing "no ledger -> 0" || bad ledger-done-missing "got" "$(sc "__ledger_done '$LD/none.md'")"
 
 RP="$T/repo"; mkdir -p "$RP/docs" "$RP/.superpowers/sdd/w"
 git -C "$RP" init -q
@@ -270,33 +270,33 @@ printf '# Plan\n### Task 1: a\ntext\n### Task 2: b\n#### Task 3: not a heading\n
 RPP="$(cd "$RP" && pwd -P)"
 WL="$RP/.superpowers/sdd/w/progress.md"
 printf '# Plan 6 progress ledger\nTask 1: complete\n' > "$WL"
-[ "$(sc "__ic_plan_total '$RP/docs/p.md'")" = 3 ] && pass plan-total "counts '### Task N:' headings only" || bad plan-total "got" "$(sc "__ic_plan_total '$RP/docs/p.md'")"
-[ "$(sc "__ic_plan_total '$RP/docs/none.md'")" = 0 ] && pass plan-total-missing "no plan -> 0" || bad plan-total-missing "got" ""
-[ -z "$(sc "__ic_ledger_plan '$WL'")" ] && pass plan-none "no plan-path and no plan line -> empty (done still counted: $(sc "__ic_ledger_done '$WL'"))" || bad plan-none "got" "$(sc "__ic_ledger_plan '$WL'")"
+[ "$(sc "__plan_total '$RP/docs/p.md'")" = 3 ] && pass plan-total "counts '### Task N:' headings only" || bad plan-total "got" "$(sc "__plan_total '$RP/docs/p.md'")"
+[ "$(sc "__plan_total '$RP/docs/none.md'")" = 0 ] && pass plan-total-missing "no plan -> 0" || bad plan-total-missing "got" ""
+[ -z "$(sc "__ledger_plan '$WL'")" ] && pass plan-none "no plan-path and no plan line -> empty (done still counted: $(sc "__ledger_done '$WL'"))" || bad plan-none "got" "$(sc "__ledger_plan '$WL'")"
 printf 'docs/p.md\n' > "$RP/.superpowers/sdd/w/plan-path"
-out="$(sc "__ic_ledger_plan '$WL'")"
+out="$(sc "__ledger_plan '$WL'")"
 [ "$out" = "$RPP/docs/p.md" ] && pass plan-path-rel "plan-path file, repo-relative" || bad plan-path-rel "got" "$out"
 mkdir -p "$T/outside"; printf '### Task 1: x\n' > "$T/outside/q.md"
 printf '%s\n' "$T/outside/q.md" > "$RP/.superpowers/sdd/w/plan-path"
-out="$(sc "__ic_ledger_plan '$WL'")"
+out="$(sc "__ledger_plan '$WL'")"
 [ "$out" = "$(cd "$T/outside" && pwd -P)/q.md" ] && pass plan-path-abs "plan-path file, absolute outside the repo" || bad plan-path-abs "got" "$out"
 printf 'docs/gone.md\n' > "$RP/.superpowers/sdd/w/plan-path"
-[ -z "$(sc "__ic_ledger_plan '$WL'")" ] && pass plan-path-missing "plan-path names a missing file -> empty" || bad plan-path-missing "got" "$(sc "__ic_ledger_plan '$WL'")"
+[ -z "$(sc "__ledger_plan '$WL'")" ] && pass plan-path-missing "plan-path names a missing file -> empty" || bad plan-path-missing "got" "$(sc "__ledger_plan '$WL'")"
 rm "$RP/.superpowers/sdd/w/plan-path"
 printf '# SDD ledger — plan: docs/p.md\nTask 1: complete\n' > "$WL"
-out="$(sc "__ic_ledger_plan '$WL'")"
+out="$(sc "__ledger_plan '$WL'")"
 [ "$out" = "$RPP/docs/p.md" ] && pass plan-line-rel "first line, relative to the repo root" || bad plan-line-rel "got" "$out"
 printf '# SDD ledger — plan: %s\n' "$T/outside/q.md" > "$WL"
-out="$(sc "__ic_ledger_plan '$WL'")"
+out="$(sc "__ledger_plan '$WL'")"
 [ "$out" = "$(cd "$T/outside" && pwd -P)/q.md" ] && pass plan-line-abs "first line, absolute" || bad plan-line-abs "got" "$out"
 # outside git: relative path tried against the ledger's directory
 mkdir -p "$T/nogit"; printf '### Task 1: x\n' > "$T/nogit/np.md"; printf '# SDD ledger — plan: np.md\n' > "$T/nogit/progress.md"
-out="$(sc "__ic_ledger_plan '$T/nogit/progress.md'")"
+out="$(sc "__ledger_plan '$T/nogit/progress.md'")"
 [ "$out" = "$(cd "$T/nogit" && pwd -P)/np.md" ] && pass plan-line-ledger-dir "not in git: falls back to the ledger's directory" || bad plan-line-ledger-dir "got" "$out"
 # the repo-root candidate wins over the ledger directory when both exist
 printf 'other\n' > "$RP/.superpowers/sdd/w/docs-p.txt"; mkdir -p "$RP/.superpowers/sdd/w/docs"; printf '### Task 1: z\n' > "$RP/.superpowers/sdd/w/docs/p.md"
 printf '# SDD ledger — plan: docs/p.md\n' > "$WL"
-out="$(sc "__ic_ledger_plan '$WL'")"
+out="$(sc "__ledger_plan '$WL'")"
 [ "$out" = "$RPP/docs/p.md" ] && pass plan-root-first "repo root tried before the ledger directory" || bad plan-root-first "got" "$out"
 rm -rf "$RP/.superpowers/sdd/w/docs" "$RP/.superpowers/sdd/w/docs-p.txt"
 
@@ -304,9 +304,9 @@ rm -rf "$RP/.superpowers/sdd/w/docs" "$RP/.superpowers/sdd/w/docs-p.txt"
 HD="$T/hist"; H="$HD/ideal-compact-history"
 R5=1800000000 R7=1900000000
 # rec <ledger> <done> <p5> <r5> <p7> <r7> [key=k1] [dirty=0] [tag=usage]; prints the function's answer
-rec() { sc "__ic_history_record '$H' '$1' '$2' '${9:-usage} ${7:-k1} $3 $4 $5 $6 97 99 120 3' '${8:-0}'"; }
+rec() { sc "__history_record '$H' '$1' '$2' '${9:-usage} ${7:-k1} $3 $4 $5 $6 97 99 120 3' '${8:-0}'"; }
 # fld <ledger> <n>: field n of the newest line for that ledger
-fld() { sc "__ic_history_latest '$H' '$1'" | cut -f"$2"; }
+fld() { sc "__history_latest '$H' '$1'" | cut -f"$2"; }
 # num_eq <a> <b>: numeric equality
 num_eq() { awk -v a="$1" -v b="$2" 'BEGIN{d=a-b; exit !(d<1e-9 && d>-1e-9)}'; }
 chk() { # chk <id> <desc> <ledger> <field> <expected>
@@ -314,15 +314,15 @@ chk() { # chk <id> <desc> <ledger> <field> <expected>
   if [ "$g" = "$5" ] || { [[ "$g" =~ ^[0-9.]+$ && "$5" =~ ^[0-9.]+$ ]] && num_eq "$g" "$5"; }; then pass "$1" "$2"; else bad "$1" "$2" "field $4 = '$g', expected '$5'"; fi
 }
 
-[ -z "$(sc "__ic_history_latest '$H' '/l/a'")" ] && pass hist-latest-missing "no file -> empty" || bad hist-latest-missing "got" ""
+[ -z "$(sc "__history_latest '$H' '/l/a'")" ] && pass hist-latest-missing "no file -> empty" || bad hist-latest-missing "got" ""
 A=/l/a
 out="$(rec $A 2 10 $R5 20 $R7)"
 [ "$out" = baseline ] && pass hist-first "first record of a ledger -> baseline" || bad hist-first "got" "$out"
 chk hist-first-c "first record has no numbers" $A 10 -
 chk hist-first-c7 "first record has no 7d number" $A 11 -
 chk hist-first-base "baseline snapshot = this entry" $A 12 2
-[ "$(fld $A 13)" = 10 ] && [ "$(fld $A 14)" = $R5 ] && [ "$(fld $A 15)" = 2 ] && [ "$(fld $A 16)" = 20 ] && [ "$(fld $A 17)" = $R7 ] && pass hist-first-snap "all six baseline fields" || bad hist-first-snap "fields" "$(sc "__ic_history_latest '$H' '$A'")"
-[ "$(fld $A 2)" = "$A" ] && [ "$(fld $A 3)" = 2 ] && [ "$(fld $A 4)" = k1 ] && [ "$(fld $A 5)" = 10 ] && [ "$(fld $A 6)" = $R5 ] && [ "$(fld $A 9)" = 0 ] && pass hist-layout "ledger/done/key/pct/reset/dirty columns" || bad hist-layout "fields" "$(sc "__ic_history_latest '$H' '$A'")"
+[ "$(fld $A 13)" = 10 ] && [ "$(fld $A 14)" = $R5 ] && [ "$(fld $A 15)" = 2 ] && [ "$(fld $A 16)" = 20 ] && [ "$(fld $A 17)" = $R7 ] && pass hist-first-snap "all six baseline fields" || bad hist-first-snap "fields" "$(sc "__history_latest '$H' '$A'")"
+[ "$(fld $A 2)" = "$A" ] && [ "$(fld $A 3)" = 2 ] && [ "$(fld $A 4)" = k1 ] && [ "$(fld $A 5)" = 10 ] && [ "$(fld $A 6)" = $R5 ] && [ "$(fld $A 9)" = 0 ] && pass hist-layout "ledger/done/key/pct/reset/dirty columns" || bad hist-layout "fields" "$(sc "__history_latest '$H' '$A'")"
 [[ "$(fld $A 1)" =~ ^[0-9]{10}$ ]] && pass hist-ts "epoch timestamp" || bad hist-ts "got" "$(fld $A 1)"
 
 out="$(rec $A 3 10 $R5 22 $R7)"
@@ -372,10 +372,10 @@ E=/l/e
 rec $E 1 10 $R5 10 $R7 >/dev/null
 out="$(rec $E 2 12 $R5 12 $R7 k2)"
 [ "$out" = baseline ] && pass key-change "key changed -> baseline" || bad key-change "got" "$out"
-[ "$(fld $E 10)" = - ] && [ "$(fld $E 11)" = - ] && [ "$(fld $E 12)" = 2 ] && [ "$(fld $E 15)" = 2 ] && [ "$(fld $E 4)" = k2 ] && pass key-change-b "no numbers, both rebased to the new key" || bad key-change-b "line" "$(sc "__ic_history_latest '$H' '$E'")"
+[ "$(fld $E 10)" = - ] && [ "$(fld $E 11)" = - ] && [ "$(fld $E 12)" = 2 ] && [ "$(fld $E 15)" = 2 ] && [ "$(fld $E 4)" = k2 ] && pass key-change-b "no numbers, both rebased to the new key" || bad key-change-b "line" "$(sc "__history_latest '$H' '$E'")"
 out="$(rec $E 3 14 $R5 14 $R7 k2 1)"
 [ "$out" = baseline ] && pass dirty "dirty=1 -> baseline" || bad dirty "got" "$out"
-[ "$(fld $E 10)" = - ] && [ "$(fld $E 11)" = - ] && [ "$(fld $E 12)" = 3 ] && [ "$(fld $E 9)" = 1 ] && pass dirty-b "no numbers, rebased, dirty stored" || bad dirty-b "line" "$(sc "__ic_history_latest '$H' '$E'")"
+[ "$(fld $E 10)" = - ] && [ "$(fld $E 11)" = - ] && [ "$(fld $E 12)" = 3 ] && [ "$(fld $E 9)" = 1 ] && pass dirty-b "no numbers, rebased, dirty stored" || bad dirty-b "line" "$(sc "__history_latest '$H' '$E'")"
 out="$(rec $E 4 16 $R5 16 $R7 k2 3)"
 [ "$out" = baseline ] && [ "$(fld $E 9)" = 3 ] && pass dirty-counter "dirty counter 3 -> baseline" || bad dirty-counter "got" "$out"
 out="$(rec $E 5 18 $R5 18 $R7 k2 0)"
@@ -401,7 +401,7 @@ out="$(rec $A 9 50 $R5 50 $R7 - 0)"
 [ "$out" = skipped ] && [ "$before" = "$(cksum < "$H")" ] && pass skip-key "key '-' -> skipped, file unchanged" || bad skip-key "got" "$out"
 out="$(rec $A 9 50 $R5 50 $R7 k1 0 none)"
 [ "$out" = skipped ] && [ "$before" = "$(cksum < "$H")" ] && pass skip-none "tag none -> skipped" || bad skip-none "got" "$out"
-[ "$(sc "__ic_history_latest '$H' '$A'" | cut -f3)" = 5 ] && pass skip-latest "skipped record is not the latest" || bad skip-latest "got" ""
+[ "$(sc "__history_latest '$H' '$A'" | cut -f3)" = 5 ] && pass skip-latest "skipped record is not the latest" || bad skip-latest "got" ""
 
 # pruning per account
 P=/l/p; H0="$H"; H="$HD/prune/ideal-compact-history"
@@ -421,11 +421,11 @@ rec /l/y 2 55 $R5 56 $R7 >/dev/null
 [ "$(fld /l/x 10)" = 2 ] && [ "$(fld /l/y 10)" = 5 ] && [ "$(fld /l/y 11)" = 6 ] && pass interleave "each ledger pairs with its own previous line" || bad interleave "got" "x=$(fld /l/x 10) y=$(fld /l/y 10)"
 rec /l/y 3 58 $R5 56 $R7 >/dev/null
 [ "$(fld /l/y 10)" = 3 ] && pass interleave-2 "y: 55 -> 58 over one task" || bad interleave-2 "got" "$(fld /l/y 10)"
-[ "$(sc "__ic_history_latest '$H' /l/x" | cut -f3)" = 2 ] && [ -z "$(sc "__ic_history_latest '$H' /l/z")" ] && pass hist-latest-ledger "latest per ledger; unknown ledger -> empty" || bad hist-latest-ledger "got" ""
+[ "$(sc "__history_latest '$H' /l/x" | cut -f3)" = 2 ] && [ -z "$(sc "__history_latest '$H' /l/z")" ] && pass hist-latest-ledger "latest per ledger; unknown ledger -> empty" || bad hist-latest-ledger "got" ""
 
 # concurrent writers keep every line
 H="$HD/conc/ideal-compact-history"
-wr='for i in $(seq 20); do __ic_history_record "$2" "$3" "$i" "usage k$4 $i 1800000000 $i 1900000000 97 99 120 3" 0 >/dev/null; done'
+wr='for i in $(seq 20); do __history_record "$2" "$3" "$i" "usage k$4 $i 1800000000 $i 1900000000 97 99 120 3" 0 >/dev/null; done'
 bash -c '. "$1"; '"$wr" _ "$T/common-helpers.sh" "$H" /l/m 1 & w1=$!
 bash -c '. "$1"; '"$wr" _ "$T/common-helpers.sh" "$H" /l/n 2 & w2=$!
 wait "$w1" "$w2"
@@ -435,8 +435,8 @@ wait "$w1" "$w2"
 BD="$T/budget"; mkdir -p "$BD"; BH="$BD/ideal-compact-history"
 # hl <key> <c5> <c7>: one history line (17 fields), appended to $BH
 hl() { printf '1\t/l/x\t1\t%s\t0\t0\t0\t0\t0\t%s\t%s\t0\t0\t0\t0\t0\t0\n' "$1" "$2" "$3" >> "$BH"; }
-# bud <current_line> [accounts_text]: __ic_budget on $BH
-bud() { sc "__ic_budget '$BH' '$1' '$2'"; }
+# bud <current_line> [accounts_text]: __budget_tasks on $BH
+bud() { sc "__budget_tasks '$BH' '$1' '$2'"; }
 TH='97 99 120 3'
 : > "$BH"
 for c in 1 1 1 1 1 3; do hl k1 "$c" -; done
@@ -451,7 +451,7 @@ out="$(bud "usage k1 99 $R5 10 $R7 $TH")"
 [ "$out" = "0 5h" ] && pass bud-floor0 "p5 above the threshold never goes below 0" || bad bud-floor0 "got" "$out"
 out="$(bud "usage k1 90 $R5 10 $R7 $TH")"
 [ "$out" = "5 5h" ] && pass bud-5h-smaller "5h 5, 7d 178 -> the smaller window" || bad bud-5h-smaller "got" "$out"
-out="$(sc "__ic_budget '$BH' 'usage k1 90 $R5 98 $R7 $TH' ''" | wc -c)"
+out="$(sc "__budget_tasks '$BH' 'usage k1 90 $R5 98 $R7 $TH' ''" | wc -c)"
 [ "$out" = 4 ] && pass bud-no-newline "'2 7d' without a trailing newline" || bad bud-no-newline "bytes" "$out"
 
 # conversion from other keys
@@ -519,7 +519,7 @@ out="$(bud "usage k1 50 $R5 10 $R7 $TH" "")"
 BH="$BH_SAVE"
 
 # pick
-pk() { sc "__ic_pick_account '$BH' '$1' '$2'"; }
+pk() { sc "__budget_pick_account '$BH' '$1' '$2'"; }
 : > "$BH"; hl k1 2 -; hl k2 1 -; hl k3 5 -
 CUR="usage k1 95 $R5 10 $R7 $TH"
 ACC="1 k1 1 1 95 $R5 10 $R7 1 1
@@ -584,48 +584,48 @@ chain() {
 # The fake tmux answers #{pane_pid} with $FAKE_PANE_PID: the test shell, an
 # ancestor of IC_CLAUDE_PID=$$ (itself) and of every sleeper it starts.
 export FAKE_PANE_PID=$$
-pp() { sc "__ic_ppid $1"; }
+pp() { sc "__proc_ppid $1"; }
 : > "$FAKE_LOG"
-out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __mux_backend)"
 [ "$out" = "tmux /tmp/s %3" ] && pass backend-tmux "own TMUX + TMUX_PANE, pane pid an ancestor of claude -> tmux <socket> <pane>" || bad backend-tmux "got" "$out"
 grep -qxF 'tmux -S /tmp/s display-message -p -t %3 #{pane_pid}' "$FAKE_LOG" \
   && pass backend-tmux-query "pane pid asked of -S <socket> -t <pane>" || bad backend-tmux-query "log" "$(cat "$FAKE_LOG")"
 env -i "$SLEEP_BIN" 30 & up=$!
-out="$(FAKE_PANE_PID=$up TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+out="$(FAKE_PANE_PID=$up TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __mux_backend)"
 [ -z "$out" ] && pass backend-tmux-foreign "pane pid not claude or an ancestor -> no backend" || bad backend-tmux-foreign "got" "$out"
-out="$(FAKE_FAIL_PANE_PID=1 TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+out="$(FAKE_FAIL_PANE_PID=1 TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __mux_backend)"
 [ -z "$out" ] && pass backend-tmux-query-fails "pane pid query fails -> no backend" || bad backend-tmux-query-fails "got" "$out"
-out="$(FAKE_PANE_PID='' TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+out="$(FAKE_PANE_PID='' TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __mux_backend)"
 [ -z "$out" ] && pass backend-tmux-query-blank "pane pid query prints nothing -> no backend" || bad backend-tmux-query-blank "got" "$out"
-out="$(STY=$$.x WINDOW=2 sc __ic_backend)"
+out="$(STY=$$.x WINDOW=2 sc __mux_backend)"
 [ "$out" = "screen $$.x 2" ] && pass backend-screen "own STY (<ancestor pid>.x) + WINDOW -> screen <sty> <window>" || bad backend-screen "got" "$out"
-out="$(STY=1.x WINDOW=2 sc __ic_backend)"
+out="$(STY=1.x WINDOW=2 sc __mux_backend)"
 [ -z "$out" ] && pass backend-screen-foreign "STY pid not an ancestor of claude -> no backend" || bad backend-screen-foreign "got" "$out"
-out="$(STY=x WINDOW=2 sc __ic_backend)"
+out="$(STY=x WINDOW=2 sc __mux_backend)"
 [ -z "$out" ] && pass backend-screen-no-pid "STY without a pid prefix -> no backend" || bad backend-screen-no-pid "got" "$out"
-out="$(TMUX=/tmp/s,1,0 sc __ic_backend)"
+out="$(TMUX=/tmp/s,1,0 sc __mux_backend)"
 [ -z "$out" ] && pass backend-no-pane "TMUX without TMUX_PANE -> no backend" || bad backend-no-pane "got" "$out"
-out="$(TMUX_PANE=%3 STY=$$.x sc __ic_backend)"
+out="$(TMUX_PANE=%3 STY=$$.x sc __mux_backend)"
 [ -z "$out" ] && pass backend-halves "TMUX_PANE alone and STY without WINDOW -> no backend" || bad backend-halves "got" "$out"
 cp1="$(chain tmux screen)"; cp2="$(chain SCREEN tmux)"; cp3="$(chain claude)"
 a1="$(pp "$cp1")"; a3="$(pp "$cp3")"
-out="$(IC_CLAUDE_PID="$cp1" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=$a1.x WINDOW=2 sc __ic_backend)"
+out="$(IC_CLAUDE_PID="$cp1" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=$a1.x WINDOW=2 sc __mux_backend)"
 [ "$out" = "screen $a1.x 2" ] && pass backend-both-screen "both set, nearest multiplexer ancestor screen (inside tmux) -> screen" || bad backend-both-screen "got" "$out"
-out="$(FAKE_PANE_PID=$cp2 IC_CLAUDE_PID="$cp2" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 sc __ic_backend)"
+out="$(FAKE_PANE_PID=$cp2 IC_CLAUDE_PID="$cp2" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 sc __mux_backend)"
 [ "$out" = "tmux /tmp/s %3" ] && pass backend-both-tmux "both set, nearest multiplexer ancestor tmux (inside SCREEN) -> tmux" || bad backend-both-tmux "got" "$out"
-out="$(IC_CLAUDE_PID="$cp3" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=$a3.x WINDOW=2 sc __ic_backend)"
+out="$(IC_CLAUDE_PID="$cp3" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=$a3.x WINDOW=2 sc __mux_backend)"
 [ "$out" = "screen $a3.x 2" ] && pass backend-both-undecided "both set, no multiplexer ancestor -> screen" || bad backend-both-undecided "got" "$out"
 env TMUX=/tmp/t,1,0 TMUX_PANE=%9 "$SLEEP_BIN" 30 & ep1=$!
 env -i "$SLEEP_BIN" 30 & ep2=$!
 env STY=$$.y WINDOW=4 TMUX=/tmp/u,1,0 "$SLEEP_BIN" 30 & ep3=$!
 sleep 0.2
-out="$(IC_CLAUDE_PID="$ep1" sc __ic_backend)"
+out="$(IC_CLAUDE_PID="$ep1" sc __mux_backend)"
 [ "$out" = "tmux /tmp/t %9" ] && pass backend-environ "nothing in the hook env -> /proc/<claude>/environ" || bad backend-environ "got" "$out"
-out="$(IC_CLAUDE_PID="$ep3" sc __ic_backend)"
+out="$(IC_CLAUDE_PID="$ep3" sc __mux_backend)"
 [ "$out" = "screen $$.y 4" ] && pass backend-environ-screen "environ STY + WINDOW (TMUX without pane ignored) -> screen" || bad backend-environ-screen "got" "$out"
-out="$(IC_CLAUDE_PID="$ep3" TMUX_PANE=%1 sc __ic_backend)"
+out="$(IC_CLAUDE_PID="$ep3" TMUX_PANE=%1 sc __mux_backend)"
 [ -z "$out" ] && pass backend-one-source "any var in the hook env -> environ not mixed in" || bad backend-one-source "got" "$out"
-out="$(IC_CLAUDE_PID="$ep2" sc __ic_backend)"
+out="$(IC_CLAUDE_PID="$ep2" sc __mux_backend)"
 [ -z "$out" ] && pass backend-none "nothing anywhere -> empty" || bad backend-none "got" "$out"
 # Headless claude (-p / --print) has no input box to type into. The trailing
 # `; :` keeps bash from exec'ing sleep, so the cmdline stays as written.
@@ -633,18 +633,18 @@ bash -c 'sleep 30; :' claude -p 'fix it' & hp1=$!
 bash -c 'sleep 30; :' claude --print & hp2=$!
 bash -c 'sleep 30; :' claude 'explain -p' --model x & hp3=$!
 sleep 0.2
-out="$(IC_CLAUDE_PID="$hp1" TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+out="$(IC_CLAUDE_PID="$hp1" TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __mux_backend)"
 [ -z "$out" ] && pass backend-headless-p "claude started with -p -> no backend" || bad backend-headless-p "got" "$out"
-out="$(IC_CLAUDE_PID="$hp2" STY=$$.x WINDOW=2 sc __ic_backend)"
+out="$(IC_CLAUDE_PID="$hp2" STY=$$.x WINDOW=2 sc __mux_backend)"
 [ -z "$out" ] && pass backend-headless-print "claude started with --print -> no backend" || bad backend-headless-print "got" "$out"
-out="$(IC_CLAUDE_PID="$hp3" TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+out="$(IC_CLAUDE_PID="$hp3" TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __mux_backend)"
 [ "$out" = "tmux /tmp/s %3" ] && pass backend-interactive-args "-p only inside another argument -> backend kept" || bad backend-interactive-args "got" "$out"
 kill "$hp1" "$hp2" "$hp3" 2>/dev/null
 mkdir -p "$T/onlyscreen"; ln -s "$TESTS_DIR/fakes/screen" "$T/onlyscreen/screen"; ln -s "$(command -v dirname)" "$T/onlyscreen/dirname"
 if [ -z "$(PATH="$T/onlyscreen" command -v tmux)" ]; then
-  out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=$$.x WINDOW=2 PATH="$T/onlyscreen" "$BASH" -c '. "$1"; __ic_backend' _ "$T/common-helpers.sh")"
+  out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=$$.x WINDOW=2 PATH="$T/onlyscreen" "$BASH" -c '. "$1"; __mux_backend' _ "$T/common-helpers.sh")"
   [ "$out" = "screen $$.x 2" ] && pass backend-no-binary "no tmux binary -> tmux skipped" || bad backend-no-binary "got" "$out"
-  out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 PATH="$T/onlyscreen" "$BASH" -c '. "$1"; __ic_backend' _ "$T/common-helpers.sh")"
+  out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 PATH="$T/onlyscreen" "$BASH" -c '. "$1"; __mux_backend' _ "$T/common-helpers.sh")"
   [ -z "$out" ] && pass backend-no-binary-empty "only tmux vars, no tmux binary -> empty" || bad backend-no-binary-empty "got" "$out"
 else
   bad backend-no-binary "isolation" "tmux found under the stub PATH"
@@ -652,14 +652,14 @@ fi
 out="$(grep -v ' display-message -p -t [^ ]* #{pane_pid}$' "$FAKE_LOG")"
 [ -z "$out" ] && pass backend-no-calls "detection only asks tmux for the pane pid, never screen" || bad backend-no-calls "log" "$out"
 unset FAKE_PANE_PID
-# __ic_claude_pid walks /proc: claude -> 'a) b' -> bash; comm with ') ' does not confuse the stat parse
-"$PR_D/claude" "$PR_D/a) b" bash -c 'unset IC_CLAUDE_PID; . "$1"; __ic_claude_pid > "$2"' _ "$T/common-helpers.sh" "$T/cpid" & wp=$!
+# __proc_claude_pid walks /proc: claude -> 'a) b' -> bash; comm with ') ' does not confuse the stat parse
+"$PR_D/claude" "$PR_D/a) b" bash -c 'unset IC_CLAUDE_PID; . "$1"; __proc_claude_pid > "$2"' _ "$T/common-helpers.sh" "$T/cpid" & wp=$!
 wait "$wp"
 [ "$(cat "$T/cpid")" = "$wp" ] && pass claude-pid-walk "nearest ancestor named claude, through a comm holding ') '" || bad claude-pid-walk "got" "$(cat "$T/cpid") want $wp"
-out="$(IC_CLAUDE_PID=4242 sc __ic_claude_pid)"
+out="$(IC_CLAUDE_PID=4242 sc __proc_claude_pid)"
 [ "$out" = 4242 ] && pass claude-pid-env "IC_CLAUDE_PID wins" || bad claude-pid-env "got" "$out"
 # Orphaned (double fork), so the claude session running these tests is no longer an ancestor.
-( bash -c 'sleep 0.3; unset IC_CLAUDE_PID; . "$1"; __ic_claude_pid > "$2.tmp"; mv "$2.tmp" "$2"' _ "$T/common-helpers.sh" "$T/cpid-none" & )
+( bash -c 'sleep 0.3; unset IC_CLAUDE_PID; . "$1"; __proc_claude_pid > "$2.tmp"; mv "$2.tmp" "$2"' _ "$T/common-helpers.sh" "$T/cpid-none" & )
 for i in $(seq 50); do [ -e "$T/cpid-none" ] && break; sleep 0.1; done
 out="$(cat "$T/cpid-none" 2>/dev/null || echo missing)"
 [ -z "$out" ] && pass claude-pid-none "no claude ancestor -> empty" || bad claude-pid-none "got" "$out"
@@ -670,7 +670,7 @@ wait 2>/dev/null
 NB=$'\xc2\xa0'; RULE='────────────────────'
 export FAKE_SCREEN="$T/screen.txt"
 tfix() { printf '%s\n' "$@" > "$FAKE_SCREEN"; }
-ibs() { FAKE_CURSOR="$1" sc "__ic_inputbox_state $2"; }
+ibs() { FAKE_CURSOR="$1" sc "__mux_inputbox_state $2"; }
 HIST=('● old output' '❯ an earlier prompt' '')
 tfix "${HIST[@]}" "$RULE" "❯$NB" "$RULE" '  ? for shortcuts'
 : > "$FAKE_LOG"
@@ -757,16 +757,16 @@ out="$(ibs '2 4' '')"
 
 # ---- sending ----
 : > "$FAKE_LOG"
-sc '__ic_send tmux /tmp/s %3 "/compact $IDEAL_COMPACT_COMPACT_TEXT"'; rc=$?
+sc '__mux_send tmux /tmp/s %3 "/compact $IDEAL_COMPACT_COMPACT_TEXT"'; rc=$?
 ctext="$(bash -c '. "$1"; printf %s "$IDEAL_COMPACT_COMPACT_TEXT"' _ "$T/common-helpers.sh")"
 want="$(printf 'tmux -S /tmp/s send-keys -l -t %%3 /compact %s\ntmux -S /tmp/s send-keys -l -t %%3 \r' "$ctext")"
 [ "$rc" = 0 ] && [ "$(cat "$FAKE_LOG")" = "$want" ] && pass send-tmux "text, then CR, as two send-keys -l calls on -S <socket> -t <pane>" || bad send-tmux "rc=$rc log" "$(cat -A "$FAKE_LOG")"
 : > "$FAKE_LOG"
-sc '__ic_send screen 123.x 2 "a\\b 繼續"'; rc=$?
+sc '__mux_send screen 123.x 2 "a\\b 繼續"'; rc=$?
 want="$(printf 'screen -S 123.x -p 2 -X stuff a\\\\b 繼續\nscreen -S 123.x -p 2 -X stuff \r')"
 [ "$rc" = 0 ] && [ "$(cat "$FAKE_LOG")" = "$want" ] && pass send-screen "stuff text (backslash doubled), then CR, both with -p <window>" || bad send-screen "rc=$rc log" "$(cat -A "$FAKE_LOG")"
 : > "$FAKE_LOG"
-sc '__ic_send "" "" "" x'; rc=$?
+sc '__mux_send "" "" "" x'; rc=$?
 [ "$rc" != 0 ] && [ ! -s "$FAKE_LOG" ] && pass send-no-backend "no backend -> non-zero, nothing sent" || bad send-no-backend "rc=$rc" "$(cat "$FAKE_LOG")"
 
 exit $fail

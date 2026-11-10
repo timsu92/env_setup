@@ -21,7 +21,7 @@ IDEAL_COMPACT_CONTINUE_TEXT='繼續'
 
 # Next to this file (~/.claude/), so a moved ~/.claude keeps working. Callers
 # and tests may override it after sourcing.
-__IC_HELPER="$(dirname "${BASH_SOURCE[0]}")/hwap-helper.sh"
+__HWAP_HELPER="$(dirname "${BASH_SOURCE[0]}")/hwap-helper.sh"
 
 __cswap_bin() {
   if command -v cswap >/dev/null 2>&1; then printf 'cswap'; return 0; fi
@@ -72,15 +72,17 @@ __gate() {
   # that the awaited one reset, so the buffer, which only exists to wait out a
   # reset that already landed, must not apply.
   # Every sleep runs in the background and is waited for, so a SIGTERM trap in
-  # the caller fires at once instead of after the sleep finishes.
+  # the caller fires at once instead of after the sleep finishes. Its pid goes
+  # in __SLEEP_PID, the same variable the caller's own sleeps use, so the trap
+  # kills whichever sleep is running.
   local abort_fn="${1:-}" hold_until=0 reset_at=0 switch_tried=0
   __clear_hold_until
   while :; do
     local result now wait_s cswap target
-    if [ -x "$__IC_HELPER" ]; then
-      result="$("$__IC_HELPER")"
+    if [ -x "$__HWAP_HELPER" ]; then
+      result="$("$__HWAP_HELPER")"
     else
-      result="error:hwap_helper_not_found ($__IC_HELPER)"
+      result="error:hwap_helper_not_found ($__HWAP_HELPER)"
     fi
     case "$result" in
       error:*)
@@ -100,8 +102,8 @@ __gate() {
         if [ "$switch_tried" -eq 1 ]; then
           echo "high-watermark-auto-pause: switching to account $target did not take effect; retrying in 30s" >&2
           if [ -n "$abort_fn" ] && ! "$abort_fn"; then __clear_hold_until; return 4; fi
-          sleep 30 >/dev/null 2>&1 & __IC_SLEEP_PID=$!
-          wait "$__IC_SLEEP_PID"
+          sleep 30 >/dev/null 2>&1 & __SLEEP_PID=$!
+          wait "$__SLEEP_PID"
         fi
         if cswap="$(__cswap_bin)"; then
           "$cswap" switch "$target" >/dev/null 2>&1
@@ -125,8 +127,8 @@ __gate() {
     fi
     if [ "$wait_s" -gt 120 ]; then wait_s=120; fi
     if [ -n "$abort_fn" ] && ! "$abort_fn"; then __clear_hold_until; return 4; fi
-    sleep "$wait_s" >/dev/null 2>&1 & __IC_SLEEP_PID=$!
-    wait "$__IC_SLEEP_PID"
+    sleep "$wait_s" >/dev/null 2>&1 & __SLEEP_PID=$!
+    wait "$__SLEEP_PID"
   done
 }
 
@@ -139,7 +141,7 @@ __gate() {
 
 # basename(dirname(transcript_path)): Claude Code's own name for the project
 # directory under ~/.claude/projects/. Empty when the input is empty.
-__ic_translated_path() {
+__translated_path() {
   local d
   [ -n "${1:-}" ] || return 0
   d="$(basename "$(dirname "$1")")"
@@ -148,9 +150,9 @@ __ic_translated_path() {
 }
 
 # <base>/<translated>/<sid>; empty when either part is empty.
-__ic_session_dir() {
+__session_dir() {
   local tp
-  tp="$(__ic_translated_path "${1:-}")"
+  tp="$(__translated_path "${1:-}")"
   [ -n "$tp" ] && [ -n "${2:-}" ] || return 0
   printf '%s' "${IC_TMP_BASE:-/tmp/claude-$(id -u)}/$tp/$2"
 }
@@ -158,7 +160,7 @@ __ic_session_dir() {
 # A repo's identity regardless of worktree: the path of the shared git dir
 # (main repo's .git, also from a linked worktree) with a trailing /.git cut
 # off and every non-alphanumeric character turned into "-". Empty outside git.
-__ic_repo_key() {
+__repo_key() {
   local common
   [ -n "${1:-}" ] || return 0
   common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
@@ -167,20 +169,20 @@ __ic_repo_key() {
   printf '%s' "$common" | sed 's/[^A-Za-z0-9]/-/g'
 }
 
-# __ic_project_dir <ledger_dir> <transcript_path>: <base>/<repo key of the
+# __project_dir <ledger_dir> <transcript_path>: <base>/<repo key of the
 # ledger's directory>, or <base>/<translated path> when that is not in a git
 # repo. Empty when neither is known.
-__ic_project_dir() {
+__project_dir() {
   local key
-  key="$(__ic_repo_key "${1:-}")"
-  [ -n "$key" ] || key="$(__ic_translated_path "${2:-}")"
+  key="$(__repo_key "${1:-}")"
+  [ -n "$key" ] || key="$(__translated_path "${2:-}")"
   [ -n "$key" ] || return 0
   printf '%s' "${IC_TMP_BASE:-/tmp/claude-$(id -u)}/$key"
 }
 
 # ---- state file, locks and phase timeouts ----
 # <session dir>/ideal-compact-state holds key=value lines, read into IC_<key>.
-# Writers hold __ic_lock around read -> change -> write; readers (the
+# Writers hold __lock around read -> change -> write; readers (the
 # statusline) take no lock because every write is a temp file plus mv.
 
 __IC_STATE_KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger ledger_done armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
@@ -188,7 +190,7 @@ __IC_STATE_NUMERIC=" phase_at skip suppress suppress_resets dirty ledger_done ar
 
 # Sets every IC_<key> (defaults for anything missing or malformed). Parsed
 # line by line, never sourced: values may hold spaces and are not trusted.
-__ic_state_read() {
+__state_read() {
   local __k __line __v
   IC_phase=standby IC_phase_at=0 IC_skip=0 IC_suppress=0 IC_suppress_key='' IC_suppress_win=''
   IC_suppress_resets=0 IC_dirty=0 IC_ledger='' IC_ledger_done=0 IC_armed_key='' IC_armed_win='' IC_armed_resets=0
@@ -214,7 +216,7 @@ __ic_state_read() {
 }
 
 # Writes every IC_<key> atomically (temp file in the same directory, then mv).
-__ic_state_write() {
+__state_write() {
   local __k __n __v __tmp
   [ -n "${1:-}" ] || return 1
   mkdir -p "$1" 2>/dev/null || return 1
@@ -226,9 +228,9 @@ __ic_state_write() {
   done > "$__tmp" 2>/dev/null && mv -f "$__tmp" "$1/ideal-compact-state" 2>/dev/null || { rm -f "$__tmp" 2>/dev/null; return 1; }
 }
 
-# __ic_set_phase <new>: only changes the IC_* variables; the caller writes.
+# __phase_set <new>: only changes the IC_* variables; the caller writes.
 # A caller that queues an injection sets IC_pending_inject after this call.
-__ic_set_phase() {
+__phase_set() {
   IC_phase="$1"
   IC_phase_at="$(date +%s)"
   IC_pending_inject=''
@@ -236,32 +238,32 @@ __ic_set_phase() {
   return 0
 }
 
-# __ic_lock <file>: a fresh fd per call (bash picks one >= 10), kept in
-# __IC_LOCK_FD for __ic_unlock. The lock directory is created when missing.
-__IC_LOCK_FD=''
-__ic_lock() {
+# __lock <file>: a fresh fd per call (bash picks one >= 10), kept in
+# __LOCK_FD for __unlock. The lock directory is created when missing.
+__LOCK_FD=''
+__lock() {
   local __fd
   mkdir -p "$(dirname "$1")" 2>/dev/null || return 1
   { exec {__fd}>>"$1"; } 2>/dev/null || return 1
   if ! flock "$__fd"; then exec {__fd}>&-; return 1; fi
-  __IC_LOCK_FD="$__fd"
+  __LOCK_FD="$__fd"
 }
 
-__ic_unlock() {
-  local __fd="${__IC_LOCK_FD:-}"
+__unlock() {
+  local __fd="${__LOCK_FD:-}"
   [ -n "$__fd" ] || return 0
   flock -u "$__fd" 2>/dev/null
   exec {__fd}>&-
-  __IC_LOCK_FD=''
+  __LOCK_FD=''
   return 0
 }
 
-# __ic_ttl_check <now>: works on the IC_* variables the caller just read
+# __phase_ttl_check <now>: works on the IC_* variables the caller just read
 # (the caller holds the lock and writes afterwards). A phase that outlived
 # its timeout goes back to standby with suppress=1 for the window it was
 # armed on; armed_* is copied rather than asking the helper because the
 # helper must not run under the lock. Returns 0 when it expired one.
-__ic_ttl_check() {
+__phase_ttl_check() {
   local ttl
   case "$IC_phase" in
     to-compact|continuing) ttl="$IDEAL_COMPACT_SENT_TTL_SEC" ;;
@@ -272,17 +274,17 @@ __ic_ttl_check() {
   [ $(( $1 - IC_phase_at )) -gt "$ttl" ] || return 1
   IC_suppress=1
   IC_suppress_key="$IC_armed_key" IC_suppress_win="$IC_armed_win" IC_suppress_resets="$IC_armed_resets"
-  __ic_set_phase standby
+  __phase_set standby
   return 0
 }
 
-# __ic_phase_display <session_dir> <now>: the phase the statusline shows
+# __phase_display <session_dir> <now>: the phase the statusline shows
 # (an expired one reads as standby). Reads only, in a subshell so the
 # caller's IC_* variables stay untouched.
-__ic_phase_display() {
+__phase_display() {
   (
-    __ic_state_read "$1"
-    __ic_ttl_check "$2" >/dev/null
+    __state_read "$1"
+    __phase_ttl_check "$2" >/dev/null
     printf '%s' "$IC_phase"
   )
 }
@@ -292,29 +294,29 @@ __ic_phase_display() {
 # (superpowers' progress.md). Every completion appends one line to the
 # project's history; see the design's section 4 for the consumption rules.
 
-# __ic_ledger_done <ledger>: the number of distinct N in "Task N: complete"
+# __ledger_done <ledger>: the number of distinct N in "Task N: complete"
 # lines (task-done does not deduplicate, a rerun adds a line). 0 when the
 # ledger is unreadable.
-__ic_ledger_done() {
+__ledger_done() {
   [ -r "${1:-}" ] || { printf 0; return 0; }
   awk '/^Task [0-9]+: complete/ { split($0, a, /[: ]+/); seen[a[2] + 0] = 1 }
        END { n = 0; for (k in seen) n++; printf "%d", n }' "$1"
 }
 
-# __ic_plan_total <plan>: the number of "### Task N:" headings; 0 when the
+# __plan_total <plan>: the number of "### Task N:" headings; 0 when the
 # plan is unreadable.
-__ic_plan_total() {
+__plan_total() {
   [ -r "${1:-}" ] || { printf 0; return 0; }
   awk '/^### Task [0-9]+:/ { n++ } END { printf "%d", n }' "$1"
 }
 
-# __ic_ledger_plan <ledger>: the plan's physical absolute path, or empty.
+# __ledger_plan <ledger>: the plan's physical absolute path, or empty.
 # Candidates come from the plan-path file next to the ledger (written by
 # superpowers' sdd-workspace), then from the ledger's first line
 # "# SDD ledger — plan: <path>". An absolute path is used as is; a relative
 # one is tried against the repo root of the ledger's directory and then
 # against the ledger's directory, and the first that exists wins.
-__ic_ledger_plan() {
+__ledger_plan() {
   local __dir __root __cand __rel __base
   [ -n "${1:-}" ] || return 0
   __dir="$(dirname "$1")"
@@ -340,14 +342,14 @@ __ic_ledger_plan() {
   return 0
 }
 
-# __ic_history_latest <hist> <ledger>: the newest history line for that
+# __history_latest <hist> <ledger>: the newest history line for that
 # ledger (field 2), or empty.
-__ic_history_latest() {
+__history_latest() {
   [ -r "${1:-}" ] || return 0
   IC_LEDGER="${2:-}" awk -F'\t' '$2 == ENVIRON["IC_LEDGER"] { l = $0 } END { if (l != "") print l }' "$1"
 }
 
-# __ic_history_record <hist> <ledger> <done> <current_line> <dirty>: appends
+# __history_record <hist> <ledger> <done> <current_line> <dirty>: appends
 # one line
 #   ts ledger done key p5 r5 p7 r7 dirty c5 c7 b5done b5pct b5r b7done b7pct b7r
 # and keeps only the newest IDEAL_COMPACT_HISTORY_PER_ACCOUNT lines of that
@@ -357,7 +359,7 @@ __ic_history_latest() {
 # c5/c7 are '-' when the entry yields no number. b* is the window's baseline
 # snapshot this entry carries: the entry itself after a rebase, the previous
 # entry's snapshot when the delta is 0.
-__ic_history_record() {
+__history_record() {
   local __hist="$1" __ledger="$2" __done="$3" __cur="$4" __dirty="${5:-0}"
   local __tag __key __p5 __r5 __p7 __r7 __thr5 __thr7 __buf __tol __rest
   local __prev __out __status __line __tmp='' __tmp2=''
@@ -366,8 +368,8 @@ __ic_history_record() {
     printf skipped
     return 0
   fi
-  __ic_lock "$(dirname "$__hist")/ideal-compact-history.lock" || return 1
-  __prev="$(__ic_history_latest "$__hist" "$__ledger")"
+  __lock "$(dirname "$__hist")/ideal-compact-history.lock" || return 1
+  __prev="$(__history_latest "$__hist" "$__ledger")"
   __out="$(IC_PREV="$__prev" IC_LEDGER="$__ledger" awk -v ts="$(date +%s)" -v done="$__done" -v key="$__key" \
     -v p5="$__p5" -v r5="$__r5" -v p7="$__p7" -v r7="$__r7" -v dirty="$__dirty" -v tol="$__tol" '
     # Sets OC (consumption or "-") and returns 1 when the window is rebased
@@ -396,7 +398,7 @@ __ic_history_record() {
   __status="${__out%%$'\n'*}"
   __line="${__out#*$'\n'}"
   __tmp="$(mktemp "$__hist.XXXXXX" 2>/dev/null)" && __tmp2="$(mktemp "$__hist.XXXXXX" 2>/dev/null)" || {
-    rm -f "$__tmp" 2>/dev/null; __ic_unlock; return 1
+    rm -f "$__tmp" 2>/dev/null; __unlock; return 1
   }
   { [ -r "$__hist" ] && cat "$__hist"; printf '%s\n' "$__line"; } > "$__tmp" 2>/dev/null
   # Drop this key's lines beyond the newest <keep> (the file is in append order).
@@ -406,14 +408,14 @@ __ic_history_record() {
     rm -f "$__tmp"
   else
     rm -f "$__tmp" "$__tmp2" 2>/dev/null
-    __ic_unlock
+    __unlock
     return 1
   fi
-  __ic_unlock
+  __unlock
   printf '%s' "$__status"
 }
 
-# __ic_budget <hist> <current_line> <accounts_text>: how many more tasks fit
+# __budget_tasks <hist> <current_line> <accounts_text>: how many more tasks fit
 # before the lower threshold is hit, as "<n> <win>" (win 5h or 7d, the
 # smaller window; 5h on a tie) or "unknown -". No trailing newline.
 # Read-only: no lock, no write. <current_line> is the helper's `current`
@@ -424,7 +426,7 @@ __ic_history_record() {
 # keys count, each c * source multiplier / current multiplier, both taken
 # from <accounts_text> (`-`/missing = unknown = skipped), newest N across
 # keys. A window without an avg is left out.
-__ic_budget() {
+__budget_tasks() {
   local __hist="$1" __cur="${2:-}" __acc="${3:-}"
   local __tag __key __p5 __r5 __p7 __r7 __thr5 __thr7 __rest
   read -r __tag __key __p5 __r5 __p7 __r7 __thr5 __thr7 __rest <<< "$__cur"
@@ -479,23 +481,23 @@ __ic_budget() {
     }' "$__hist"
 }
 
-# __ic_pick_account <hist> <current_line> <accounts_text>: the number of the
+# __budget_pick_account <hist> <current_line> <accounts_text>: the number of the
 # usable, non-active account with the largest known budget, only when it is
 # larger than the current account's known budget; empty otherwise. An
 # alternate is measured as a `usage` line built from its own accounts row
 # plus the thresholds/buf/tol of <current_line>. Read-only.
-__ic_pick_account() {
+__budget_pick_account() {
   local __hist="$1" __cur="$2" __acc="${3:-}"
   local __tag __key __p5 __r5 __p7 __r7 __tail __cb __best='' __bestn=-1
   local __num __akey __act __usable __a5 __ar5 __a7 __ar7 __rest __n __out
   read -r __tag __key __p5 __r5 __p7 __r7 __tail <<< "$__cur"
-  __cb="$(__ic_budget "$__hist" "$__cur" "$__acc")"
+  __cb="$(__budget_tasks "$__hist" "$__cur" "$__acc")"
   __cb="${__cb%% *}"
   case "$__cb" in ''|unknown) return 0 ;; esac
   __bestn="$__cb"
   while read -r __num __akey __act __usable __a5 __ar5 __a7 __ar7 __rest; do
     [ "$__act" = 0 ] && [ "$__usable" = 1 ] && [ -n "$__akey" ] && [ "$__akey" != - ] || continue
-    __out="$(__ic_budget "$__hist" "usage $__akey $__a5 $__ar5 $__a7 $__ar7 $__tail" "$__acc")"
+    __out="$(__budget_tasks "$__hist" "usage $__akey $__a5 $__ar5 $__a7 $__ar7 $__tail" "$__acc")"
     __n="${__out%% *}"
     case "$__n" in ''|unknown) continue ;; esac
     if [ "$__n" -gt "$__bestn" ]; then __bestn="$__n"; __best="$__num"; fi
@@ -514,9 +516,9 @@ __ic_pick_account() {
 # #{pane_pid}, or the pid in screen's STY (<pid>.<name>), is claude or one
 # of its ancestors.
 
-# __ic_ppid <pid>: the parent pid from /proc/<pid>/stat (field 4). comm can
+# __proc_ppid <pid>: the parent pid from /proc/<pid>/stat (field 4). comm can
 # hold spaces and parens, so the fields are counted after the last ')'.
-__ic_ppid() {
+__proc_ppid() {
   local __s
   { read -r __s < "/proc/$1/stat"; } 2>/dev/null || return 1
   __s="${__s##*) }"
@@ -525,43 +527,43 @@ __ic_ppid() {
   printf '%s' "$__s"
 }
 
-# __ic_comm <pid>: /proc/<pid>/comm, or nothing.
-__ic_comm() {
+# __proc_comm <pid>: /proc/<pid>/comm, or nothing.
+__proc_comm() {
   local __c
   { read -r __c < "/proc/$1/comm"; } 2>/dev/null || return 1
   printf '%s' "$__c"
 }
 
 # $IC_CLAUDE_PID when set, else the nearest ancestor of $$ named claude, else empty.
-__ic_claude_pid() {
+__proc_claude_pid() {
   local __p="$$" __i
   if [ -n "${IC_CLAUDE_PID:-}" ]; then printf '%s' "$IC_CLAUDE_PID"; return 0; fi
   for ((__i = 0; __i < 64; __i++)); do
-    __p="$(__ic_ppid "$__p")" || return 0
+    __p="$(__proc_ppid "$__p")" || return 0
     [ "$__p" -gt 1 ] || return 0
-    [ "$(__ic_comm "$__p")" = claude ] && { printf '%s' "$__p"; return 0; }
+    [ "$(__proc_comm "$__p")" = claude ] && { printf '%s' "$__p"; return 0; }
   done
   return 0
 }
 
-# __ic_hosts <pid> <claude pid>: true when <pid> (> 1) is <claude pid> or
+# __proc_hosts <pid> <claude pid>: true when <pid> (> 1) is <claude pid> or
 # one of its ancestors.
-__ic_hosts() {
+__proc_hosts() {
   local __a="$1" __p="$2" __i
   case "$__a" in ''|*[!0-9]*) return 1 ;; esac
   [ "$__a" -gt 1 ] || return 1
   for ((__i = 0; __i < 64; __i++)); do
     [ "$__p" = "$__a" ] && return 0
-    __p="$(__ic_ppid "$__p")" || return 1
+    __p="$(__proc_ppid "$__p")" || return 1
     [ "$__p" -gt 1 ] || return 1
   done
   return 1
 }
 
-# __ic_headless <pid>: true when the process was started with -p or --print
+# __proc_headless <pid>: true when the process was started with -p or --print
 # (an argument of its own in /proc/<pid>/cmdline). Such a claude has no input
 # box, so nothing can be typed into it.
-__ic_headless() {
+__proc_headless() {
   local __a
   [ -r "/proc/$1/cmdline" ] || return 1
   while IFS= read -r -d '' __a; do
@@ -570,19 +572,19 @@ __ic_headless() {
   return 1
 }
 
-# __ic_backend: see the section comment; empty when there is none. A headless
-# claude (__ic_headless) has none either. TMUX,
+# __mux_backend: see the section comment; empty when there is none. A headless
+# claude (__proc_headless) has none either. TMUX,
 # TMUX_PANE, STY and WINDOW come from the hook's own environment when any of
 # them is set there, else all four from /proc/<claude pid>/environ. With both
 # multiplexers present, the first of claude's ancestors named tmux* or
 # screen*/SCREEN* wins (screen when none is found). The chosen one must host
 # claude (one tmux call for the pane pid); an unknown claude pid, a failed
 # query or a mismatch means no backend.
-__ic_backend() {
+__mux_backend() {
   local __pid __kv __t='' __tp='' __sty='' __w='' __has_t=0 __has_s=0 __p __i __c
-  __pid="$(__ic_claude_pid)"
+  __pid="$(__proc_claude_pid)"
   [ -n "$__pid" ] || return 0
-  __ic_headless "$__pid" && return 0
+  __proc_headless "$__pid" && return 0
   if [ -n "${TMUX:-}${TMUX_PANE:-}${STY:-}${WINDOW:-}" ]; then
     __t="${TMUX:-}" __tp="${TMUX_PANE:-}" __sty="${STY:-}" __w="${WINDOW:-}"
   elif [ -r "/proc/$__pid/environ" ]; then
@@ -603,9 +605,9 @@ __ic_backend() {
     __p="$__pid"
     for ((__i = 0; __i < 64; __i++)); do
       [ -n "$__p" ] || break
-      __p="$(__ic_ppid "$__p")" || break
+      __p="$(__proc_ppid "$__p")" || break
       [ "$__p" -gt 1 ] || break
-      __c="$(__ic_comm "$__p")"
+      __c="$(__proc_comm "$__p")"
       case "$__c" in
         tmux*) __has_t=1; __has_s=0; break ;;
         screen*|SCREEN*) break ;;
@@ -614,14 +616,14 @@ __ic_backend() {
   fi
   if [ "$__has_t" = 1 ]; then
     __p="$(tmux -S "$__t" display-message -p -t "$__tp" '#{pane_pid}' 2>/dev/null)" \
-      && __ic_hosts "$__p" "$__pid" && printf 'tmux %s %s' "$__t" "$__tp"
+      && __proc_hosts "$__p" "$__pid" && printf 'tmux %s %s' "$__t" "$__tp"
   elif [ "$__has_s" = 1 ]; then
-    __ic_hosts "${__sty%%.*}" "$__pid" && printf 'screen %s %s' "$__sty" "$__w"
+    __proc_hosts "${__sty%%.*}" "$__pid" && printf 'screen %s %s' "$__sty" "$__w"
   fi
   return 0
 }
 
-# __ic_box_scan <prompt prefix> <rule char> < screen: finds the last line
+# __mux_box_scan <prompt prefix> <rule char> < screen: finds the last line
 # starting with the prefix whose line above is a rule and that is followed,
 # after any continuation lines, by another rule. A rule starts at column 0
 # and is at least 8 rule chars, then only trailing spaces: continuation
@@ -630,7 +632,7 @@ __ic_backend() {
 # indented run of them is draft text, not a rule. Prints "<box lines>
 # <0-based line of the first one> <1 if text>", or nothing when there is
 # no such box. Byte-based (LC_ALL=C).
-__ic_box_scan() {
+__mux_box_scan() {
   IC_P="$1" IC_R="$2" LC_ALL=C awk '
     function isrule(s,    t, n) { t = s; sub(/ +$/, "", t); n = 0
       while (index(t, R) == 1) { t = substr(t, length(R) + 1); n++ }
@@ -652,14 +654,14 @@ __ic_box_scan() {
     }'
 }
 
-# __ic_inputbox_state <backend words...>: empty, placeholder, draft or unsure.
+# __mux_inputbox_state <backend words...>: empty, placeholder, draft or unsure.
 # One box line with the cursor right after the prompt (tmux: col 2 of that
 # row, 0-based; screen: col 3, 1-based) is empty or, with text, a suggested
 # placeholder; anything else in a box is a draft. No box or no cursor is
 # unsure. screen's hardcopy keeps only the low byte of each character (the
 # prompt reads o+0xa0, a rule NULs) and a CJK character can split a row, so
 # screen never compares rows.
-__ic_inputbox_state() {
+__mux_inputbox_state() {
   local __scr __cur __box __n __row __has __x __y='' __mode='' __f __i __at_prompt=0
   case "${1:-}" in
     tmux)
@@ -672,7 +674,7 @@ __ic_inputbox_state() {
       read -r __x __y __mode _ <<< "$__cur"
       case "$__y" in ''|*[!0-9]*) printf unsure; return 0 ;; esac
       [ "$__mode" = 0 ] || { printf unsure; return 0; }
-      __box="$(printf '%s\n' "$__scr" | __ic_box_scan $'\xe2\x9d\xaf\xc2\xa0' $'\xe2\x94\x80')"
+      __box="$(printf '%s\n' "$__scr" | __mux_box_scan $'\xe2\x9d\xaf\xc2\xa0' $'\xe2\x94\x80')"
       ;;
     screen)
       [ -n "${2:-}" ] && [ -n "${3:-}" ] || { printf unsure; return 0; }
@@ -685,7 +687,7 @@ __ic_inputbox_state() {
         [ -s "$__f" ] && break
         sleep 0.1
       done
-      __box="$(tr '\000' '\001' < "$__f" 2>/dev/null | __ic_box_scan $'o\xa0' $'\001')"
+      __box="$(tr '\000' '\001' < "$__f" 2>/dev/null | __mux_box_scan $'o\xa0' $'\001')"
       rm -f "$__f"
       # The cursor is read after the hardcopy (up to ~1 s later): a keystroke
       # in between moves it off column 3, which reads as draft (abandon).
@@ -709,10 +711,10 @@ __ic_inputbox_state() {
   fi
 }
 
-# __ic_send <backend words...> <text>: types <text> and then CR as two calls
+# __mux_send <backend words...> <text>: types <text> and then CR as two calls
 # (one tmux call turned the CR into a newline). screen's stuff treats '\' as
 # an escape, so each one is doubled. Returns the backend's rc.
-__ic_send() {
+__mux_send() {
   case "${1:-}" in
     tmux)
       tmux -S "$2" send-keys -l -t "$3" "$4" >/dev/null 2>&1 || return

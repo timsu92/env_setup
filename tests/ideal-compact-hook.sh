@@ -487,6 +487,29 @@ ptu Bash "$(jq -cn --arg a "$R/docs/progress.md" --arg b "$LED" '{command: ("cat
 ck "ptu-skips-foreign-to-ledger" "$LEDP" "$(st ledger)"
 rm -rf "$R/docs/progress.md" "$R/.superpowers/sdd/ws/myprogress.md" "$R/.superpowers/sdd/ws/deeper"
 
+# Claude working in a linked worktree (Claude Code puts them under .claude/worktrees/):
+# sdd-workspace keeps the ledger under the worktree's own root.
+git -C "$R" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+WT="$R/.claude/worktrees/wt"; git -C "$R" worktree add -q "$WT" -b wt 2>/dev/null
+WTP="$(cd "$WT" && pwd -P)"
+mkdir -p "$WT/docs" "$WT/.superpowers/sdd/ws"
+cp "$R/docs/plan.md" "$WT/docs/plan.md"
+printf '# SDD ledger — plan: docs/plan.md\nTask 1: complete (ok)\n' > "$WT/.superpowers/sdd/ws/progress.md"
+set_state phase=standby
+SEND_CWD="$WT" send PostToolUse --arg tool_name Edit --argjson tool_input \
+  "$(jq -cn --arg f "$WT/.superpowers/sdd/ws/progress.md" '{file_path: $f, old_string: "x", new_string: "Task 1: complete (ok)"}')"
+ck "ptu-worktree-edit-ledger" "$WTP/.superpowers/sdd/ws/progress.md" "$(st ledger)"
+set_state phase=standby
+SEND_CWD="$WT" send PostToolUse --arg tool_name Bash --argjson tool_input '{"command":"task-done docs/plan.md 1 abc -- true"}'
+ck "ptu-worktree-task-done" "$WTP/.superpowers/sdd/ws/progress.md" "$(st ledger)"
+# a worktree's own docs/progress.md is still the project's, not a ledger
+printf 'Task 1: complete\n' > "$WT/docs/progress.md"
+set_state phase=standby
+SEND_CWD="$WT" send PostToolUse --arg tool_name Edit --argjson tool_input \
+  "$(jq -cn --arg f "$WT/docs/progress.md" '{file_path: $f, old_string: "x", new_string: "y"}')"
+ck "ptu-worktree-foreign-ignored" "" "$(st ledger)"
+git -C "$R" worktree remove --force "$WT"; git -C "$R" branch -q -D wt
+
 # Review Focus 2: one completion seen twice is recorded once; a recreated ledger is a baseline
 seed - 1; ledger 1 2; set_state phase=standby
 edit_led

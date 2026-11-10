@@ -37,6 +37,7 @@ claude() {
   "$screen_bin" -e '^\q' -dmS "$name" "$claude_bin" "$@" || { command claude "$@"; return; }
 
   # The session needs a moment before screen -X can reach it.
+  print -n "Starting claude...\r"
   local i
   for i in {1..20}; do
     [[ "$("$screen_bin" -ls 2>/dev/null)" == *".$name"[[:space:]]* ]] && break

@@ -1,0 +1,10 @@
+---
+# Official tarballs only exist for these arches (apt-style names, see
+# apt_architecture in group_vars/all.yml). Others, e.g. armv7l -> go's armv6l,
+# are not supported yet.
+go_version: 1.27.3
+go_arch: "{{ apt_architecture[ansible_facts['architecture']] }}"
+go_download_url: "https://go.dev/dl/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
+go_tarball: "/tmp/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
+go_amd64_sha256: 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
+go_arm64_sha256: a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49

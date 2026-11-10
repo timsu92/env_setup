@@ -15,13 +15,17 @@ cat > "$ISO/stub/real/claude-real" <<'STUB'
 { printf 'claude'; for a in "$@"; do printf ' <%s>' "$a"; done; printf '\n'; } >> "$FAKE_LOG"
 STUB
 # stub screen: logs argv, remembers the -dmS name, lists it once STUB_LS_AFTER ls calls were made;
-# with STUB_DMS_FAIL=1 a -dmS call fails
+# with STUB_DMS_FAIL=1 a -dmS call fails. A -dmS call also records the environment the
+# session starts with (CLAUDE_CODE_NO_FLICKER|COLORTERM, "unset" when absent). --version
+# prints $STUB_VERSION (screen 4.09.01's line by default) and is not logged.
 cat > "$ISO/stub/screen" <<'STUB'
 #!/bin/sh
+[ "$1" = --version ] && { printf '%s\n' "${STUB_VERSION-Screen version 4.09.01 (GNU) 20-Aug-23}"; exit 0; }
 { printf 'screen'; for a in "$@"; do printf ' <%s>' "$a"; done; printf '\n'; } >> "$FAKE_LOG"
 prev=''
 for a in "$@"; do
-  [ "$prev" = -dmS ] && { [ "${STUB_DMS_FAIL:-}" = 1 ] && exit 1; printf '%s' "$a" > "$STUB_STATE.name"; }
+  [ "$prev" = -dmS ] && { [ "${STUB_DMS_FAIL:-}" = 1 ] && exit 1; printf '%s' "$a" > "$STUB_STATE.name"
+    printf '%s|%s' "${CLAUDE_CODE_NO_FLICKER-unset}" "${COLORTERM-unset}" > "$STUB_STATE.env"; }
   prev="$a"
 done
 if [ "$1" = -ls ]; then
@@ -51,7 +55,8 @@ source "$snippet" || { echo "FAIL cannot source $snippet"; exit 1; }
 pass=0; fail=0
 ok()  { echo "PASS $1"; pass=$((pass + 1)); }
 bad() { echo "FAIL $1${2:+: $2}"; fail=$((fail + 1)); }
-reset() { : > "$FAKE_LOG"; rm -f "$STUB_STATE.name" "$STUB_STATE.ls"; unset STUB_LS_AFTER; }
+reset() { : > "$FAKE_LOG"; rm -f "$STUB_STATE.name" "$STUB_STATE.ls" "$STUB_STATE.env"; unset STUB_LS_AFTER; }
+senv() { cat "$STUB_STATE.env" 2>/dev/null; }
 log() { cat "$FAKE_LOG"; }
 claude_path="$ISO/stub/claude"
 
@@ -87,6 +92,16 @@ idx_ls=${lines[(i)screen <-ls>]}
 (( idx_ls <= $#lines && idx_ls < idx_bind )) && ok "screen -ls polled before bindkey" || bad "ls before bindkey" "$(log | tr '\n' '|')"
 (( idx_bind <= $#lines && idx_bind < idx_r && idx_r == $#lines )) && ok "-X bindkey ^Z suspend, then -r <name> last" || bad "bindkey then -r" "$(log | tr '\n' '|')"
 [[ "$(log | grep -c '^claude')" == 0 ]] && ok "stub claude not run directly by the launcher" || bad "claude run directly"
+
+# environment of the session: fullscreen renderer always (screen has no usable
+# native scrollback, and its copy mode would swallow the keys the hook sends);
+# COLORTERM kept only on screen 5+, since screen 4 drops 24-bit colour codes
+reset; CLAUDE_CODE_NO_FLICKER=0 COLORTERM=truecolor CLAUDE_LAUNCHER_ASSUME_TTY=1 claude
+[[ "$(senv)" == "1|unset" ]] && ok "screen 4: NO_FLICKER=1 forced, COLORTERM removed" || bad "screen 4 env" "got '$(senv)'"
+reset; STUB_VERSION='Screen version 5.0.1 (build on 2025-05-12 15:49:34)' COLORTERM=truecolor CLAUDE_LAUNCHER_ASSUME_TTY=1 claude
+[[ "$(senv)" == "1|truecolor" ]] && ok "screen 5: COLORTERM kept" || bad "screen 5 env" "got '$(senv)'"
+reset; STUB_VERSION='garbage' COLORTERM=truecolor CLAUDE_LAUNCHER_ASSUME_TTY=1 claude
+[[ "$(senv)" == "1|unset" ]] && ok "unknown screen version: treated as 4, COLORTERM removed" || bad "unknown version env" "got '$(senv)'"
 
 # retry: the session shows up in screen -ls only after 3 polls
 reset; STUB_LS_AFTER=3 CLAUDE_LAUNCHER_ASSUME_TTY=1 claude

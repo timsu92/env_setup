@@ -33,8 +33,17 @@ claude() {
     return
   fi
 
+  # Always the fullscreen renderer: under screen the terminal's own scrollback no
+  # longer holds the conversation, and scrolling with screen's copy mode would
+  # swallow the keys the ideal-compact hook types.
+  local -a env_args=(CLAUDE_CODE_NO_FLICKER=1) match mbegin mend
+  # screen before 5.0 drops 24-bit colour codes, so claude must not be told the
+  # terminal takes them (it then picks 256 colours from TERM=screen-256color).
+  [[ "$("$screen_bin" --version 2>/dev/null)" =~ 'version ([0-9]+)\.' ]] && (( match[1] >= 5 )) \
+    || env_args=(-u COLORTERM "${env_args[@]}")
+
   local name="claude-$$-$(date +%s)"
-  "$screen_bin" -e '^\q' -dmS "$name" "$claude_bin" "$@" || { command claude "$@"; return; }
+  env "${env_args[@]}" "$screen_bin" -e '^\q' -dmS "$name" "$claude_bin" "$@" || { command claude "$@"; return; }
 
   # The session needs a moment before screen -X can reach it.
   print -n "Starting claude...\r"

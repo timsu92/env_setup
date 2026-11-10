@@ -585,14 +585,19 @@ __ic_backend() {
 }
 
 # __ic_box_scan <prompt prefix> <rule char> < screen: finds the last line
-# starting with the prefix whose line above is a rule (only rule chars and
-# spaces) and that is followed, after any continuation lines, by another
-# rule. Prints "<box lines> <0-based line of the first one> <1 if text>",
-# or nothing when there is no such box. Byte-based (LC_ALL=C).
+# starting with the prefix whose line above is a rule and that is followed,
+# after any continuation lines, by another rule. A rule starts at column 0
+# and is at least 8 rule chars, then only trailing spaces: continuation
+# lines are indented two spaces, and under screen's lossy hardcopy a CJK
+# character such as 一/丁 has the same low byte as ─, so a short or
+# indented run of them is draft text, not a rule. Prints "<box lines>
+# <0-based line of the first one> <1 if text>", or nothing when there is
+# no such box. Byte-based (LC_ALL=C).
 __ic_box_scan() {
   IC_P="$1" IC_R="$2" LC_ALL=C awk '
-    function isrule(s,    t) { t = s; gsub(/ /, "", t); if (t == "") return 0
-      while (index(t, R) == 1) t = substr(t, length(R) + 1); return t == "" }
+    function isrule(s,    t, n) { t = s; sub(/ +$/, "", t); n = 0
+      while (index(t, R) == 1) { t = substr(t, length(R) + 1); n++ }
+      return t == "" && n >= 8 }
     BEGIN { P = ENVIRON["IC_P"]; R = ENVIRON["IC_R"] }
     { L[NR] = $0 }
     END {
@@ -641,6 +646,8 @@ __ic_inputbox_state() {
       done
       __box="$(tr '\000' '\001' < "$__f" 2>/dev/null | __ic_box_scan $'o\xa0' $'\001')"
       rm -f "$__f"
+      # The cursor is read after the hardcopy (up to ~1 s later): a keystroke
+      # in between moves it off column 3, which reads as draft (abandon).
       __cur="$(screen -S "$2" -p "$3" -Q info 2>/dev/null)" || { printf unsure; return 0; }
       __x="$(printf '%s' "$__cur" | sed -n '1s/^(\([0-9]*\),[0-9]*).*/\1/p')"
       ;;
@@ -671,6 +678,8 @@ __ic_send() {
       tmux -S "$2" send-keys -l -t "$3" $'\r' >/dev/null 2>&1
       ;;
     screen)
+      # Only \ is escaped: the copy texts hold no other character stuff
+      # interprets ($, ^).
       screen -S "$2" -p "$3" -X stuff "${4//\\/\\\\}" >/dev/null 2>&1 || return
       screen -S "$2" -p "$3" -X stuff $'\r' >/dev/null 2>&1
       ;;

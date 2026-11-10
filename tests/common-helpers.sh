@@ -663,39 +663,45 @@ ibs() { FAKE_CURSOR="$1" sc "__ic_inputbox_state $2"; }
 HIST=('● old output' '❯ an earlier prompt' '')
 tfix "${HIST[@]}" "$RULE" "❯$NB" "$RULE" '  ? for shortcuts'
 : > "$FAKE_LOG"
-out="$(ibs '2 4' 'tmux /tmp/s %3')"
+out="$(ibs '2 4 0' 'tmux /tmp/s %3')"
 [ "$out" = empty ] && pass box-tmux-empty "empty box, cursor col 2 of the box row -> empty" || bad box-tmux-empty "got" "$out"
-grep -qxF 'tmux -S /tmp/s capture-pane -p -t %3' "$FAKE_LOG" && grep -qxF 'tmux -S /tmp/s display-message -p -t %3 #{cursor_x} #{cursor_y}' "$FAKE_LOG" \
+grep -qxF 'tmux -S /tmp/s capture-pane -p -t %3' "$FAKE_LOG" && grep -qxF 'tmux -S /tmp/s display-message -p -t %3 #{cursor_x} #{cursor_y} #{pane_in_mode}' "$FAKE_LOG" \
   && pass box-tmux-target "capture-pane and display-message aimed at -S <socket> -t <pane>" || bad box-tmux-target "log" "$(cat "$FAKE_LOG")"
-out="$(ibs '2 1' 'tmux /tmp/s %3')"
+out="$(ibs '2 1 0' 'tmux /tmp/s %3')"
 [ "$out" = draft ] && pass box-tmux-wrong-row "cursor col 2 but not on the box row -> draft" || bad box-tmux-wrong-row "got" "$out"
 tfix "${HIST[@]}" "$RULE" "❯${NB}Try \"fix lint errors\"" "$RULE" '  ? for shortcuts'
-out="$(ibs '2 4' 'tmux /tmp/s %3')"
+out="$(ibs '2 4 0' 'tmux /tmp/s %3')"
 [ "$out" = placeholder ] && pass box-tmux-placeholder "text, cursor right after the prompt -> placeholder" || bad box-tmux-placeholder "got" "$out"
-out="$(ibs '24 4' 'tmux /tmp/s %3')"
+out="$(ibs '24 4 0' 'tmux /tmp/s %3')"
 [ "$out" = draft ] && pass box-tmux-draft1 "text, cursor after it -> draft" || bad box-tmux-draft1 "got" "$out"
 tfix "${HIST[@]:0:2}" '                              ctrl+g to edit in Vim' "$RULE" "❯${NB}123" '  456' "$RULE" '  ? for shortcuts'
-out="$(ibs '5 5' 'tmux /tmp/s %3')"
+out="$(ibs '5 5 0' 'tmux /tmp/s %3')"
 [ "$out" = draft ] && pass box-tmux-draft2 "two-line draft 123/456, cursor col 5 of the second row -> draft" || bad box-tmux-draft2 "got" "$out"
-out="$(ibs '2 3' 'tmux /tmp/s %3')"
+out="$(ibs '2 3 0' 'tmux /tmp/s %3')"
 [ "$out" = draft ] && pass box-tmux-draft2-home "two box lines, cursor at the prompt -> still draft" || bad box-tmux-draft2-home "got" "$out"
 tfix "${HIST[@]}" "$RULE" "❯${NB}hello" '  ─' '' "$RULE" '  ? for shortcuts'
-out="$(ibs '2 4' 'tmux /tmp/s %3')"
+out="$(ibs '2 4 0' 'tmux /tmp/s %3')"
 [ "$out" = draft ] && pass box-tmux-indented-rule "a draft line of ─ indented two spaces is not the bottom rule -> draft" || bad box-tmux-indented-rule "got" "$out"
 tfix "${HIST[@]}" "$RULE" "❯${NB}hello" '───' "$RULE" '  ? for shortcuts'
-out="$(ibs '2 4' 'tmux /tmp/s %3')"
+out="$(ibs '2 4 0' 'tmux /tmp/s %3')"
 [ "$out" = draft ] && pass box-tmux-short-rule "an unindented line of 3 ─ is not a rule -> draft" || bad box-tmux-short-rule "got" "$out"
 tfix "${HIST[@]}" "❯$NB" '  ? for shortcuts'
-out="$(ibs '2 3' 'tmux /tmp/s %3')"
+out="$(ibs '2 3 0' 'tmux /tmp/s %3')"
 [ "$out" = unsure ] && pass box-tmux-no-rules "no rows of ─ -> unsure" || bad box-tmux-no-rules "got" "$out"
 tfix "${HIST[@]}" "$RULE" '❯ an earlier prompt' "$RULE"
-out="$(ibs '2 4' 'tmux /tmp/s %3')"
+out="$(ibs '2 4 0' 'tmux /tmp/s %3')"
 [ "$out" = unsure ] && pass box-tmux-history "❯ + ASCII space (history) is not the box -> unsure" || bad box-tmux-history "got" "$out"
 tfix "${HIST[@]}" "$RULE" "❯$NB" "$RULE"
 out="$(FAKE_FAIL_CURSOR=1 ibs '2 4' 'tmux /tmp/s %3')"
 [ "$out" = unsure ] && pass box-tmux-no-cursor "cursor query fails -> unsure" || bad box-tmux-no-cursor "got" "$out"
 out="$(ibs '' 'tmux /tmp/s %3')"
 [ "$out" = unsure ] && pass box-tmux-blank-cursor "cursor query prints nothing -> unsure" || bad box-tmux-blank-cursor "got" "$out"
+out="$(ibs '2 4 1' 'tmux /tmp/s %3')"
+[ "$out" = unsure ] && pass box-tmux-copy-mode "empty box but the pane is in copy mode -> unsure" || bad box-tmux-copy-mode "got" "$out"
+out="$(ibs '2 4 0' 'tmux /tmp/s %3')"
+[ "$out" = empty ] && pass box-tmux-not-in-mode "empty box, pane_in_mode 0 -> empty" || bad box-tmux-not-in-mode "got" "$out"
+out="$(ibs '2 4' 'tmux /tmp/s %3')"
+[ "$out" = unsure ] && pass box-tmux-no-mode-field "answer without pane_in_mode -> unsure" || bad box-tmux-no-mode-field "got" "$out"
 
 # screen hardcopy keeps only each character's low byte: ❯ -> o, U+00A0 -> \xa0,
 # ─ -> \x00; 上 (U+4E0A) -> \x0a splits its row, so lines are not screen rows.

@@ -640,50 +640,50 @@ EXP_CONT="tmux -S $SOCK send-keys -l -t %3 繼續"$'\n'"tmux -S $SOCK send-keys 
 
 seed 20
 for kind in empty placeholder; do
-  idle $kind "2 1" inputbox_fail=1
+  idle $kind "2 1 0" inputbox_fail=1
   ck "idle-$kind-compact-sent" "$EXP_COMPACT" "$(sent)"
   st_all "idle-$kind-compact-state" "phase=to-compact inputbox_fail=0 suppress=0"
   no_stdout "idle-$kind-quiet"
 done
 [ "$(st phase_at)" -ge "$NOW" ] && pass "idle-compact-phase-at" ok || bad "idle-compact-phase-at" ">= now" "$(st phase_at)"
 seed 6
-idle empty "2 1" inputbox_fail=1
+idle empty "2 1 0" inputbox_fail=1
 ck "idle-continue-sent" "$EXP_CONT" "$(sent)"
 st_all "idle-continue-state" "phase=continuing inputbox_fail=0 suppress=0"
 seed 5
-idle placeholder "2 1"
+idle placeholder "2 1 0"
 ck "idle-budget-9-continues" "$EXP_CONT" "$(sent)"
 seed 7   # (97-50)/7 = 6: not above the warn count
-idle empty "2 1"
+idle empty "2 1 0"
 ck "idle-budget-6-compact" "$EXP_COMPACT" "$(sent)"
 st_all "idle-budget-6-compact-state" "phase=to-compact"
 rm -f "$RHIST"
-idle empty "2 1"
+idle empty "2 1 0"
 ck "idle-budget-unknown-compact-sent" "$EXP_COMPACT" "$(sent)"
 seed 20
 # nothing is sent on skip, and nothing is touched at all
-idle empty "2 1" skip=1
+idle empty "2 1 0" skip=1
 ck "idle-skip-log-empty" "" "$(cat "$FAKE_LOG")"
 st_all "idle-skip-state" "phase=stopped skip=1 suppress=0"
 # a draft: takeover without inputbox_fail
-idle draft "7 1" inputbox_fail=0
+idle draft "7 1 0" inputbox_fail=0
 ck "idle-draft-nothing-sent" "" "$(sent)"
 st_all "idle-draft-takeover" "phase=standby suppress=1 inputbox_fail=0"
 # unsure (cursor query fails / no box): takeover with inputbox_fail=1
 export FAKE_FAIL_CURSOR=1
-idle empty "2 1"
+idle empty "2 1 0"
 ck "idle-unsure-cursor-nothing-sent" "" "$(sent)"
 st_all "idle-unsure-cursor-takeover" "phase=standby suppress=1 inputbox_fail=1"
 unset FAKE_FAIL_CURSOR
-idle none "2 1"
+idle none "2 1 0"
 ck "idle-unsure-nobox-nothing-sent" "" "$(sent)"
 st_all "idle-unsure-nobox-takeover" "phase=standby suppress=1 inputbox_fail=1"
 # no backend: takeover, nothing sent, no capture
-TMUX_PANE='' idle empty "2 1"
+TMUX_PANE='' idle empty "2 1 0"
 ck "idle-nobackend-log" "" "$(cat "$FAKE_LOG" | grep -v '^helper ')"
 st_all "idle-nobackend-takeover" "phase=standby suppress=1 inputbox_fail=0"
 # the takeover is tied to the stopped phase and to the budget's window
-idle draft "7 1" armed_key=ARMK
+idle draft "7 1 0" armed_key=ARMK
 st_all "idle-takeover-suppress-key" "suppress_key=KEY1 suppress_win=5h suppress_resets=$R5"
 # other notification types and other phases do nothing
 set_state phase=stopped; : > "$FAKE_LOG"
@@ -694,14 +694,14 @@ SEND_CWD="$R" send Notification
 ck "idle-no-type" "stopped|" "$(st phase)|$(cat "$FAKE_LOG")"
 for ph in standby armed waiting to-compact compacting continuing; do
   set_state phase=$ph; : > "$FAKE_LOG"
-  FAKE_SCREEN="$T/screen-empty" FAKE_CURSOR="2 1" SEND_CWD="$R" send Notification --arg notification_type idle_prompt
+  FAKE_SCREEN="$T/screen-empty" FAKE_CURSOR="2 1 0" SEND_CWD="$R" send Notification --arg notification_type idle_prompt
   ck "idle-in-$ph" "$ph|" "$(st phase)|$(cat "$FAKE_LOG")"
 done
 # the user starts typing while the helper runs: the input box is checked after it
 printf '%s\n❯%sdraft\n  more\n%s\n' "$RULE" "$NB" "$RULE" > "$T/screen-typing"
 export STUB_SIDE="cp \"$T/screen-typing\" \"\$FAKE_SCREEN\""
 cp "$T/screen-empty" "$T/screen-live"
-FAKE_SCREEN="$T/screen-live" FAKE_CURSOR="2 1"; export FAKE_SCREEN FAKE_CURSOR
+FAKE_SCREEN="$T/screen-live" FAKE_CURSOR="2 1 0"; export FAKE_SCREEN FAKE_CURSOR
 set_state phase=stopped; : > "$FAKE_LOG"
 SEND_CWD="$R" send Notification --arg notification_type idle_prompt
 ck "idle-typing-during-helper-nothing-sent" "" "$(sent)"
@@ -727,7 +727,7 @@ export TESTS_DIR RACE_SDIR="$SDIR"
 for line in skip=1 phase=armed phase=standby; do
   RACE_LINE="$line"; export RACE_LINE
   OLDPATH="$PATH"; PATH="$T/racebin:$PATH"
-  idle empty "2 1" inputbox_fail=1
+  idle empty "2 1 0" inputbox_fail=1
   PATH="$OLDPATH"
   ck "idle-race-$line-nothing-sent" "" "$(sent)"
   ck "idle-race-$line-state" "${line#*=}" "$(st "${line%%=*}")"
@@ -739,7 +739,7 @@ unset FAKE_SCREEN FAKE_CURSOR
 # ---- PostCompact: switch, wait, continue ----
 # The hook runs in the background (it may wait); pc_wait collects it.
 export IC_MIN_WAIT_SEC=1
-FAKE_SCREEN="$T/screen-empty" FAKE_CURSOR="2 1"; export FAKE_SCREEN FAKE_CURSOR
+FAKE_SCREEN="$T/screen-empty" FAKE_CURSOR="2 1 0"; export FAKE_SCREEN FAKE_CURSOR
 PCH="$SDIR/checkpoint-hold-until"; GH="$IC_TMP_BASE/hwap-hold-until"
 # pchist <c5 of KEY1> [<c5 of KEY2>]: history of the cwd's project (5h only)
 pchist() {
@@ -931,11 +931,11 @@ ck "pc-term-in-send-state" "continuing" "$(st phase)"
 
 # a draft in the input box at send time -> takeover, nothing sent; unsure -> inputbox_fail
 pchist 9
-FAKE_SCREEN="$T/screen-draft" FAKE_CURSOR="7 1"
+FAKE_SCREEN="$T/screen-draft" FAKE_CURSOR="7 1 0"
 pc_bg; pc_wait 5
 ck "pc-draft-nothing-sent" "" "$(sent)"
 st_all "pc-draft-state" "phase=standby suppress=1 inputbox_fail=0"
-FAKE_SCREEN="$T/screen-none" FAKE_CURSOR="2 1"
+FAKE_SCREEN="$T/screen-none" FAKE_CURSOR="2 1 0"
 pc_bg; pc_wait 5
 ck "pc-unsure-nothing-sent" "" "$(sent)"
 st_all "pc-unsure-state" "phase=standby suppress=1 inputbox_fail=1"

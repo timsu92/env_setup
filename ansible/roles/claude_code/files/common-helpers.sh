@@ -623,14 +623,18 @@ __ic_box_scan() {
 # prompt reads o+0xa0, a rule NULs) and a CJK character can split a row, so
 # screen never compares rows.
 __ic_inputbox_state() {
-  local __scr __cur __box __n __row __has __x __y='' __f __i __at_prompt=0
+  local __scr __cur __box __n __row __has __x __y='' __mode='' __f __i __at_prompt=0
   case "${1:-}" in
     tmux)
       [ -n "${2:-}" ] && [ -n "${3:-}" ] || { printf unsure; return 0; }
       __scr="$(tmux -S "$2" capture-pane -p -t "$3" 2>/dev/null)" || { printf unsure; return 0; }
-      __cur="$(tmux -S "$2" display-message -p -t "$3" '#{cursor_x} #{cursor_y}' 2>/dev/null)" || { printf unsure; return 0; }
-      read -r __x __y _ <<< "$__cur"
+      # In copy mode the pane eats typed keys, so anything but pane_in_mode 0
+      # is unsure. screen's copy mode is not detected: keys sent there are
+      # lost, the flow's TTL expires and it falls back to standby + suppress.
+      __cur="$(tmux -S "$2" display-message -p -t "$3" '#{cursor_x} #{cursor_y} #{pane_in_mode}' 2>/dev/null)" || { printf unsure; return 0; }
+      read -r __x __y __mode _ <<< "$__cur"
       case "$__y" in ''|*[!0-9]*) printf unsure; return 0 ;; esac
+      [ "$__mode" = 0 ] || { printf unsure; return 0; }
       __box="$(printf '%s\n' "$__scr" | __ic_box_scan $'\xe2\x9d\xaf\xc2\xa0' $'\xe2\x94\x80')"
       ;;
     screen)

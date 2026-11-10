@@ -649,6 +649,19 @@ out="$(IC_CLAUDE_PID="$ep3" TMUX_PANE=%1 sc __ic_backend)"
 [ -z "$out" ] && pass backend-one-source "any var in the hook env -> environ not mixed in" || bad backend-one-source "got" "$out"
 out="$(IC_CLAUDE_PID="$ep2" sc __ic_backend)"
 [ -z "$out" ] && pass backend-none "nothing anywhere -> empty" || bad backend-none "got" "$out"
+# Headless claude (-p / --print) has no input box to type into. The trailing
+# `; :` keeps bash from exec'ing sleep, so the cmdline stays as written.
+bash -c 'sleep 30; :' claude -p 'fix it' & hp1=$!
+bash -c 'sleep 30; :' claude --print & hp2=$!
+bash -c 'sleep 30; :' claude 'explain -p' --model x & hp3=$!
+sleep 0.2
+out="$(IC_CLAUDE_PID="$hp1" TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+[ -z "$out" ] && pass backend-headless-p "claude started with -p -> no backend" || bad backend-headless-p "got" "$out"
+out="$(IC_CLAUDE_PID="$hp2" STY=$$.x WINDOW=2 sc __ic_backend)"
+[ -z "$out" ] && pass backend-headless-print "claude started with --print -> no backend" || bad backend-headless-print "got" "$out"
+out="$(IC_CLAUDE_PID="$hp3" TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+[ "$out" = "tmux /tmp/s %3" ] && pass backend-interactive-args "-p only inside another argument -> backend kept" || bad backend-interactive-args "got" "$out"
+kill "$hp1" "$hp2" "$hp3" 2>/dev/null
 mkdir -p "$T/onlyscreen"; ln -s "$TESTS_DIR/fakes/screen" "$T/onlyscreen/screen"; ln -s "$(command -v dirname)" "$T/onlyscreen/dirname"
 if [ -z "$(PATH="$T/onlyscreen" command -v tmux)" ]; then
   out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=$$.x WINDOW=2 PATH="$T/onlyscreen" "$BASH" -c '. "$1"; __ic_backend' _ "$T/common-helpers.sh")"

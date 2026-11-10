@@ -558,7 +558,20 @@ __ic_hosts() {
   return 1
 }
 
-# __ic_backend: see the section comment; empty when there is none. TMUX,
+# __ic_headless <pid>: true when the process was started with -p or --print
+# (an argument of its own in /proc/<pid>/cmdline). Such a claude has no input
+# box, so nothing can be typed into it.
+__ic_headless() {
+  local __a
+  [ -r "/proc/$1/cmdline" ] || return 1
+  while IFS= read -r -d '' __a; do
+    case "$__a" in -p|--print) return 0 ;; esac
+  done < "/proc/$1/cmdline" 2>/dev/null
+  return 1
+}
+
+# __ic_backend: see the section comment; empty when there is none. A headless
+# claude (__ic_headless) has none either. TMUX,
 # TMUX_PANE, STY and WINDOW come from the hook's own environment when any of
 # them is set there, else all four from /proc/<claude pid>/environ. With both
 # multiplexers present, the first of claude's ancestors named tmux* or
@@ -569,6 +582,7 @@ __ic_backend() {
   local __pid __kv __t='' __tp='' __sty='' __w='' __has_t=0 __has_s=0 __p __i __c
   __pid="$(__ic_claude_pid)"
   [ -n "$__pid" ] || return 0
+  __ic_headless "$__pid" && return 0
   if [ -n "${TMUX:-}${TMUX_PANE:-}${STY:-}${WINDOW:-}" ]; then
     __t="${TMUX:-}" __tp="${TMUX_PANE:-}" __sty="${STY:-}" __w="${WINDOW:-}"
   elif [ -r "/proc/$__pid/environ" ]; then

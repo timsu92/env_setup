@@ -14,13 +14,14 @@ cat > "$ISO/stub/real/claude-real" <<'STUB'
 #!/bin/sh
 { printf 'claude'; for a in "$@"; do printf ' <%s>' "$a"; done; printf '\n'; } >> "$FAKE_LOG"
 STUB
-# stub screen: logs argv, remembers the -dmS name, lists it once STUB_LS_AFTER ls calls were made
+# stub screen: logs argv, remembers the -dmS name, lists it once STUB_LS_AFTER ls calls were made;
+# with STUB_DMS_FAIL=1 a -dmS call fails
 cat > "$ISO/stub/screen" <<'STUB'
 #!/bin/sh
 { printf 'screen'; for a in "$@"; do printf ' <%s>' "$a"; done; printf '\n'; } >> "$FAKE_LOG"
 prev=''
 for a in "$@"; do
-  [ "$prev" = -dmS ] && printf '%s' "$a" > "$STUB_STATE.name"
+  [ "$prev" = -dmS ] && { [ "${STUB_DMS_FAIL:-}" = 1 ] && exit 1; printf '%s' "$a" > "$STUB_STATE.name"; }
   prev="$a"
 done
 if [ "$1" = -ls ]; then
@@ -118,6 +119,14 @@ reset
 mkdir -p "$ISO/nostub"; ln -s "$ISO/stub/claude" "$ISO/nostub/claude"
 ( PATH="$ISO/nostub"; CLAUDE_LAUNCHER_ASSUME_TTY=1 claude hi )
 direct "no screen installed: direct" hi
+
+# screen cannot start the session: claude runs directly with the same argv
+reset
+STUB_DMS_FAIL=1 CLAUDE_LAUNCHER_ASSUME_TTY=1 claude --model opus "two words"
+lines=("${(@f)$(log)}")
+[[ $#lines == 2 && "$lines[1]" == "screen <-e> <^\q> <-dmS> <"*"> <$claude_path> <--model> <opus> <two words>" \
+  && "$lines[2]" == "claude <--model> <opus> <two words>" ]] \
+  && ok "screen -dmS fails: claude run directly, same argv" || bad "dmS failure fallback" "$(log | tr '\n' '|')"
 
 echo "total: $pass pass, $fail fail"
 (( fail == 0 ))

@@ -34,7 +34,7 @@ claude() {
   fi
 
   local name="claude-$$-$(date +%s)"
-  "$screen_bin" -e '^\q' -dmS "$name" "$claude_bin" "$@" || return
+  "$screen_bin" -e '^\q' -dmS "$name" "$claude_bin" "$@" || { command claude "$@"; return; }
 
   # The session needs a moment before screen -X can reach it.
   local i

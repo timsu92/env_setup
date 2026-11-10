@@ -7,6 +7,10 @@
   ansible.builtin.include_tasks:
     file: hwap-helper.yml
 
+- name: Install common-helpers library
+  ansible.builtin.include_tasks:
+    file: common-helpers.yml
+
 - name: Deploy high-watermark-auto-pause hook script
   ansible.builtin.copy:
     src: hooks/high-watermark-auto-pause.sh

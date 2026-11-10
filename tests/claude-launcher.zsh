@@ -80,7 +80,7 @@ reset; claude hi </dev/null >/dev/null; direct "non-tty stdout: direct" hi
 
 # interactive
 reset
-CLAUDE_LAUNCHER_ASSUME_TTY=1 claude --model opus "two words" 'it'\''s'
+CLAUDE_LAUNCHER_ASSUME_TTY=1 claude --model opus "two words" 'it'\''s' >/dev/null
 lines=("${(@f)$(log)}")
 name="$(cat "$STUB_STATE.name" 2>/dev/null)"
 if [[ "$name" =~ '^claude-[0-9]+-[0-9]+$' ]]; then ok "session name is claude-<pid>-<epoch>"; else bad "session name" "got '$name'"; fi
@@ -96,28 +96,28 @@ idx_ls=${lines[(i)screen <-ls>]}
 # environment of the session: fullscreen renderer always (screen has no usable
 # native scrollback, and its copy mode would swallow the keys the hook sends);
 # COLORTERM kept only on screen 5+, since screen 4 drops 24-bit colour codes
-reset; CLAUDE_CODE_NO_FLICKER=0 COLORTERM=truecolor CLAUDE_LAUNCHER_ASSUME_TTY=1 claude
+reset; CLAUDE_CODE_NO_FLICKER=0 COLORTERM=truecolor CLAUDE_LAUNCHER_ASSUME_TTY=1 claude >/dev/null
 [[ "$(senv)" == "1|unset" ]] && ok "screen 4: NO_FLICKER=1 forced, COLORTERM removed" || bad "screen 4 env" "got '$(senv)'"
-reset; STUB_VERSION='Screen version 5.0.1 (build on 2025-05-12 15:49:34)' COLORTERM=truecolor CLAUDE_LAUNCHER_ASSUME_TTY=1 claude
+reset; STUB_VERSION='Screen version 5.0.1 (build on 2025-05-12 15:49:34)' COLORTERM=truecolor CLAUDE_LAUNCHER_ASSUME_TTY=1 claude >/dev/null
 [[ "$(senv)" == "1|truecolor" ]] && ok "screen 5: COLORTERM kept" || bad "screen 5 env" "got '$(senv)'"
-reset; STUB_VERSION='garbage' COLORTERM=truecolor CLAUDE_LAUNCHER_ASSUME_TTY=1 claude
+reset; STUB_VERSION='garbage' COLORTERM=truecolor CLAUDE_LAUNCHER_ASSUME_TTY=1 claude >/dev/null
 [[ "$(senv)" == "1|unset" ]] && ok "unknown screen version: treated as 4, COLORTERM removed" || bad "unknown version env" "got '$(senv)'"
 
 # retry: the session shows up in screen -ls only after 3 polls
-reset; STUB_LS_AFTER=3 CLAUDE_LAUNCHER_ASSUME_TTY=1 claude
+reset; STUB_LS_AFTER=3 CLAUDE_LAUNCHER_ASSUME_TTY=1 claude >/dev/null
 nls=$(log | grep -c '^screen <-ls>')
 (( nls >= 4 )) && [[ "$(log | grep -c '<bindkey>')" == 1 ]] && ok "waits for screen -ls to list the session ($nls polls)" || bad "retry" "$(log | tr '\n' '|')"
 
 # never listed: gives up after about 2 s, still attempts -r (which reports the error itself)
 reset
-t0=$EPOCHREALTIME; STUB_LS_AFTER=99999 CLAUDE_LAUNCHER_ASSUME_TTY=1 claude; t1=$EPOCHREALTIME
+t0=$EPOCHREALTIME; STUB_LS_AFTER=99999 CLAUDE_LAUNCHER_ASSUME_TTY=1 claude >/dev/null; t1=$EPOCHREALTIME
 el=$(( t1 - t0 ))
 (( el < 4 && el >= 1.5 )) && [[ "$(log | grep -c '<-r>')" == 1 ]] && ok "gives up polling after about 2 s" || bad "poll timeout" "elapsed $el; $(log | tr '\n' '|')"
 
 # no leaked names, options untouched
 reset
 print -l ${(k)parameters} | sort > "$ISO/params.before"; setopt > "$ISO/opts.before"
-CLAUDE_LAUNCHER_ASSUME_TTY=1 claude hi
+CLAUDE_LAUNCHER_ASSUME_TTY=1 claude hi >/dev/null
 print -l ${(k)parameters} | sort > "$ISO/params.after"; setopt > "$ISO/opts.after"
 cmp -s "$ISO/params.before" "$ISO/params.after" && ok "no variables leaked" || bad "leaked variables" "$(diff "$ISO/params.before" "$ISO/params.after" | tr '\n' ' ')"
 cmp -s "$ISO/opts.before" "$ISO/opts.after" && ok "shell options unchanged" || bad "options changed"
@@ -125,7 +125,7 @@ cmp -s "$ISO/opts.before" "$ISO/opts.after" && ok "shell options unchanged" || b
 # odd user options do not break argv handling
 reset
 setopt ksh_arrays sh_word_split no_glob
-CLAUDE_LAUNCHER_ASSUME_TTY=1 claude "a b" '*'
+CLAUDE_LAUNCHER_ASSUME_TTY=1 claude "a b" '*' >/dev/null
 unsetopt ksh_arrays sh_word_split no_glob
 log | grep -qF "<-dmS> <$(cat "$STUB_STATE.name")> <$claude_path> <a b> <*>" && ok "ksh_arrays/sh_word_split/no_glob" || bad "odd options" "$(log | tr '\n' '|')"
 

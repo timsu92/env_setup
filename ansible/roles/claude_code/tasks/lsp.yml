@@ -57,3 +57,11 @@
     GOPATH: "{{ setup_user_home }}/go"
     PATH: "{{ setup_user_home }}/go/bin:/usr/local/go/bin:{{ ansible_facts['env']['PATH'] }}"
   changed_when: true
+
+- name: Deploy aptu update script for gopls
+  ansible.builtin.copy:
+    src: gopls.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/gopls.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

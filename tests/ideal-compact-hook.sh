@@ -166,7 +166,7 @@ tk() {  # tk <expected> [arg]: runs the hook's __ic_takeover on the current stat
     . "$1/common-helpers.sh"; __IC_HELPER="$1/hwap-helper.sh"
     SDIR="$2" TPATH="$3" CWD="$4" LOCK="$2/ideal-compact-state.lock"
     __IC_IN_CS=0 __IC_SIGNALED=0
-    eval "$(sed -n "/^__cs_lock() {/,/^}/p; /^__cs_unlock() {/p; /^__cs_leave() {/,/^}/p; /^__ic_takeover() {/,/^}/p" "$1/hooks/ideal-compact.sh")"
+    eval "$(sed -n "/^__cs_lock() {/,/^}/p; /^__cs_unlock() {/p; /^__cs_leave() {/,/^}/p; /^__hist_path() {/,/^}/p; /^__ic_takeover() {/,/^}/p" "$1/hooks/ideal-compact.sh")"
     __ic_takeover "${@:5}"; echo "rc=$?"' _ "$T" "$SDIR" "$TP" "$T/cwd" "$@"
 }
 set_state phase=armed dirty=2 armed_key=ARMK
@@ -761,6 +761,15 @@ pc_wait() {
   fi
 }
 absent() { [ -e "$1" ] && echo present || echo absent; }
+# until_ok <seconds> <command...>: polls the command every 0.1 s until it succeeds
+# (then waits 0.2 s more, so a just-started sleep is being waited for); 1 on timeout
+until_ok() {
+  local n=$(( $1 * 10 )) i; shift
+  for ((i = 0; i < n; i++)); do "$@" && { sleep 0.2; return 0; }; sleep 0.1; done
+  return 1
+}
+# in_sleep: the background hook is inside one of its sleeps
+in_sleep() { pgrep -P "$HPID" -x sleep >/dev/null; }
 switched() { grep '^cswap switch' "$FAKE_LOG" 2>/dev/null; }
 pc_cur() { printf 'usage KEY1 50 %s 20 %s 97 99 %s 3\n' "$1" $R7 "${2:-120}" > "$T/current"; }
 
@@ -797,7 +806,7 @@ ck "pc-gate-error-no-hold" "absent" "$(absent "$PCH")"
 # budget 2, 5h reset 3 s ahead, buffer 1 s -> hold written, 繼續 after reset + buffer
 pchist 20; R5S=$(( $(date +%s) + 3 )); pc_cur $R5S 1
 export STUB_SIDE="[ \$(date +%s) -ge $R5S ] && printf 'usage KEY1 0 $R5S 20 $R7 97 99 1 3\n' > \"\$STUB_CURRENT\""
-pc_bg; sleep 1.5
+pc_bg; until_ok 5 test -s "$PCH"
 ck "pc-hold-written" "$((R5S + 1))" "$(cat "$PCH" 2>/dev/null)"
 ck "pc-hold-phase" "waiting" "$(st phase)"
 ck "pc-hold-not-yet" "" "$(sent)"
@@ -812,7 +821,7 @@ ck "pc-hold-message-once" "1" "$(grep -c "^ideal-compact: waiting for budget; ca
 # SIGTERM during the gate's wait, and during the budget wait -> exit 1 at once, standby+suppress
 export STUB_GATE='printf "wait %s %s" $(( $(date +%s) + 100 )) $(( $(date +%s) + 90 ))'
 pchist 20; pc_cur $R5
-pc_bg armed_key=ARMK armed_win=5h armed_resets=77; sleep 0.8
+pc_bg armed_key=ARMK armed_win=5h armed_resets=77; until_ok 5 in_sleep
 ck "pc-term-gate-hold-published" "present" "$(absent "$GH")"
 kill -TERM "$HPID"; pc_wait 1
 unset STUB_GATE
@@ -820,7 +829,7 @@ ck "pc-term-gate-rc" "1" "$RC"
 st_all "pc-term-gate-state" "phase=standby suppress=1 suppress_key=ARMK suppress_win=5h suppress_resets=77"
 ck "pc-term-gate-holds-gone" "absent absent" "$(absent "$GH") $(absent "$PCH")"
 ck "pc-term-gate-nothing-sent" "" "$(sent)"
-pc_bg; sleep 0.8
+pc_bg; until_ok 5 in_sleep
 ck "pc-term-budget-hold-written" "present" "$(absent "$PCH")"
 kill -TERM "$HPID"; pc_wait 1
 ck "pc-term-budget-rc" "1" "$RC"
@@ -830,14 +839,14 @@ ck "pc-term-budget-nothing-sent" "" "$(sent)"
 
 # the claude process ends during the gate's wait, and during the budget wait -> ends, nothing sent
 export STUB_GATE='printf "wait %s %s" $(( $(date +%s) + 1 )) $(( $(date +%s) + 1 ))'
-new_claude; pc_bg; sleep 0.5
+new_claude; pc_bg; until_ok 5 test -e "$GH"
 kill "$CLAUDE_PID"; pc_wait 5
 unset STUB_GATE
 ck "pc-claude-gone-gate-rc" "0" "$RC"
 ck "pc-claude-gone-gate-nothing-sent" "" "$(sent)"
-ck "pc-claude-gone-gate-no-hold" "absent" "$(absent "$PCH")"
+ck "pc-claude-gone-gate-no-hold" "absent absent" "$(absent "$PCH") $(absent "$GH")"
 pchist 20; R5S=$(( $(date +%s) + 3 )); pc_cur $R5S 1
-new_claude; pc_bg; sleep 1
+new_claude; pc_bg; until_ok 5 test -s "$PCH"
 ck "pc-claude-gone-budget-waiting" "present" "$(absent "$PCH")"
 kill "$CLAUDE_PID"; pc_wait 8
 ck "pc-claude-gone-budget-rc" "0" "$RC"
@@ -847,20 +856,36 @@ export IC_CLAUDE_PID=$CLEAN_PID
 
 # another hook sets standby during the gate's wait, and during the budget wait -> ends, nothing sent
 export STUB_GATE='printf "wait %s %s" $(( $(date +%s) + 1 )) $(( $(date +%s) + 1 ))'
-pc_bg; sleep 0.5
+pc_bg; until_ok 5 test -e "$GH"
 printf 'phase=standby\n' >> "$SDIR/ideal-compact-state"; pc_wait 5
 unset STUB_GATE
 ck "pc-standby-gate-rc" "0" "$RC"
 ck "pc-standby-gate-nothing-sent" "" "$(sent)"
 ck "pc-standby-gate-phase" "standby" "$(st phase)"
+ck "pc-standby-gate-no-hold" "absent absent" "$(absent "$PCH") $(absent "$GH")"
 pchist 20; R5S=$(( $(date +%s) + 3 )); pc_cur $R5S 1
-pc_bg; sleep 1
+pc_bg; until_ok 5 test -s "$PCH"
 ck "pc-standby-budget-waiting" "present" "$(absent "$PCH")"
 printf 'phase=standby\n' >> "$SDIR/ideal-compact-state"; pc_wait 8
 ck "pc-standby-budget-rc" "0" "$RC"
 ck "pc-standby-budget-nothing-sent" "" "$(sent)"
 ck "pc-standby-budget-hold-gone" "absent" "$(absent "$PCH")"
 pc_cur $R5
+
+# an alternate gains budget while the hook waits for a far reset -> switch and 繼續
+# before the hold expires (budget and pick are re-evaluated every round)
+pchist 20 10; pc_cur $R5
+printf '1 KEY1 1 1 50 %s 20 %s 1 1\n2 KEY2 0 0 10 %s 20 %s 1 1\n' $R5 $R7 $R5 $R7 > "$T/accounts"
+printf '1 KEY1 1 1 50 %s 20 %s 1 1\n2 KEY2 0 1 10 %s 20 %s 1 1\n' $R5 $R7 $R5 $R7 > "$T/accounts-alt"
+export STUB_SIDE="[ -s \"$PCH\" ] && cp \"$T/accounts-alt\" \"\$STUB_ACCOUNTS\"; grep -q '^cswap switch 2' \"\$FAKE_LOG\" && cp \"$T/current-alt\" \"\$STUB_CURRENT\""
+export IC_MAX_WAIT_SEC=1
+pc_bg; pc_wait 10
+unset STUB_SIDE IC_MAX_WAIT_SEC
+ck "pc-alt-mid-wait-rc" "0" "$RC"
+ck "pc-alt-mid-wait-switched" "cswap switch 2" "$(switched)"
+ck "pc-alt-mid-wait-sent" "$EXP_CONT" "$(sent)"
+ck "pc-alt-mid-wait-hold-gone" "absent" "$(absent "$PCH")"
+: > "$T/accounts"; pc_cur $R5
 
 # the limiting window's reset is unknown (0) with budget 2 -> 繼續 at once, no hold
 pchist 20; pc_cur 0
@@ -872,12 +897,30 @@ pc_cur $R5
 # SIGTERM while the main path holds the state lock -> no deadlock, exit 1
 pchist 9
 export IC_TEST_CS_SLEEP=1.5
-pc_bg; sleep 0.6
+pc_bg; until_ok 5 in_sleep
 kill -TERM "$HPID"; pc_wait 2
 unset IC_TEST_CS_SLEEP
 ck "pc-term-in-lock-rc" "1" "$RC"
 st_all "pc-term-in-lock-state" "phase=standby suppress=1"
 ck "pc-term-in-lock-nothing-sent" "" "$(sent)"
+
+# SIGTERM between the text and the CR of 繼續 -> both keys still go out, then exit 1
+mkdir -p "$T/termbin"
+cat > "$T/termbin/tmux" <<'TERMT'
+#!/usr/bin/env bash
+"$TESTS_DIR/fakes/tmux" "$@"; rc=$?
+case " $* " in *" send-keys "*繼續*) kill -TERM "$PPID" ;; esac
+exit $rc
+TERMT
+chmod +x "$T/termbin/tmux"
+iso_guard "$T/termbin:$PATH" "$T/termbin"
+pchist 9
+OLDPATH="$PATH"; PATH="$T/termbin:$PATH"
+pc_bg; pc_wait 5
+PATH="$OLDPATH"
+ck "pc-term-in-send-rc" "1" "$RC"
+ck "pc-term-in-send-both-keys" "$EXP_CONT" "$(sent)"
+ck "pc-term-in-send-state" "continuing" "$(st phase)"
 
 # a draft in the input box at send time -> takeover, nothing sent; unsure -> inputbox_fail
 pchist 9

@@ -630,7 +630,7 @@ __ic_sleep() {
 # __ic_pick_account names; 0 when it did. The number switched to last
 # (PC_LAST_SWITCH) is not tried again until the next wait, so a switch that
 # did not take effect cannot spin.
-PC_LAST_SWITCH=''
+PC_LAST_SWITCH='' PC_HOLD_KEY=''
 __pick_switch() {
   local n cswap
   case "$2" in error:*|'') return 1 ;; esac
@@ -659,7 +659,8 @@ __helper_now() {
 # continuing). Any round ends the hook without sending once __ic_wait_abort
 # says so. The input box is checked last, right before the lock.
 __on_post_compact() {
-  local hist budget n bwin r5 r7 buf r hold now s tmp told=0 rc box backend pchold
+  local hist budget n bwin r5 r7 buf r hold now s tmp told=0 rc box backend pchold go key
+  local maxw="${IC_MAX_WAIT_SEC:-120}"   # test seam: the longest sleep of one round
   local -a bw
   __ic_state_read "$SDIR"
   [ "$IC_phase" = compacting ] || return 0
@@ -683,36 +684,50 @@ __on_post_compact() {
     __gate __ic_wait_abort; rc=$?
     __IC_SLEEP_PID=
     case "$rc" in 3) break ;; 4) return 0 ;; esac
-    # The buffer after a reset: the helper may already read the reset window
-    # as 0, so an unexpired hold from an earlier round is waited out first.
-    now="$(date +%s)" hold=''
-    { read -r hold < "$pchold"; } 2>/dev/null
-    if [[ "$hold" =~ ^[0-9]+$ ]] && [ "$hold" -gt "$now" ]; then
-      s=$(( hold - now )); [ "$s" -gt 120 ] && s=120
-      __ic_sleep "$s"
+    # Budget and pick every round, so a more ample account that shows up
+    # while waiting is switched to. go=0: the budget still has no room.
+    now="$(date +%s)" go=1 key='' r=''
+    __helper_now
+    if [ -n "$CUR" ]; then
+      budget="$(__ic_budget "$hist" "$CUR" "$ACC")"
+      n="${budget%% *}" bwin="${budget#* }"
+      # `current` is: tag key p5 r5 p7 r7 thr5 thr7 buf tol
+      read -r _ key _ r5 _ r7 _ _ buf _ <<< "$CUR"
+      case "$bwin" in 7d) r="$r7" ;; *) r="$r5" ;; esac
+      # Room left, an unknown budget, or a reset that is unknown (nothing to
+      # wait for) or already passed all let 繼續 go out.
+      if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -le "$IDEAL_COMPACT_ARM_TASKS" ] \
+         && [[ "$r" =~ ^[0-9]+$ ]] && [ "$r" != 0 ] && [ "$r" -gt "$now" ]; then
+        go=0
+      fi
+    fi
+    if [ "$go" = 1 ]; then
+      # The buffer after a reset: the helper already reads the reset window
+      # as 0, so the hold an earlier round wrote for this same account (or
+      # for an unknown one, when the helper failed) is waited out first.
+      hold=''
+      { read -r hold < "$pchold"; } 2>/dev/null
+      if [[ "$hold" =~ ^[0-9]+$ ]] && [ "$hold" -gt "$now" ] && { [ -z "$CUR" ] || [ "$key" = "$PC_HOLD_KEY" ]; }; then
+        s=$(( hold - now )); [ "$s" -gt "$maxw" ] && s="$maxw"
+        __ic_sleep "$s"
+        continue
+      fi
+      break
+    fi
+    if __pick_switch "$hist" "$CUR" "$ACC"; then
+      # The awaited account changed: its hold no longer applies.
+      rm -f "$pchold" 2>/dev/null
       continue
     fi
-    __helper_now
-    [ -n "$CUR" ] || break
-    budget="$(__ic_budget "$hist" "$CUR" "$ACC")"
-    n="${budget%% *}" bwin="${budget#* }"
-    case "$n" in ''|*[!0-9]*) break ;; esac
-    [ "$n" -gt "$IDEAL_COMPACT_ARM_TASKS" ] && break
-    # `current` is: tag key p5 r5 p7 r7 thr5 thr7 buf tol
-    read -r _ _ _ r5 _ r7 _ _ buf _ <<< "$CUR"
-    case "$bwin" in 7d) r="$r7" ;; *) r="$r5" ;; esac
-    # An unknown reset has nothing to wait for.
-    case "$r" in ''|0|*[!0-9]*) break ;; esac
-    __pick_switch "$hist" "$CUR" "$ACC" && continue
     case "$buf" in ''|*[!0-9]*) buf=0 ;; esac
-    hold=$(( r + buf ))
+    hold=$(( r + buf )) PC_HOLD_KEY="$key"
     tmp="$(mktemp "$pchold.XXXXXX" 2>/dev/null)" \
       && { printf '%s\n' "$hold" > "$tmp" && mv -f "$tmp" "$pchold" || rm -f "$tmp"; } 2>/dev/null
     if [ "$told" = 0 ]; then
       echo "ideal-compact: waiting for budget; cancel with kill $$" >&2
       told=1
     fi
-    s=$(( hold - now )); [ "$s" -gt 120 ] && s=120
+    s=$(( hold - now )); [ "$s" -gt "$maxw" ] && s="$maxw"
     [ "$s" -lt "${IC_MIN_WAIT_SEC:-30}" ] && s="${IC_MIN_WAIT_SEC:-30}"
     PC_LAST_SWITCH=''
     __ic_sleep "$s"
@@ -741,8 +756,11 @@ __on_post_compact() {
   fi
   __ic_set_phase continuing
   __ic_state_write "$SDIR"
-  __cs_unlock
+  # The lock is released but signals stay deferred through the send, so the
+  # text and its CR go out as a unit; a signal meanwhile is replayed after.
+  __ic_unlock
   __ic_send "${bw[@]}" "$IDEAL_COMPACT_CONTINUE_TEXT" || true
+  __cs_leave
 }
 
 # Fast path, before any lock: an idle standby with nothing queued and no

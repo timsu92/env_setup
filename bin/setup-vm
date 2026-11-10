@@ -10,6 +10,8 @@ ORIGINAL_ARGS=("$@")
 
 # shellcheck source=../utils/common.sh
 source "${REPO_ROOT}/utils/common.sh"
+# shellcheck source=../utils/locale.sh
+source "${REPO_ROOT}/utils/locale.sh"
 
 usage() {
   cat <<EOF
@@ -68,8 +70,14 @@ case "$PROFILE" in
     reexec_with_sudo "${REPO_ROOT}/bin/setup-vm" "${ORIGINAL_ARGS[@]}"
 
     caller_ansible_vars
+
+    if ! ansible_locale="$(get_valid_utf8_locale)"; then
+      echo "Error: No valid UTF-8 locale found. Please ensure a UTF-8 locale is generated and available in WSL." >&2
+      exit 1
+    fi
+
     echo "==> Provisioning WSL daily driver (local) ..."
-    ansible-playbook -c local -i inventory/local.yml playbooks/vm-daily-wsl.yml "${CALLER_ANSIBLE_VARS[@]}" "${EXTRA_ARGS[@]}"
+    ansible-playbook -c local -i inventory/local.yml playbooks/vm-daily-wsl.yml "${CALLER_ANSIBLE_VARS[@]}" -e "locale_term_env_lang=${ansible_locale}" "${EXTRA_ARGS[@]}"
     ;;
   pve)
     [[ -z "$HOST" ]] && { echo "ERROR: --host required for pve profile"; usage; }

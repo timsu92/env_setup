@@ -33,6 +33,6 @@ fi
 
 echo "==> Running devcontainer profile ..."
 cd "${REPO_ROOT}/ansible"
-LC_ALL="$ansible_locale" ansible-playbook -c local -i inventory/local.yml playbooks/devcontainer.yml "${CALLER_ANSIBLE_VARS[@]}" "$@"
+LC_ALL="$ansible_locale" ansible-playbook -c local -i inventory/local.yml playbooks/devcontainer.yml "${CALLER_ANSIBLE_VARS[@]}" -e "locale_term_env_lang=${ansible_locale}" "$@"
 
 echo "==> Done."

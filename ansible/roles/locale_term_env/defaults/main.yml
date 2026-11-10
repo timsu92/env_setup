@@ -1,2 +1,6 @@
 ---
 locale_term_env_term: xterm-256color
+# Fallback for zsh's LANG when the session has none. Local-model wrappers
+# (bin/setup-devcontainer, bin/setup-container, bin/setup-vm --profile wsl) override this with the
+# UTF-8 locale they detected. C.UTF-8 ships with every supported distro.
+locale_term_env_lang: C.UTF-8

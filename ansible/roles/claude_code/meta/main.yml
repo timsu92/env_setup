@@ -5,3 +5,4 @@ dependencies:
   - role: uv  # claude-swap, hung-yi-lee-skill
   - role: zsh_config_dirs  # claude-swap completion
   - role: node  # drawio-mcp
+  - role: screen  # claude launcher runs interactive sessions inside screen

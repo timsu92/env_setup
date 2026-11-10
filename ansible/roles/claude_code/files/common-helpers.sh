@@ -503,3 +503,177 @@ __ic_pick_account() {
   [ -n "$__best" ] && printf '%s' "$__best"
   return 0
 }
+
+# ---- backend detection, input-box check and key sending ----
+# The backend is the multiplexer the claude process runs in, as words:
+# `tmux <socket> <pane>` or `screen <sty> <window>`. Every tmux call names
+# the socket (-S), every screen call the window (-p), so keys and captures
+# only ever reach this session's own pane/window. Only builtins are used
+# while reading /proc, so a missing binary is noticed before any call.
+
+# __ic_ppid <pid>: the parent pid from /proc/<pid>/stat (field 4). comm can
+# hold spaces and parens, so the fields are counted after the last ')'.
+__ic_ppid() {
+  local __s
+  { read -r __s < "/proc/$1/stat"; } 2>/dev/null || return 1
+  __s="${__s##*) }"
+  read -r _ __s _ <<< "$__s"
+  case "$__s" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$__s"
+}
+
+# __ic_comm <pid>: /proc/<pid>/comm, or nothing.
+__ic_comm() {
+  local __c
+  { read -r __c < "/proc/$1/comm"; } 2>/dev/null || return 1
+  printf '%s' "$__c"
+}
+
+# $IC_CLAUDE_PID when set, else the nearest ancestor of $$ named claude, else empty.
+__ic_claude_pid() {
+  local __p="$$" __i
+  if [ -n "${IC_CLAUDE_PID:-}" ]; then printf '%s' "$IC_CLAUDE_PID"; return 0; fi
+  for ((__i = 0; __i < 64; __i++)); do
+    __p="$(__ic_ppid "$__p")" || return 0
+    [ "$__p" -gt 1 ] || return 0
+    [ "$(__ic_comm "$__p")" = claude ] && { printf '%s' "$__p"; return 0; }
+  done
+  return 0
+}
+
+# __ic_backend: see the section comment; empty when there is none. TMUX,
+# TMUX_PANE, STY and WINDOW come from the hook's own environment when any of
+# them is set there, else all four from /proc/<claude pid>/environ. With both
+# multiplexers present, the first of claude's ancestors named tmux* or
+# screen*/SCREEN* wins (screen when none is found).
+__ic_backend() {
+  local __pid __kv __t='' __tp='' __sty='' __w='' __has_t=0 __has_s=0 __p __i __c
+  __pid="$(__ic_claude_pid)"
+  if [ -n "${TMUX:-}${TMUX_PANE:-}${STY:-}${WINDOW:-}" ]; then
+    __t="${TMUX:-}" __tp="${TMUX_PANE:-}" __sty="${STY:-}" __w="${WINDOW:-}"
+  elif [ -n "$__pid" ] && [ -r "/proc/$__pid/environ" ]; then
+    while IFS= read -r -d '' __kv; do
+      case "$__kv" in
+        TMUX=*) __t="${__kv#TMUX=}" ;;
+        TMUX_PANE=*) __tp="${__kv#TMUX_PANE=}" ;;
+        STY=*) __sty="${__kv#STY=}" ;;
+        WINDOW=*) __w="${__kv#WINDOW=}" ;;
+      esac
+    done < "/proc/$__pid/environ" 2>/dev/null
+  fi
+  __t="${__t%%,*}"
+  [ -n "$__t" ] && [ -n "$__tp" ] && command -v tmux >/dev/null 2>&1 && __has_t=1
+  [ -n "$__sty" ] && [ -n "$__w" ] && command -v screen >/dev/null 2>&1 && __has_s=1
+  if [ "$__has_t" = 1 ] && [ "$__has_s" = 1 ]; then
+    __has_t=0
+    __p="$__pid"
+    for ((__i = 0; __i < 64; __i++)); do
+      [ -n "$__p" ] || break
+      __p="$(__ic_ppid "$__p")" || break
+      [ "$__p" -gt 1 ] || break
+      __c="$(__ic_comm "$__p")"
+      case "$__c" in
+        tmux*) __has_t=1; __has_s=0; break ;;
+        screen*|SCREEN*) break ;;
+      esac
+    done
+  fi
+  if [ "$__has_t" = 1 ]; then printf 'tmux %s %s' "$__t" "$__tp"
+  elif [ "$__has_s" = 1 ]; then printf 'screen %s %s' "$__sty" "$__w"
+  fi
+  return 0
+}
+
+# __ic_box_scan <prompt prefix> <rule char> < screen: finds the last line
+# starting with the prefix whose line above is a rule (only rule chars and
+# spaces) and that is followed, after any continuation lines, by another
+# rule. Prints "<box lines> <0-based line of the first one> <1 if text>",
+# or nothing when there is no such box. Byte-based (LC_ALL=C).
+__ic_box_scan() {
+  IC_P="$1" IC_R="$2" LC_ALL=C awk '
+    function isrule(s,    t) { t = s; gsub(/ /, "", t); if (t == "") return 0
+      while (index(t, R) == 1) t = substr(t, length(R) + 1); return t == "" }
+    BEGIN { P = ENVIRON["IC_P"]; R = ENVIRON["IC_R"] }
+    { L[NR] = $0 }
+    END {
+      found = 0
+      for (i = 1; i <= NR; i++) {
+        if (index(L[i], P) != 1 || i < 2 || !isrule(L[i - 1])) continue
+        for (j = i + 1; j <= NR && !isrule(L[j]); j++) ;
+        if (j > NR) continue
+        text = substr(L[i], length(P) + 1)
+        for (k = i + 1; k < j; k++) text = text L[k]
+        gsub(/ /, "", text)
+        n = j - i; row = i - 1; has = (text != ""); found = 1
+      }
+      if (found) printf "%d %d %d", n, row, has
+    }'
+}
+
+# __ic_inputbox_state <backend words...>: empty, placeholder, draft or unsure.
+# One box line with the cursor right after the prompt (tmux: col 2 of that
+# row, 0-based; screen: col 3, 1-based) is empty or, with text, a suggested
+# placeholder; anything else in a box is a draft. No box or no cursor is
+# unsure. screen's hardcopy keeps only the low byte of each character (the
+# prompt reads o+0xa0, a rule NULs) and a CJK character can split a row, so
+# screen never compares rows.
+__ic_inputbox_state() {
+  local __scr __cur __box __n __row __has __x __y='' __f __i __at_prompt=0
+  case "${1:-}" in
+    tmux)
+      [ -n "${2:-}" ] && [ -n "${3:-}" ] || { printf unsure; return 0; }
+      __scr="$(tmux -S "$2" capture-pane -p -t "$3" 2>/dev/null)" || { printf unsure; return 0; }
+      __cur="$(tmux -S "$2" display-message -p -t "$3" '#{cursor_x} #{cursor_y}' 2>/dev/null)" || { printf unsure; return 0; }
+      read -r __x __y _ <<< "$__cur"
+      case "$__y" in ''|*[!0-9]*) printf unsure; return 0 ;; esac
+      __box="$(printf '%s\n' "$__scr" | __ic_box_scan $'\xe2\x9d\xaf\xc2\xa0' $'\xe2\x94\x80')"
+      ;;
+    screen)
+      [ -n "${2:-}" ] && [ -n "${3:-}" ] || { printf unsure; return 0; }
+      __f="${IC_TMP_BASE:-/tmp/claude-$(id -u)}"
+      mkdir -p "$__f" 2>/dev/null && __f="$(mktemp "$__f/ic-hardcopy.XXXXXX" 2>/dev/null)" || { printf unsure; return 0; }
+      if ! screen -S "$2" -p "$3" -X hardcopy "$__f" >/dev/null 2>&1; then
+        rm -f "$__f"; printf unsure; return 0
+      fi
+      for __i in 1 2 3 4 5 6 7 8 9 10; do
+        [ -s "$__f" ] && break
+        sleep 0.1
+      done
+      __box="$(tr '\000' '\001' < "$__f" 2>/dev/null | __ic_box_scan $'o\xa0' $'\001')"
+      rm -f "$__f"
+      __cur="$(screen -S "$2" -p "$3" -Q info 2>/dev/null)" || { printf unsure; return 0; }
+      __x="$(printf '%s' "$__cur" | sed -n '1s/^(\([0-9]*\),[0-9]*).*/\1/p')"
+      ;;
+    *) printf unsure; return 0 ;;
+  esac
+  case "$__x" in ''|*[!0-9]*) printf unsure; return 0 ;; esac
+  [ -n "$__box" ] || { printf unsure; return 0; }
+  read -r __n __row __has <<< "$__box"
+  if [ "$1" = tmux ]; then
+    [ "$__x" = 2 ] && [ "$__y" = "$__row" ] && __at_prompt=1
+  else
+    [ "$__x" = 3 ] && __at_prompt=1
+  fi
+  if [ "$__n" = 1 ] && [ "$__at_prompt" = 1 ]; then
+    if [ "$__has" = 1 ]; then printf placeholder; else printf empty; fi
+  else
+    printf draft
+  fi
+}
+
+# __ic_send <backend words...> <text>: types <text> and then CR as two calls
+# (one tmux call turned the CR into a newline). screen's stuff treats '\' as
+# an escape, so each one is doubled. Returns the backend's rc.
+__ic_send() {
+  case "${1:-}" in
+    tmux)
+      tmux -S "$2" send-keys -l -t "$3" "$4" >/dev/null 2>&1 || return
+      tmux -S "$2" send-keys -l -t "$3" $'\r' >/dev/null 2>&1
+      ;;
+    screen)
+      screen -S "$2" -p "$3" -X stuff "${4//\\/\\\\}" >/dev/null 2>&1 || return
+      screen -S "$2" -p "$3" -X stuff $'\r' >/dev/null 2>&1
+      ;;
+    *) return 1 ;;
+  esac
+}

@@ -588,4 +588,155 @@ out="$(pk "$CUR" "$ACC")"
 before="$(cksum < "$BH")"; pk "$CUR" "$ACC" >/dev/null; bud "$CUR" "$ACC" >/dev/null
 [ "$before" = "$(cksum < "$BH")" ] && [ "$(ls "$BD" | wc -l)" = 1 ] && pass bud-read-only "history untouched, no lock or temp file created" || bad bud-read-only "dir" "$(ls "$BD")"
 
+# ---- backend detection ----
+# Wrapper scripts whose comm is their file name (the shebang names bash
+# directly: through env the comm would be bash): each runs its arguments in
+# the background and waits, so a chain of them is a chain of ancestors.
+PR_D="$T/procs"; mkdir -p "$PR_D"
+for n in claude tmux screen SCREEN 'a) b'; do printf '#!%s\n"$@" &\nwait\n' "$BASH" > "$PR_D/$n"; chmod +x "$PR_D/$n"; done
+SLEEP_BIN="$(command -v sleep)"
+# chain <wrapper...>: starts wrapper1 -> wrapper2 -> ... -> bash -> sleep and
+# prints the sleep pid (the "claude" pid of a row)
+chain() {
+  local pf="$T/procs/pid.$RANDOM" i
+  "${@/#/$PR_D/}" bash -c 'sleep 30 & echo $! > "$1"; wait' _ "$pf" >/dev/null 2>&1 &
+  for i in $(seq 50); do [ -s "$pf" ] && break; sleep 0.1; done
+  cat "$pf"
+}
+: > "$FAKE_LOG"
+out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+[ "$out" = "tmux /tmp/s %3" ] && pass backend-tmux "own TMUX + TMUX_PANE -> tmux <socket> <pane>" || bad backend-tmux "got" "$out"
+out="$(STY=123.x WINDOW=2 sc __ic_backend)"
+[ "$out" = "screen 123.x 2" ] && pass backend-screen "own STY + WINDOW -> screen <sty> <window>" || bad backend-screen "got" "$out"
+out="$(TMUX=/tmp/s,1,0 sc __ic_backend)"
+[ -z "$out" ] && pass backend-no-pane "TMUX without TMUX_PANE -> no backend" || bad backend-no-pane "got" "$out"
+out="$(TMUX_PANE=%3 STY=123.x sc __ic_backend)"
+[ -z "$out" ] && pass backend-halves "TMUX_PANE alone and STY without WINDOW -> no backend" || bad backend-halves "got" "$out"
+cp1="$(chain tmux screen)"; cp2="$(chain SCREEN tmux)"; cp3="$(chain claude)"
+out="$(IC_CLAUDE_PID="$cp1" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 sc __ic_backend)"
+[ "$out" = "screen 123.x 2" ] && pass backend-both-screen "both set, nearest multiplexer ancestor screen (inside tmux) -> screen" || bad backend-both-screen "got" "$out"
+out="$(IC_CLAUDE_PID="$cp2" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 sc __ic_backend)"
+[ "$out" = "tmux /tmp/s %3" ] && pass backend-both-tmux "both set, nearest multiplexer ancestor tmux (inside SCREEN) -> tmux" || bad backend-both-tmux "got" "$out"
+out="$(IC_CLAUDE_PID="$cp3" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 sc __ic_backend)"
+[ "$out" = "screen 123.x 2" ] && pass backend-both-undecided "both set, no multiplexer ancestor -> screen" || bad backend-both-undecided "got" "$out"
+env TMUX=/tmp/t,1,0 TMUX_PANE=%9 "$SLEEP_BIN" 30 & ep1=$!
+env -i "$SLEEP_BIN" 30 & ep2=$!
+env STY=77.y WINDOW=4 TMUX=/tmp/u,1,0 "$SLEEP_BIN" 30 & ep3=$!
+sleep 0.2
+out="$(IC_CLAUDE_PID="$ep1" sc __ic_backend)"
+[ "$out" = "tmux /tmp/t %9" ] && pass backend-environ "nothing in the hook env -> /proc/<claude>/environ" || bad backend-environ "got" "$out"
+out="$(IC_CLAUDE_PID="$ep3" sc __ic_backend)"
+[ "$out" = "screen 77.y 4" ] && pass backend-environ-screen "environ STY + WINDOW (TMUX without pane ignored) -> screen" || bad backend-environ-screen "got" "$out"
+out="$(IC_CLAUDE_PID="$ep3" TMUX_PANE=%1 sc __ic_backend)"
+[ -z "$out" ] && pass backend-one-source "any var in the hook env -> environ not mixed in" || bad backend-one-source "got" "$out"
+out="$(IC_CLAUDE_PID="$ep2" sc __ic_backend)"
+[ -z "$out" ] && pass backend-none "nothing anywhere -> empty" || bad backend-none "got" "$out"
+mkdir -p "$T/onlyscreen"; ln -s "$TESTS_DIR/fakes/screen" "$T/onlyscreen/screen"; ln -s "$(command -v dirname)" "$T/onlyscreen/dirname"
+if [ -z "$(PATH="$T/onlyscreen" command -v tmux)" ]; then
+  out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 PATH="$T/onlyscreen" "$BASH" -c '. "$1"; __ic_backend' _ "$T/common-helpers.sh")"
+  [ "$out" = "screen 123.x 2" ] && pass backend-no-binary "no tmux binary -> tmux skipped" || bad backend-no-binary "got" "$out"
+  out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 PATH="$T/onlyscreen" "$BASH" -c '. "$1"; __ic_backend' _ "$T/common-helpers.sh")"
+  [ -z "$out" ] && pass backend-no-binary-empty "only tmux vars, no tmux binary -> empty" || bad backend-no-binary-empty "got" "$out"
+else
+  bad backend-no-binary "isolation" "tmux found under the stub PATH"
+fi
+[ ! -s "$FAKE_LOG" ] && pass backend-no-calls "detection never runs tmux or screen" || bad backend-no-calls "log" "$(cat "$FAKE_LOG")"
+# __ic_claude_pid walks /proc: claude -> 'a) b' -> bash; comm with ') ' does not confuse the stat parse
+"$PR_D/claude" "$PR_D/a) b" bash -c 'unset IC_CLAUDE_PID; . "$1"; __ic_claude_pid > "$2"' _ "$T/common-helpers.sh" "$T/cpid" & wp=$!
+wait "$wp"
+[ "$(cat "$T/cpid")" = "$wp" ] && pass claude-pid-walk "nearest ancestor named claude, through a comm holding ') '" || bad claude-pid-walk "got" "$(cat "$T/cpid") want $wp"
+out="$(IC_CLAUDE_PID=4242 sc __ic_claude_pid)"
+[ "$out" = 4242 ] && pass claude-pid-env "IC_CLAUDE_PID wins" || bad claude-pid-env "got" "$out"
+# Orphaned (double fork), so the claude session running these tests is no longer an ancestor.
+( bash -c 'sleep 0.3; unset IC_CLAUDE_PID; . "$1"; __ic_claude_pid > "$2.tmp"; mv "$2.tmp" "$2"' _ "$T/common-helpers.sh" "$T/cpid-none" & )
+for i in $(seq 50); do [ -e "$T/cpid-none" ] && break; sleep 0.1; done
+out="$(cat "$T/cpid-none" 2>/dev/null || echo missing)"
+[ -z "$out" ] && pass claude-pid-none "no claude ancestor -> empty" || bad claude-pid-none "got" "$out"
+kill "$cp1" "$cp2" "$cp3" "$ep1" "$ep2" "$ep3" 2>/dev/null
+wait 2>/dev/null
+
+# ---- input box ----
+NB=$'\xc2\xa0'; RULE='────────────────────'
+export FAKE_SCREEN="$T/screen.txt"
+tfix() { printf '%s\n' "$@" > "$FAKE_SCREEN"; }
+ibs() { FAKE_CURSOR="$1" sc "__ic_inputbox_state $2"; }
+HIST=('● old output' '❯ an earlier prompt' '')
+tfix "${HIST[@]}" "$RULE" "❯$NB" "$RULE" '  ? for shortcuts'
+: > "$FAKE_LOG"
+out="$(ibs '2 4' 'tmux /tmp/s %3')"
+[ "$out" = empty ] && pass box-tmux-empty "empty box, cursor col 2 of the box row -> empty" || bad box-tmux-empty "got" "$out"
+grep -qxF 'tmux -S /tmp/s capture-pane -p -t %3' "$FAKE_LOG" && grep -qxF 'tmux -S /tmp/s display-message -p -t %3 #{cursor_x} #{cursor_y}' "$FAKE_LOG" \
+  && pass box-tmux-target "capture-pane and display-message aimed at -S <socket> -t <pane>" || bad box-tmux-target "log" "$(cat "$FAKE_LOG")"
+out="$(ibs '2 1' 'tmux /tmp/s %3')"
+[ "$out" = draft ] && pass box-tmux-wrong-row "cursor col 2 but not on the box row -> draft" || bad box-tmux-wrong-row "got" "$out"
+tfix "${HIST[@]}" "$RULE" "❯${NB}Try \"fix lint errors\"" "$RULE" '  ? for shortcuts'
+out="$(ibs '2 4' 'tmux /tmp/s %3')"
+[ "$out" = placeholder ] && pass box-tmux-placeholder "text, cursor right after the prompt -> placeholder" || bad box-tmux-placeholder "got" "$out"
+out="$(ibs '24 4' 'tmux /tmp/s %3')"
+[ "$out" = draft ] && pass box-tmux-draft1 "text, cursor after it -> draft" || bad box-tmux-draft1 "got" "$out"
+tfix "${HIST[@]:0:2}" '                              ctrl+g to edit in Vim' "$RULE" "❯${NB}123" '  456' "$RULE" '  ? for shortcuts'
+out="$(ibs '5 5' 'tmux /tmp/s %3')"
+[ "$out" = draft ] && pass box-tmux-draft2 "two-line draft 123/456, cursor col 5 of the second row -> draft" || bad box-tmux-draft2 "got" "$out"
+out="$(ibs '2 3' 'tmux /tmp/s %3')"
+[ "$out" = draft ] && pass box-tmux-draft2-home "two box lines, cursor at the prompt -> still draft" || bad box-tmux-draft2-home "got" "$out"
+tfix "${HIST[@]}" "❯$NB" '  ? for shortcuts'
+out="$(ibs '2 3' 'tmux /tmp/s %3')"
+[ "$out" = unsure ] && pass box-tmux-no-rules "no rows of ─ -> unsure" || bad box-tmux-no-rules "got" "$out"
+tfix "${HIST[@]}" "$RULE" '❯ an earlier prompt' "$RULE"
+out="$(ibs '2 4' 'tmux /tmp/s %3')"
+[ "$out" = unsure ] && pass box-tmux-history "❯ + ASCII space (history) is not the box -> unsure" || bad box-tmux-history "got" "$out"
+tfix "${HIST[@]}" "$RULE" "❯$NB" "$RULE"
+out="$(FAKE_FAIL_CURSOR=1 ibs '2 4' 'tmux /tmp/s %3')"
+[ "$out" = unsure ] && pass box-tmux-no-cursor "cursor query fails -> unsure" || bad box-tmux-no-cursor "got" "$out"
+out="$(ibs '' 'tmux /tmp/s %3')"
+[ "$out" = unsure ] && pass box-tmux-blank-cursor "cursor query prints nothing -> unsure" || bad box-tmux-blank-cursor "got" "$out"
+
+# screen hardcopy keeps only each character's low byte: ❯ -> o, U+00A0 -> \xa0,
+# ─ -> \x00; 上 (U+4E0A) -> \x0a splits its row, so lines are not screen rows.
+SR='\0\0\0\0\0\0\0\0\0\0\0\0'
+SH='\x25\x0f old output\no an earlier prompt\nab\nc\n'
+sfix() { printf "$1" > "$FAKE_SCREEN"; }
+sfix "$SH$SR\no\xa0\n$SR\n  ? for shortcuts\n"
+: > "$FAKE_LOG"
+out="$(ibs '(3,20)/(80,24)+1024 +flow UTF-8 0(claude)' 'screen 123.x 2')"
+[ "$out" = empty ] && pass box-screen-empty "hardcopy bytes o\\xa0 between NUL rules, cursor col 3 -> empty" || bad box-screen-empty "got" "$out"
+grep -qE '^screen -S 123\.x -p 2 -X hardcopy /' "$FAKE_LOG" && grep -qxF 'screen -S 123.x -p 2 -Q info' "$FAKE_LOG" \
+  && pass box-screen-target "hardcopy (absolute file) and -Q info aimed at -S <sty> -p <window>" || bad box-screen-target "log" "$(cat "$FAKE_LOG")"
+hc="$(sed -n 's/^screen .* -X hardcopy //p' "$FAKE_LOG")"
+[[ "$hc" == "$IC_TMP_BASE"/* ]] && [ ! -e "$hc" ] && pass box-screen-tmpfile "hardcopy file under IC_TMP_BASE, removed afterwards" || bad box-screen-tmpfile "file" "$hc"
+sfix "$SH$SR\no\xa0Try \"fix lint errors\"\n$SR\n"
+out="$(ibs '(3,20)/(80,24)+1024' 'screen 123.x 2')"
+[ "$out" = placeholder ] && pass box-screen-placeholder "text, cursor col 3 -> placeholder" || bad box-screen-placeholder "got" "$out"
+out="$(ibs '(25,20)/(80,24)+1024' 'screen 123.x 2')"
+[ "$out" = draft ] && pass box-screen-draft1 "text, cursor after it -> draft" || bad box-screen-draft1 "got" "$out"
+sfix "$SH$SR\no\xa0123\n  456\n$SR\n"
+out="$(ibs '(6,21)/(80,24)+1024' 'screen 123.x 2')"
+[ "$out" = draft ] && pass box-screen-draft2 "two-line draft, cursor (6,21) -> draft" || bad box-screen-draft2 "got" "$out"
+out="$(ibs '(3,20)/(80,24)+1024' 'screen 123.x 2')"
+[ "$out" = draft ] && pass box-screen-draft2-home "two box lines, cursor col 3 -> still draft" || bad box-screen-draft2-home "got" "$out"
+sfix "${SH}o\xa0\n  ? for shortcuts\n"
+out="$(ibs '(3,20)/(80,24)+1024' 'screen 123.x 2')"
+[ "$out" = unsure ] && pass box-screen-no-rules "no NUL rules -> unsure" || bad box-screen-no-rules "got" "$out"
+sfix "$SH$SR\no\xa0\n$SR\n"
+out="$(FAKE_FAIL_CURSOR=1 ibs '(3,20)' 'screen 123.x 2')"
+[ "$out" = unsure ] && pass box-screen-no-cursor "-Q info fails -> unsure" || bad box-screen-no-cursor "got" "$out"
+out="$(FAKE_SCREEN="$T/none" ibs '(3,20)' 'screen 123.x 2')"
+[ "$out" = unsure ] && pass box-screen-no-hardcopy "hardcopy never written -> unsure (after polling)" || bad box-screen-no-hardcopy "got" "$out"
+out="$(ibs '2 4' '')"
+[ "$out" = unsure ] && pass box-no-backend "no backend words -> unsure" || bad box-no-backend "got" "$out"
+
+# ---- sending ----
+: > "$FAKE_LOG"
+sc '__ic_send tmux /tmp/s %3 "/compact $IDEAL_COMPACT_COMPACT_TEXT"'; rc=$?
+ctext="$(bash -c '. "$1"; printf %s "$IDEAL_COMPACT_COMPACT_TEXT"' _ "$T/common-helpers.sh")"
+want="$(printf 'tmux -S /tmp/s send-keys -l -t %%3 /compact %s\ntmux -S /tmp/s send-keys -l -t %%3 \r' "$ctext")"
+[ "$rc" = 0 ] && [ "$(cat "$FAKE_LOG")" = "$want" ] && pass send-tmux "text, then CR, as two send-keys -l calls on -S <socket> -t <pane>" || bad send-tmux "rc=$rc log" "$(cat -A "$FAKE_LOG")"
+: > "$FAKE_LOG"
+sc '__ic_send screen 123.x 2 "a\\b 繼續"'; rc=$?
+want="$(printf 'screen -S 123.x -p 2 -X stuff a\\\\b 繼續\nscreen -S 123.x -p 2 -X stuff \r')"
+[ "$rc" = 0 ] && [ "$(cat "$FAKE_LOG")" = "$want" ] && pass send-screen "stuff text (backslash doubled), then CR, both with -p <window>" || bad send-screen "rc=$rc log" "$(cat -A "$FAKE_LOG")"
+: > "$FAKE_LOG"
+sc '__ic_send "" "" "" x'; rc=$?
+[ "$rc" != 0 ] && [ ! -s "$FAKE_LOG" ] && pass send-no-backend "no backend -> non-zero, nothing sent" || bad send-no-backend "rc=$rc" "$(cat "$FAKE_LOG")"
+
 exit $fail

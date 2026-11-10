@@ -28,6 +28,9 @@ T="$(mktemp -d)"
 # never picks up the multiplexer of the shell that started the test from /proc.
 env -i sleep 3600 & CLEAN_PID=$!
 export IC_CLAUDE_PID=$CLEAN_PID
+# The fake tmux reports this shell as the pane pid: the parent of every claude
+# stand-in, so __ic_backend sees the pane as hosting claude.
+export FAKE_PANE_PID=$$
 # KILLS: every background process a row starts (hooks, claude stand-ins), killed on exit
 KILLS=()
 trap 'kill "$CLEAN_PID" "${KILLS[@]}" 2>/dev/null; rm -rf "$T" "$ISO"' EXIT
@@ -711,7 +714,8 @@ unset STUB_SIDE
 set_state phase=stopped; : > "$FAKE_LOG"
 cp "$T/screen-empty" "$T/screen-live"
 SEND_CWD="$R" send Notification --arg notification_type idle_prompt
-ck "idle-box-after-helper" "helper current" "$(sed -n '1p' "$FAKE_LOG")"
+# (the backend's own #{pane_pid} query comes before; it is detection, not the box)
+ck "idle-box-after-helper" "helper current" "$(grep -v ' #{pane_pid}$' "$FAKE_LOG" | sed -n '1p')"
 ck "idle-box-after-helper-capture" "yes" "$(awk '/^helper accounts/ { h = NR } /capture-pane/ { c = NR } END { print (h && c > h) ? "yes" : "no" }' "$FAKE_LOG")"
 # races: the state changes after the input box check, before the lock
 mkdir -p "$T/racebin"

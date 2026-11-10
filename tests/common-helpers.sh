@@ -603,44 +603,64 @@ chain() {
   for i in $(seq 50); do [ -s "$pf" ] && break; sleep 0.1; done
   cat "$pf"
 }
+# The fake tmux answers #{pane_pid} with $FAKE_PANE_PID: the test shell, an
+# ancestor of IC_CLAUDE_PID=$$ (itself) and of every sleeper it starts.
+export FAKE_PANE_PID=$$
+pp() { sc "__ic_ppid $1"; }
 : > "$FAKE_LOG"
 out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
-[ "$out" = "tmux /tmp/s %3" ] && pass backend-tmux "own TMUX + TMUX_PANE -> tmux <socket> <pane>" || bad backend-tmux "got" "$out"
-out="$(STY=123.x WINDOW=2 sc __ic_backend)"
-[ "$out" = "screen 123.x 2" ] && pass backend-screen "own STY + WINDOW -> screen <sty> <window>" || bad backend-screen "got" "$out"
+[ "$out" = "tmux /tmp/s %3" ] && pass backend-tmux "own TMUX + TMUX_PANE, pane pid an ancestor of claude -> tmux <socket> <pane>" || bad backend-tmux "got" "$out"
+grep -qxF 'tmux -S /tmp/s display-message -p -t %3 #{pane_pid}' "$FAKE_LOG" \
+  && pass backend-tmux-query "pane pid asked of -S <socket> -t <pane>" || bad backend-tmux-query "log" "$(cat "$FAKE_LOG")"
+env -i "$SLEEP_BIN" 30 & up=$!
+out="$(FAKE_PANE_PID=$up TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+[ -z "$out" ] && pass backend-tmux-foreign "pane pid not claude or an ancestor -> no backend" || bad backend-tmux-foreign "got" "$out"
+out="$(FAKE_FAIL_PANE_PID=1 TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+[ -z "$out" ] && pass backend-tmux-query-fails "pane pid query fails -> no backend" || bad backend-tmux-query-fails "got" "$out"
+out="$(FAKE_PANE_PID='' TMUX=/tmp/s,1,0 TMUX_PANE=%3 sc __ic_backend)"
+[ -z "$out" ] && pass backend-tmux-query-blank "pane pid query prints nothing -> no backend" || bad backend-tmux-query-blank "got" "$out"
+out="$(STY=$$.x WINDOW=2 sc __ic_backend)"
+[ "$out" = "screen $$.x 2" ] && pass backend-screen "own STY (<ancestor pid>.x) + WINDOW -> screen <sty> <window>" || bad backend-screen "got" "$out"
+out="$(STY=1.x WINDOW=2 sc __ic_backend)"
+[ -z "$out" ] && pass backend-screen-foreign "STY pid not an ancestor of claude -> no backend" || bad backend-screen-foreign "got" "$out"
+out="$(STY=x WINDOW=2 sc __ic_backend)"
+[ -z "$out" ] && pass backend-screen-no-pid "STY without a pid prefix -> no backend" || bad backend-screen-no-pid "got" "$out"
 out="$(TMUX=/tmp/s,1,0 sc __ic_backend)"
 [ -z "$out" ] && pass backend-no-pane "TMUX without TMUX_PANE -> no backend" || bad backend-no-pane "got" "$out"
-out="$(TMUX_PANE=%3 STY=123.x sc __ic_backend)"
+out="$(TMUX_PANE=%3 STY=$$.x sc __ic_backend)"
 [ -z "$out" ] && pass backend-halves "TMUX_PANE alone and STY without WINDOW -> no backend" || bad backend-halves "got" "$out"
 cp1="$(chain tmux screen)"; cp2="$(chain SCREEN tmux)"; cp3="$(chain claude)"
-out="$(IC_CLAUDE_PID="$cp1" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 sc __ic_backend)"
-[ "$out" = "screen 123.x 2" ] && pass backend-both-screen "both set, nearest multiplexer ancestor screen (inside tmux) -> screen" || bad backend-both-screen "got" "$out"
-out="$(IC_CLAUDE_PID="$cp2" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 sc __ic_backend)"
+a1="$(pp "$cp1")"; a3="$(pp "$cp3")"
+out="$(IC_CLAUDE_PID="$cp1" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=$a1.x WINDOW=2 sc __ic_backend)"
+[ "$out" = "screen $a1.x 2" ] && pass backend-both-screen "both set, nearest multiplexer ancestor screen (inside tmux) -> screen" || bad backend-both-screen "got" "$out"
+out="$(FAKE_PANE_PID=$cp2 IC_CLAUDE_PID="$cp2" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 sc __ic_backend)"
 [ "$out" = "tmux /tmp/s %3" ] && pass backend-both-tmux "both set, nearest multiplexer ancestor tmux (inside SCREEN) -> tmux" || bad backend-both-tmux "got" "$out"
-out="$(IC_CLAUDE_PID="$cp3" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 sc __ic_backend)"
-[ "$out" = "screen 123.x 2" ] && pass backend-both-undecided "both set, no multiplexer ancestor -> screen" || bad backend-both-undecided "got" "$out"
+out="$(IC_CLAUDE_PID="$cp3" TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=$a3.x WINDOW=2 sc __ic_backend)"
+[ "$out" = "screen $a3.x 2" ] && pass backend-both-undecided "both set, no multiplexer ancestor -> screen" || bad backend-both-undecided "got" "$out"
 env TMUX=/tmp/t,1,0 TMUX_PANE=%9 "$SLEEP_BIN" 30 & ep1=$!
 env -i "$SLEEP_BIN" 30 & ep2=$!
-env STY=77.y WINDOW=4 TMUX=/tmp/u,1,0 "$SLEEP_BIN" 30 & ep3=$!
+env STY=$$.y WINDOW=4 TMUX=/tmp/u,1,0 "$SLEEP_BIN" 30 & ep3=$!
 sleep 0.2
 out="$(IC_CLAUDE_PID="$ep1" sc __ic_backend)"
 [ "$out" = "tmux /tmp/t %9" ] && pass backend-environ "nothing in the hook env -> /proc/<claude>/environ" || bad backend-environ "got" "$out"
 out="$(IC_CLAUDE_PID="$ep3" sc __ic_backend)"
-[ "$out" = "screen 77.y 4" ] && pass backend-environ-screen "environ STY + WINDOW (TMUX without pane ignored) -> screen" || bad backend-environ-screen "got" "$out"
+[ "$out" = "screen $$.y 4" ] && pass backend-environ-screen "environ STY + WINDOW (TMUX without pane ignored) -> screen" || bad backend-environ-screen "got" "$out"
 out="$(IC_CLAUDE_PID="$ep3" TMUX_PANE=%1 sc __ic_backend)"
 [ -z "$out" ] && pass backend-one-source "any var in the hook env -> environ not mixed in" || bad backend-one-source "got" "$out"
 out="$(IC_CLAUDE_PID="$ep2" sc __ic_backend)"
 [ -z "$out" ] && pass backend-none "nothing anywhere -> empty" || bad backend-none "got" "$out"
 mkdir -p "$T/onlyscreen"; ln -s "$TESTS_DIR/fakes/screen" "$T/onlyscreen/screen"; ln -s "$(command -v dirname)" "$T/onlyscreen/dirname"
 if [ -z "$(PATH="$T/onlyscreen" command -v tmux)" ]; then
-  out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=123.x WINDOW=2 PATH="$T/onlyscreen" "$BASH" -c '. "$1"; __ic_backend' _ "$T/common-helpers.sh")"
-  [ "$out" = "screen 123.x 2" ] && pass backend-no-binary "no tmux binary -> tmux skipped" || bad backend-no-binary "got" "$out"
+  out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 STY=$$.x WINDOW=2 PATH="$T/onlyscreen" "$BASH" -c '. "$1"; __ic_backend' _ "$T/common-helpers.sh")"
+  [ "$out" = "screen $$.x 2" ] && pass backend-no-binary "no tmux binary -> tmux skipped" || bad backend-no-binary "got" "$out"
   out="$(TMUX=/tmp/s,1,0 TMUX_PANE=%3 PATH="$T/onlyscreen" "$BASH" -c '. "$1"; __ic_backend' _ "$T/common-helpers.sh")"
   [ -z "$out" ] && pass backend-no-binary-empty "only tmux vars, no tmux binary -> empty" || bad backend-no-binary-empty "got" "$out"
 else
   bad backend-no-binary "isolation" "tmux found under the stub PATH"
 fi
-[ ! -s "$FAKE_LOG" ] && pass backend-no-calls "detection never runs tmux or screen" || bad backend-no-calls "log" "$(cat "$FAKE_LOG")"
+out="$(grep -v ' display-message -p -t [^ ]* #{pane_pid}$' "$FAKE_LOG")"
+[ -z "$out" ] && pass backend-no-calls "detection only asks tmux for the pane pid, never screen" || bad backend-no-calls "log" "$out"
+unset FAKE_PANE_PID
 # __ic_claude_pid walks /proc: claude -> 'a) b' -> bash; comm with ') ' does not confuse the stat parse
 "$PR_D/claude" "$PR_D/a) b" bash -c 'unset IC_CLAUDE_PID; . "$1"; __ic_claude_pid > "$2"' _ "$T/common-helpers.sh" "$T/cpid" & wp=$!
 wait "$wp"
@@ -652,7 +672,7 @@ out="$(IC_CLAUDE_PID=4242 sc __ic_claude_pid)"
 for i in $(seq 50); do [ -e "$T/cpid-none" ] && break; sleep 0.1; done
 out="$(cat "$T/cpid-none" 2>/dev/null || echo missing)"
 [ -z "$out" ] && pass claude-pid-none "no claude ancestor -> empty" || bad claude-pid-none "got" "$out"
-kill "$cp1" "$cp2" "$cp3" "$ep1" "$ep2" "$ep3" 2>/dev/null
+kill "$cp1" "$cp2" "$cp3" "$ep1" "$ep2" "$ep3" "$up" 2>/dev/null
 wait 2>/dev/null
 
 # ---- input box ----

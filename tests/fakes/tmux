@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Test double for tmux, so a test can never reach a real session. Logs its argv
 # to $FAKE_LOG. `capture-pane` prints the file $FAKE_SCREEN, `display-message`
-# prints $FAKE_CURSOR ("<x> <y> <pane_in_mode>"; fails with FAKE_FAIL_CURSOR=1);
+# prints $FAKE_CURSOR ("<x> <y> <pane_in_mode>"; fails with FAKE_FAIL_CURSOR=1),
+# or $FAKE_PANE_PID when asked for #{pane_pid} (fails with FAKE_FAIL_PANE_PID=1);
 # everything else does nothing.
 [ -n "${FAKE_LOG:-}" ] && printf 'tmux %s\n' "$*" >> "$FAKE_LOG"
 for a in "$@"; do
   case "$a" in
     capture-pane) [ -r "${FAKE_SCREEN:-}" ] && cat "$FAKE_SCREEN"; exit 0 ;;
-    display-message) [ "${FAKE_FAIL_CURSOR:-}" = 1 ] && exit 1; printf '%s\n' "${FAKE_CURSOR:-}"; exit 0 ;;
+    display-message)
+      if [ "${*: -1}" = '#{pane_pid}' ]; then
+        [ "${FAKE_FAIL_PANE_PID:-}" = 1 ] && exit 1; printf '%s\n' "${FAKE_PANE_PID:-}"; exit 0
+      fi
+      [ "${FAKE_FAIL_CURSOR:-}" = 1 ] && exit 1; printf '%s\n' "${FAKE_CURSOR:-}"; exit 0 ;;
   esac
 done
 exit 0

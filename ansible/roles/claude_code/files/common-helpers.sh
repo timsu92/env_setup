@@ -509,7 +509,10 @@ __ic_pick_account() {
 # `tmux <socket> <pane>` or `screen <sty> <window>`. Every tmux call names
 # the socket (-S), every screen call the window (-p), so keys and captures
 # only ever reach this session's own pane/window. Only builtins are used
-# while reading /proc, so a missing binary is noticed before any call.
+# while reading /proc, so a missing binary is noticed before any call. A
+# backend is only returned once it is known to host this claude: tmux's
+# #{pane_pid}, or the pid in screen's STY (<pid>.<name>), is claude or one
+# of its ancestors.
 
 # __ic_ppid <pid>: the parent pid from /proc/<pid>/stat (field 4). comm can
 # hold spaces and parens, so the fields are counted after the last ')'.
@@ -541,17 +544,34 @@ __ic_claude_pid() {
   return 0
 }
 
+# __ic_hosts <pid> <claude pid>: true when <pid> (> 1) is <claude pid> or
+# one of its ancestors.
+__ic_hosts() {
+  local __a="$1" __p="$2" __i
+  case "$__a" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$__a" -gt 1 ] || return 1
+  for ((__i = 0; __i < 64; __i++)); do
+    [ "$__p" = "$__a" ] && return 0
+    __p="$(__ic_ppid "$__p")" || return 1
+    [ "$__p" -gt 1 ] || return 1
+  done
+  return 1
+}
+
 # __ic_backend: see the section comment; empty when there is none. TMUX,
 # TMUX_PANE, STY and WINDOW come from the hook's own environment when any of
 # them is set there, else all four from /proc/<claude pid>/environ. With both
 # multiplexers present, the first of claude's ancestors named tmux* or
-# screen*/SCREEN* wins (screen when none is found).
+# screen*/SCREEN* wins (screen when none is found). The chosen one must host
+# claude (one tmux call for the pane pid); an unknown claude pid, a failed
+# query or a mismatch means no backend.
 __ic_backend() {
   local __pid __kv __t='' __tp='' __sty='' __w='' __has_t=0 __has_s=0 __p __i __c
   __pid="$(__ic_claude_pid)"
+  [ -n "$__pid" ] || return 0
   if [ -n "${TMUX:-}${TMUX_PANE:-}${STY:-}${WINDOW:-}" ]; then
     __t="${TMUX:-}" __tp="${TMUX_PANE:-}" __sty="${STY:-}" __w="${WINDOW:-}"
-  elif [ -n "$__pid" ] && [ -r "/proc/$__pid/environ" ]; then
+  elif [ -r "/proc/$__pid/environ" ]; then
     while IFS= read -r -d '' __kv; do
       case "$__kv" in
         TMUX=*) __t="${__kv#TMUX=}" ;;
@@ -578,8 +598,11 @@ __ic_backend() {
       esac
     done
   fi
-  if [ "$__has_t" = 1 ]; then printf 'tmux %s %s' "$__t" "$__tp"
-  elif [ "$__has_s" = 1 ]; then printf 'screen %s %s' "$__sty" "$__w"
+  if [ "$__has_t" = 1 ]; then
+    __p="$(tmux -S "$__t" display-message -p -t "$__tp" '#{pane_pid}' 2>/dev/null)" \
+      && __ic_hosts "$__p" "$__pid" && printf 'tmux %s %s' "$__t" "$__tp"
+  elif [ "$__has_s" = 1 ]; then
+    __ic_hosts "${__sty%%.*}" "$__pid" && printf 'screen %s %s' "$__sty" "$__w"
   fi
   return 0
 }

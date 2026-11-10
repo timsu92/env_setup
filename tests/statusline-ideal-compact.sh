@@ -27,6 +27,9 @@ T="$ISO/t"
 mkdir -p "$T/deploy" "$T/nolib" "$T/ledger" "$T/cfg"
 # A process whose environment holds no TMUX/STY: the "claude" that __ic_backend inspects.
 env -i sleep 600 & BARE_PID=$!
+# The fake tmux reports this shell (BARE_PID's parent) as the pane pid, so a
+# tmux backend is seen as hosting claude.
+export FAKE_PANE_PID=$$
 trap 'kill "$BARE_PID" 2>/dev/null; rm -rf "$ISO"' EXIT
 
 # Deployed-style layouts (repo files lack the exec bit).

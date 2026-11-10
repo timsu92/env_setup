@@ -40,11 +40,9 @@ PYEOF
 }
 
 __stamp_turn() {
-  local which="$1" sid
-  sid="$(__field 'session_id')"
-  [ -n "$sid" ] || return 0
-  local tdir
-  tdir="/tmp/claude-$(id -u)/$sid"
+  local which="$1" tdir
+  tdir="$(__ic_session_dir "$(__field 'transcript_path')" "$(__field 'session_id')")"
+  [ -n "$tdir" ] || return 0
   mkdir -p "$tdir"
   date +%s > "$tdir/$which"
 }

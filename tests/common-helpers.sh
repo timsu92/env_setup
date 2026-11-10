@@ -130,4 +130,53 @@ mv "$T/common-helpers.sh.off" "$T/common-helpers.sh"
 [ "$hrc" = 1 ] && grep -qx 'high-watermark-auto-pause: common-helpers.sh not found' "$T/herr" \
   && pass hook-no-lib "missing library -> exit 1 + message" || bad hook-no-lib "rc=$hrc" "$(cat "$T/herr")"
 
+# ---- path helpers ----
+ic() { bash -c 'set -u; . "$1"; shift; "$@"' _ "$T/common-helpers.sh" "$@"; }
+tp="$(ic __ic_translated_path "$HOME/.claude/projects/-home-tim-projects-env-setup/abc.jsonl")"
+[ "$tp" = "-home-tim-projects-env-setup" ] && pass translated "transcript path -> project dir name" || bad translated "got" "$tp"
+[ -z "$(ic __ic_translated_path '')" ] && pass translated-empty "empty input -> empty" || bad translated-empty "not empty" ""
+[ "$(ic __ic_session_dir "/h/projects/-p/abc.jsonl" sid1)" = "$IC_TMP_BASE/-p/sid1" ] \
+  && pass session-dir "<base>/<translated>/<sid>" || bad session-dir "got" "$(ic __ic_session_dir "/h/projects/-p/abc.jsonl" sid1)"
+[ -z "$(ic __ic_session_dir '' sid1)" ] && [ -z "$(ic __ic_session_dir "/h/projects/-p/abc.jsonl" '')" ] \
+  && pass session-dir-empty "empty transcript or sid -> empty" || bad session-dir-empty "not empty" ""
+[ ! -e "$IC_TMP_BASE/-p" ] && pass session-dir-nomkdir "prints only, creates nothing" || bad session-dir-nomkdir "created" "$IC_TMP_BASE/-p"
+
+REPO_ROOT="$(cd "$TESTS_DIR/.." && pwd)"
+want="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir | sed 's#/\.git$##; s/[^A-Za-z0-9]/-/g')"
+[ -n "$want" ] || { echo "cannot compute expected repo key"; exit 2; }
+[ "$(ic __ic_repo_key "$REPO_ROOT")" = "$want" ] && pass repo-key-root "this checkout -> $want" || bad repo-key-root "got" "$(ic __ic_repo_key "$REPO_ROOT")"
+[ "$(ic __ic_repo_key "$REPO_ROOT/ansible/roles")" = "$want" ] && pass repo-key-subdir "subdirectory -> same key" || bad repo-key-subdir "got" "$(ic __ic_repo_key "$REPO_ROOT/ansible/roles")"
+
+# a throwaway repo with a linked worktree: both give the main repo's key (never touches the real repo)
+GR="$T/gitrepo"; GW="$T/gitwt"
+git init -q "$GR" && git -C "$GR" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init \
+  && git -C "$GR" worktree add -q "$GW" -b wt >/dev/null 2>&1
+want_tmp="$(printf '%s' "$GR" | sed 's/[^A-Za-z0-9]/-/g')"
+[ "$(ic __ic_repo_key "$GR")" = "$want_tmp" ] && pass repo-key-tmp "temp repo -> its path" || bad repo-key-tmp "got" "$(ic __ic_repo_key "$GR")"
+[ "$(ic __ic_repo_key "$GW")" = "$want_tmp" ] && pass repo-key-worktree "linked worktree -> main repo's key" || bad repo-key-worktree "got" "$(ic __ic_repo_key "$GW")"
+
+NG="$T/nogit"; mkdir -p "$NG"
+[ -z "$(ic __ic_repo_key "$NG")" ] && pass repo-key-nogit "outside git -> empty" || bad repo-key-nogit "not empty" "$(ic __ic_repo_key "$NG")"
+[ -z "$(ic __ic_repo_key '')" ] && pass repo-key-empty "empty dir -> empty" || bad repo-key-empty "not empty" ""
+[ "$(ic __ic_project_dir "$GW" "/h/projects/-p/abc.jsonl")" = "$IC_TMP_BASE/$want_tmp" ] \
+  && pass project-dir-git "git: <base>/<repo key>" || bad project-dir-git "got" "$(ic __ic_project_dir "$GW" "/h/projects/-p/abc.jsonl")"
+[ "$(ic __ic_project_dir "$NG" "/h/projects/-p/abc.jsonl")" = "$IC_TMP_BASE/-p" ] \
+  && pass project-dir-nogit "no git: falls back to the translated path" || bad project-dir-nogit "got" "$(ic __ic_project_dir "$NG" "/h/projects/-p/abc.jsonl")"
+
+# ---- the hook's turn stamps ----
+sdir="$IC_TMP_BASE/-proj-a/s9"
+UPS='{"hook_event_name":"UserPromptSubmit","session_id":"s9","transcript_path":"/h/.claude/projects/-proj-a/s9.jsonl","prompt":"hi"}'
+seq_set ok
+"$T/hooks/high-watermark-auto-pause.sh" <<<"$UPS" >/dev/null 2>&1
+[ -f "$sdir/turn_start" ] && [ ! -e "$IC_TMP_BASE/s9" ] \
+  && pass stamp-start "turn_start under <base>/<translated>/<sid>/, not <base>/<sid>/" || bad stamp-start "layout" "$(find "$IC_TMP_BASE" -name 'turn_*' 2>&1)"
+"$T/hooks/high-watermark-auto-pause.sh" <<<"${UPS/UserPromptSubmit/Stop}" >/dev/null 2>&1
+[ -f "$sdir/turn_stop" ] && pass stamp-stop "turn_stop beside it" || bad stamp-stop "missing" "$(ls "$sdir")"
+rm -rf "$IC_TMP_BASE/-proj-a" "$IC_TMP_BASE/s8"
+NOTP='{"hook_event_name":"UserPromptSubmit","session_id":"s8","prompt":"hi"}'
+seq_set ok
+"$T/hooks/high-watermark-auto-pause.sh" <<<"$NOTP" >/dev/null 2>&1
+[ -z "$(find "$IC_TMP_BASE" -name 'turn_*')" ] && [ ! -e "$IC_TMP_BASE/s8" ] \
+  && pass stamp-no-transcript "no transcript_path -> nothing written" || bad stamp-no-transcript "wrote" "$(find "$IC_TMP_BASE" -name 'turn_*')"
+
 exit $fail

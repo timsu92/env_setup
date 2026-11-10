@@ -3,6 +3,11 @@ set -u
 
 # Relative to this script (~/.claude/), shared with hooks/high-watermark-auto-pause.sh.
 HWAP_HELPER="$(dirname "${BASH_SOURCE[0]}")/hwap-helper.sh"
+# Path helpers for the turn stamps. Optional: without the library the stamps
+# are skipped and everything else still renders.
+__IC_LIB="$(dirname "${BASH_SOURCE[0]}")/common-helpers.sh"
+# shellcheck source=common-helpers.sh
+[ -r "$__IC_LIB" ] && . "$__IC_LIB"
 
 INPUT="$(cat)"
 export INPUT_JSON="$INPUT"
@@ -396,11 +401,11 @@ PYEOF
 # a turn_start and no later turn_stop. The spinner and the choice of where the
 # usage numbers come from (rate-limit block below) both use it.
 __load_turn_stamps() {
-  local sid tdir
+  local tdir
   __ts_start=""; __ts_stop=""; __turn_running=0
-  sid="$(__field 'session_id')"
-  [ -n "$sid" ] || return 0
-  tdir="/tmp/claude-$(id -u)/$sid"
+  declare -F __ic_session_dir >/dev/null || return 0
+  tdir="$(__ic_session_dir "$(__field 'transcript_path')" "$(__field 'session_id')")"
+  [ -n "$tdir" ] || return 0
   [ -f "$tdir/turn_start" ] && __ts_start="$(cat "$tdir/turn_start" 2>/dev/null)"
   [ -f "$tdir/turn_stop" ] && __ts_stop="$(cat "$tdir/turn_stop" 2>/dev/null)"
   case "$__ts_start" in ''|*[!0-9]*) __ts_start="" ;; esac

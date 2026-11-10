@@ -29,16 +29,15 @@ T="$(mktemp -d)"
 HD="$T/hints"
 FAKE_EMAIL="statusline-test@example.invalid"
 CACHE="/tmp/claude-$UID_N/ratelimit-$FAKE_EMAIL"
-SIDS=()
 cleanup() {
   rm -rf "$T" "$ISO" "$CACHE"
-  for s in "${SIDS[@]}"; do rm -rf "/tmp/claude-$UID_N/$s"; done
 }
 trap cleanup EXIT
 
 mkdir -p "$T/stub" "$T/nojqbin" "$T/cfg" "$T/xdg" "$T/cwd" "$T/deploy"
 # The repo files lack the exec bit (Ansible sets the mode on deploy), so run a deployed-style copy.
 cp "$STATUSLINE" "$T/deploy/statusline.sh"; cp "$(dirname "$STATUSLINE")/hwap-helper.sh" "$T/deploy/hwap-helper.sh"
+cp "$(dirname "$STATUSLINE")/common-helpers.sh" "$T/deploy/common-helpers.sh"
 chmod +x "$T/deploy/statusline.sh" "$T/deploy/hwap-helper.sh"
 STATUSLINE="$T/deploy/statusline.sh"
 echo "{\"oauthAccount\":{\"emailAddress\":\"$FAKE_EMAIL\"}}" > "$T/cfg/.claude.json"
@@ -78,8 +77,10 @@ n=0
 # sets RAW (with SGR), TXT (stripped), RATE (first NN%/NN%), CALLS (cswap list count)
 render() {
   local mode="$1" s5="$2" s7="$3" stamps="$4" jf="$5" failflag="${6:-}"
-  n=$((n+1)); local sid="sltest-$$-$n"; SIDS+=("$sid")
-  local d="/tmp/claude-$UID_N/$sid"
+  n=$((n+1)); local sid="sltest-$$-$n"
+  local tp="$ISO/projects/-sl-proj/$sid.jsonl"
+  local d="$IC_TMP_BASE/-sl-proj/$sid"
+  [ -z "${STAMP_DIR_OVERRIDE:-}" ] || d="$STAMP_DIR_OVERRIDE/$sid"
   mkdir -p "$d"
   [ -n "${KEEP_CACHE:-}" ] || rm -f "$CACHE"
   case "$stamps" in
@@ -91,9 +92,9 @@ render() {
   local rl; rl="$(printf ',"rate_limits":{"five_hour":{"used_percentage":%s,"resets_at":%s},"seven_day":{"used_percentage":%s,"resets_at":%s}}' \
       "$s5" "${S_R5:-$((NOW+7200))}" "$s7" "${S_R7:-$((NOW+259200))}")"
   [ -n "${NO_RL:-}" ] && rl=""
-  RAW="$(printf '{"session_id":"%s","model":{"display_name":"M"},"workspace":{"current_dir":"%s"}%s}' \
-      "$sid" "$T/cwd" "$rl" |
-    env CLAUDE_CONFIG_DIR="$T/cfg" XDG_DATA_HOME="$T/xdg" STATUSLINE_COLS=200 PATH="$p" HWAP_HINT_DIR="${HINT_DIR_OVERRIDE:-$HD}" \
+  RAW="$(printf '{"session_id":"%s","transcript_path":"%s","model":{"display_name":"M"},"workspace":{"current_dir":"%s"}%s}' \
+      "$sid" "$tp" "$T/cwd" "$rl" |
+    env IC_TMP_BASE="$IC_TMP_BASE" CLAUDE_CONFIG_DIR="$T/cfg" XDG_DATA_HOME="$T/xdg" STATUSLINE_COLS=200 PATH="$p" HWAP_HINT_DIR="${HINT_DIR_OVERRIDE:-$HD}" \
         STUB_JSON="$jf" STUB_COUNT="$T/calls" STUB_FAIL="$failflag" "$BASH_BIN" "$STATUSLINE" 2>/dev/null)"
   TXT="$(printf '%s' "$RAW" | sed 's/\x1b\[[0-9;]*m//g')"
   RATE="$(printf '%s' "$TXT" | sed -n 2p | grep -oE '[0-9]+%/[0-9]+%' | head -1)"
@@ -140,6 +141,16 @@ for mode in jq python; do
 
   render $mode 40 50 none "$T/c-fresh.json"
   expect_rate $mode "no stamps counts as idle" "10%/20%"
+
+  # stamps in the old location (<base>/<sid>/) are neither read nor migrated: the turn counts as idle
+  STAMP_DIR_OVERRIDE="$IC_TMP_BASE" render $mode 41 51 running "$T/c-fresh.json"
+  expect_rate $mode "old-location stamps are ignored" "10%/20%"
+
+  # without the library the stamps are skipped (so even running stamps read as idle) but the line renders
+  mv "$T/deploy/common-helpers.sh" "$T/deploy/common-helpers.sh.off"
+  render $mode 41 51 running "$T/c-fresh.json"
+  mv "$T/deploy/common-helpers.sh.off" "$T/deploy/common-helpers.sh"
+  expect_rate $mode "missing library: renders, stamps skipped" "10%/20%"
 
   # ---- #20: active account can't be fetched, cswap's lastGoodUsage is its own last numbers ----
   lg_raw() { printf '%s' "$RAW" | sed -n 2p | sed 's/\x1b\[38;2;190;136;116m.*//'; }

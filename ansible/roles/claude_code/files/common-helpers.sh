@@ -129,3 +129,51 @@ __gate() {
     wait "$__IC_SLEEP_PID"
   done
 }
+
+# ---- paths ----
+# Everything the checkpoint-compact flow keeps in /tmp lives under
+# ${IC_TMP_BASE:-/tmp/claude-<uid>}, grouped by project: the session
+# directory (per-session state) is <base>/<translated path>/<sid>, the
+# project directory (state shared by all sessions of a repo) is
+# <base>/<repo key>. These functions only print; callers mkdir.
+
+# basename(dirname(transcript_path)): Claude Code's own name for the project
+# directory under ~/.claude/projects/. Empty when the input is empty.
+__ic_translated_path() {
+  local d
+  [ -n "${1:-}" ] || return 0
+  d="$(basename "$(dirname "$1")")"
+  case "$d" in .|/) return 0 ;; esac
+  printf '%s' "$d"
+}
+
+# <base>/<translated>/<sid>; empty when either part is empty.
+__ic_session_dir() {
+  local tp
+  tp="$(__ic_translated_path "${1:-}")"
+  [ -n "$tp" ] && [ -n "${2:-}" ] || return 0
+  printf '%s' "${IC_TMP_BASE:-/tmp/claude-$(id -u)}/$tp/$2"
+}
+
+# A repo's identity regardless of worktree: the path of the shared git dir
+# (main repo's .git, also from a linked worktree) with a trailing /.git cut
+# off and every non-alphanumeric character turned into "-". Empty outside git.
+__ic_repo_key() {
+  local common
+  [ -n "${1:-}" ] || return 0
+  common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+  [ -n "$common" ] || return 0
+  common="${common%/.git}"
+  printf '%s' "$common" | sed 's/[^A-Za-z0-9]/-/g'
+}
+
+# __ic_project_dir <ledger_dir> <transcript_path>: <base>/<repo key of the
+# ledger's directory>, or <base>/<translated path> when that is not in a git
+# repo. Empty when neither is known.
+__ic_project_dir() {
+  local key
+  key="$(__ic_repo_key "${1:-}")"
+  [ -n "$key" ] || key="$(__ic_translated_path "${2:-}")"
+  [ -n "$key" ] || return 0
+  printf '%s' "${IC_TMP_BASE:-/tmp/claude-$(id -u)}/$key"
+}

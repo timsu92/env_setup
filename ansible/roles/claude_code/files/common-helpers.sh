@@ -200,7 +200,10 @@ __ic_state_read() {
     __v="${__line#*=}"
     case " $__IC_STATE_KEYS " in *" $__k "*) ;; *) continue ;; esac
     case "$__IC_STATE_NUMERIC" in
-      *" $__k "*) case "$__v" in ''|*[!0-9]*) continue ;; esac ;;
+      *" $__k "*)
+        case "$__v" in ''|*[!0-9]*) continue ;; esac
+        [ "${#__v}" -le 15 ] || continue
+        __v=$((10#$__v)) ;;
     esac
     if [ "$__k" = phase ]; then
       case "$__v" in standby|armed|waiting|to-compact|compacting|continuing|stopped) ;; *) continue ;; esac
@@ -239,7 +242,7 @@ __IC_LOCK_FD=''
 __ic_lock() {
   local __fd
   mkdir -p "$(dirname "$1")" 2>/dev/null || return 1
-  exec {__fd}>>"$1" 2>/dev/null || return 1
+  { exec {__fd}>>"$1"; } 2>/dev/null || return 1
   if ! flock "$__fd"; then exec {__fd}>&-; return 1; fi
   __IC_LOCK_FD="$__fd"
 }

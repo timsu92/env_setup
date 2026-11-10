@@ -262,6 +262,15 @@ sc "__ic_lock '$T/lk/h.lock'; __ic_unlock"
 e=$(date +%s.%N)
 awk -v a="$s" -v b="$e" 'BEGIN{exit !(b-a<0.5)}' && pass lock-released "free again after unlock" || bad lock-released "still held" ""
 
+# __ic_lock must not leave a stderr redirect behind in the caller's shell
+out="$(sc "__ic_lock '$T/lk/err.lock'; echo e >&2; __ic_unlock; echo e2 >&2" 2>&1)"
+[ "$out" = "e
+e2" ] && pass lock-stderr "stderr still reaches the caller after __ic_lock" || bad lock-stderr "got" "$out"
+# leading zeros read as decimal numbers
+printf 'dirty=08\nphase_at=0009\nskip=00\n' > "$T/g/ideal-compact-state"
+out="$(sc "__ic_state_read '$T/g'; echo \"\$((IC_dirty+1)) \$((IC_phase_at+1)) \$((IC_skip+1))\"" 2>&1)"
+[ "$out" = "9 10 1" ] && pass state-leading-zero "08/0009/00 -> 8/9/0, safe in \$(( ))" || bad state-leading-zero "got" "$out"
+
 # two writers, 50 read-modify-write rounds each under the lock -> dirty ends at 100
 CD="$T/conc"; mkdir -p "$CD"
 rmw='for i in $(seq 50); do __ic_lock "$2/ideal-compact-state.lock"; __ic_state_read "$2"; IC_dirty=$((IC_dirty+1)); __ic_state_write "$2"; __ic_unlock; done'

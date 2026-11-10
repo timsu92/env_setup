@@ -39,6 +39,7 @@ cp "$SRC/hooks/ideal-compact.sh" "$T/hooks/ideal-compact.sh"
 cat > "$T/hwap-helper.sh" <<'STUB'
 #!/usr/bin/env bash
 [ -n "${FAKE_LOG:-}" ] && printf 'helper %s\n' "$*" >> "$FAKE_LOG"
+[ -n "${STUB_SIDE:-}" ] && eval "$STUB_SIDE"
 case "${1:-}" in
   current) cat "$STUB_CURRENT" 2>/dev/null ;;
   accounts) cat "$STUB_ACCOUNTS" 2>/dev/null ;;
@@ -641,7 +642,8 @@ idle placeholder "2 1"
 ck "idle-budget-9-continues" "$EXP_CONT" "$(sent)"
 seed 7   # (97-50)/7 = 6: not above the warn count
 idle empty "2 1"
-ck "idle-budget-6-compact" "to-compact" "$(st phase)"
+ck "idle-budget-6-compact" "$EXP_COMPACT" "$(sent)"
+st_all "idle-budget-6-compact-state" "phase=to-compact"
 rm -f "$RHIST"
 idle empty "2 1"
 ck "idle-budget-unknown-compact-sent" "$EXP_COMPACT" "$(sent)"
@@ -682,6 +684,22 @@ for ph in standby armed waiting to-compact compacting continuing; do
   FAKE_SCREEN="$T/screen-empty" FAKE_CURSOR="2 1" SEND_CWD="$R" send Notification --arg notification_type idle_prompt
   ck "idle-in-$ph" "$ph|" "$(st phase)|$(cat "$FAKE_LOG")"
 done
+# the user starts typing while the helper runs: the input box is checked after it
+printf '%s\n❯%sdraft\n  more\n%s\n' "$RULE" "$NB" "$RULE" > "$T/screen-typing"
+export STUB_SIDE="cp \"$T/screen-typing\" \"\$FAKE_SCREEN\""
+cp "$T/screen-empty" "$T/screen-live"
+FAKE_SCREEN="$T/screen-live" FAKE_CURSOR="2 1"; export FAKE_SCREEN FAKE_CURSOR
+set_state phase=stopped; : > "$FAKE_LOG"
+SEND_CWD="$R" send Notification --arg notification_type idle_prompt
+ck "idle-typing-during-helper-nothing-sent" "" "$(sent)"
+st_all "idle-typing-during-helper-takeover" "phase=standby suppress=1 inputbox_fail=0"
+unset STUB_SIDE
+# the box check comes after the helper in the log
+set_state phase=stopped; : > "$FAKE_LOG"
+cp "$T/screen-empty" "$T/screen-live"
+SEND_CWD="$R" send Notification --arg notification_type idle_prompt
+ck "idle-box-after-helper" "helper current" "$(sed -n '1p' "$FAKE_LOG")"
+ck "idle-box-after-helper-capture" "yes" "$(awk '/^helper accounts/ { h = NR } /capture-pane/ { c = NR } END { print (h && c > h) ? "yes" : "no" }' "$FAKE_LOG")"
 # races: the state changes after the input box check, before the lock
 mkdir -p "$T/racebin"
 cat > "$T/racebin/tmux" <<'RACE'
@@ -696,10 +714,11 @@ export TESTS_DIR RACE_SDIR="$SDIR"
 for line in skip=1 phase=armed phase=standby; do
   RACE_LINE="$line"; export RACE_LINE
   OLDPATH="$PATH"; PATH="$T/racebin:$PATH"
-  idle empty "2 1"
+  idle empty "2 1" inputbox_fail=1
   PATH="$OLDPATH"
   ck "idle-race-$line-nothing-sent" "" "$(sent)"
   ck "idle-race-$line-state" "${line#*=}" "$(st "${line%%=*}")"
+  ck "idle-race-$line-inputbox-fail-reset" "0" "$(st inputbox_fail)"
 done
 unset RACE_LINE
 unset FAKE_SCREEN FAKE_CURSOR

@@ -503,9 +503,12 @@ __on_stop() {
 }
 
 # The user is away (idle_prompt) while stopped: send /compact, or 繼續 when
-# the budget says the paused window has room again. The input box check, the
-# helper and the budget run before the lock; the lock only re-reads and
-# writes the phase, the keys go out after it.
+# the budget says the paused window has room again. The helper and the budget
+# run first and the input box is checked last, right before the lock, so
+# nothing slow sits between the check and the keys. The lock only re-reads and
+# writes the phase, the keys go out after it. Outcomes by precedence: skip ->
+# nothing; no backend, a draft or an unsure box -> takeover; else the budget
+# picks the text.
 __on_notification() {
   local backend box cur='' acc='' budget n next text
   local -a bw
@@ -518,12 +521,6 @@ __on_notification() {
     return 0
   fi
   read -r -a bw <<< "$backend"
-  box="$(__ic_inputbox_state "${bw[@]}")"
-  case "$box" in
-    empty|placeholder) ;;
-    unsure) __ic_takeover stopped 1 || true; return 0 ;;
-    *) __ic_takeover stopped || true; return 0 ;;
-  esac
   if [ -x "$__IC_HELPER" ]; then
     cur="$("$__IC_HELPER" current 2>/dev/null)"
     acc="$("$__IC_HELPER" accounts 2>/dev/null)"
@@ -534,6 +531,12 @@ __on_notification() {
     *) budget="$(__ic_budget "$(__hist_path)" "$cur" "$acc")"; n="${budget%% *}" ;;
   esac
   case "$n" in ''|*[!0-9]*) n='' ;; esac
+  box="$(__ic_inputbox_state "${bw[@]}")"
+  case "$box" in
+    empty|placeholder) ;;
+    draft) __ic_takeover stopped || true; return 0 ;;
+    *) __ic_takeover stopped 1 || true; return 0 ;;
+  esac
   if [ -n "$n" ] && [ "$n" -gt "$IDEAL_COMPACT_WARN_TASKS" ]; then
     next=continuing text="$IDEAL_COMPACT_CONTINUE_TEXT"
   else
@@ -541,12 +544,15 @@ __on_notification() {
   fi
   __ic_lock "$LOCK" || return 0
   __ic_state_read "$SDIR"
+  # A check that answered empty/placeholder resets inputbox_fail in this write
+  # whatever the re-read finds.
+  IC_inputbox_fail=0
   if [ "$IC_phase" != stopped ] || [ "$IC_skip" != 0 ]; then
+    __ic_state_write "$SDIR"
     __ic_unlock
     return 0
   fi
   __ic_set_phase "$next"
-  IC_inputbox_fail=0
   __ic_state_write "$SDIR"
   __ic_unlock
   __ic_send "${bw[@]}" "$text" || true

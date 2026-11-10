@@ -301,7 +301,7 @@ __phys() {
 # __find_ledger <tool_input text>: the ledger this call names, as a physical
 # absolute path, or nothing. `task-done <plan>`: the .superpowers/sdd/*/progress.md
 # whose plan is that plan, under the cwd's repo root, then the plan's. Else the
-# first word ending in progress.md that is a file.
+# first word naming a progress.md file that __is_sdd_ledger accepts.
 __find_ledger() {
   local words w prev='' plan='' root seen='' f
   words="$(__words "$1")"
@@ -324,12 +324,21 @@ __find_ledger() {
     fi
   fi
   if [[ "$1" == *progress.md* ]]; then
-    w="$(awk '/progress\.md$/ { print; exit }' <<< "$words")"
-    [ -n "$w" ] || return 0
-    f="$(__phys "$(__abs "$w")")"
-    [ -n "$f" ] && [ -f "$f" ] && printf '%s' "$f"
+    while IFS= read -r w; do
+      case "$w" in progress.md|*/progress.md) ;; *) continue ;; esac
+      f="$(__phys "$(__abs "$w")")"
+      [ -n "$f" ] && [ -f "$f" ] && __is_sdd_ledger "$f" && { printf '%s' "$f"; return 0; }
+    done <<< "$words"
   fi
   return 0
+}
+
+# __is_sdd_ledger <path>: true for superpowers' ledgers only, that is
+# .superpowers/sdd/progress.md (the old flat layout) or
+# .superpowers/sdd/<plan>/progress.md. Any other progress.md belongs to the project.
+__is_sdd_ledger() {
+  local d="${1%/progress.md}"
+  [[ "$d" == */.superpowers/sdd || "${d%/*}" == */.superpowers/sdd ]]
 }
 
 # __suppress_holds <key> <win> <resets>: 0 while the stored account and

@@ -466,6 +466,27 @@ edit_led "$OLD"
 ck "ptu-old-ledger" "2 2" "$(hl "$OLDP") $(hlast "$OLDP" 3)"
 ck "ptu-old-ledger-stored" "$OLDP" "$(st ledger)"
 
+# Only superpowers' own ledgers count: a project's progress.md elsewhere, or a
+# file that merely ends in progress.md, is never taken as the ledger.
+mkdir -p "$R/docs" "$R/.superpowers/sdd/ws/deeper"
+for f in "$R/docs/progress.md" "$R/.superpowers/sdd/ws/myprogress.md" "$R/.superpowers/sdd/ws/deeper/progress.md"; do
+  printf '# SDD ledger — plan: docs/plan.md\nTask 1: complete (ok)\n' > "$f"
+done
+rm -f "$RHIST"; set_state phase=standby
+edit_led "$R/docs/progress.md"
+ck "ptu-foreign-progress-ignored" "ledger= history=absent" "ledger=$(st ledger) history=$([ -e "$RHIST" ] && echo present || echo absent)"
+set_state phase=standby
+edit_led "$R/.superpowers/sdd/ws/myprogress.md"
+ck "ptu-suffix-only-ignored" "" "$(st ledger)"
+set_state phase=standby
+edit_led "$R/.superpowers/sdd/ws/deeper/progress.md"
+ck "ptu-too-deep-ignored" "" "$(st ledger)"
+# a command naming a foreign progress.md first still finds the real ledger after it
+ledger 1; set_state phase=standby
+ptu Bash "$(jq -cn --arg a "$R/docs/progress.md" --arg b "$LED" '{command: ("cat " + $a + " >> " + $b)}')"
+ck "ptu-skips-foreign-to-ledger" "$LEDP" "$(st ledger)"
+rm -rf "$R/docs/progress.md" "$R/.superpowers/sdd/ws/myprogress.md" "$R/.superpowers/sdd/ws/deeper"
+
 # Review Focus 2: one completion seen twice is recorded once; a recreated ledger is a baseline
 seed - 1; ledger 1 2; set_state phase=standby
 edit_led

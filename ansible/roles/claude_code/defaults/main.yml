@@ -22,18 +22,21 @@ claude_code_plugins:
   - document-skills@anthropic-agent-skills
   - frontend-design@claude-plugins-official
   - playwright@claude-plugins-official
-  - typescript-lsp@claude-plugins-official
   - pyright-lsp@claude-plugins-official
   - clangd-lsp@claude-plugins-official
   - claude-code-setup@claude-plugins-official
   - sonarqube@claude-plugins-official
   - mattpocock-skills
+  - gopls-lsp@claude-plugins-official
 
 claude_code_dir: "{{ setup_user_home }}/.claude"
 claude_code_hook_dir: "{{ claude_code_dir }}/hooks"
 claude_code_plugin_dir: "{{ claude_code_dir }}/plugins"
 claude_code_skills_dir: "{{ claude_code_dir }}/skills"
 claude_code_self_download_dir: "{{ claude_code_plugin_dir }}/self-download"
+
+# gopls has no apt/self-update path; bump by hand (releases: golang.org/x/tools/gopls).
+claude_code_gopls_version: v0.24.0
 
 claude_code_hung_yi_lee_skill_version: 50aa282
 claude_code_hung_yi_lee_skill_refspec: 50aa2823cee651ecd9fbfb56cb66455bb8e3a7b3

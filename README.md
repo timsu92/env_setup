@@ -72,6 +72,7 @@ Roles implement individual capabilities. Each role encapsulates everything neede
 | `nvm` | nvm install + zsh nvm snippets |
 | `node` | Node.js install via nvm |
 | `uv` | uv installer + shell completions |
+| `go` | Go toolchain from the official tarball (pinned version + sha256) + PATH snippet |
 | `bun` | bun installer + PATH/completion snippets |
 | `zplug` | zplug + plugin snippets |
 | `starship` | starship + prompt snippet |

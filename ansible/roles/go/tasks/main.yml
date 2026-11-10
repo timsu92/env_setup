@@ -1,0 +1,62 @@
+---
+# Go programming language, installed from the official tarball into /usr/local/go
+- name: Check Go architecture is supported
+  ansible.builtin.assert:
+    that: go_arch in ['amd64', 'arm64']
+    fail_msg: "No Go tarball checksum for architecture '{{ ansible_facts['architecture'] }}'"
+    quiet: true
+
+- name: Install Go prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates  # https download
+      - tar  # unarchive
+      - gzip  # unarchive
+    state: present
+
+# Decide whether to install from the installed version.
+- name: Get installed Go version
+  ansible.builtin.command:
+    cmd: /usr/local/go/bin/go version
+  register: go_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Install Go {{ go_version }}
+  when: ('go version go' ~ go_version ~ ' ') not in (go_installed.stdout | default(''))
+  block:
+    - name: Download Go tarball
+      ansible.builtin.get_url:
+        url: "{{ go_download_url }}"
+        dest: "{{ go_tarball }}"
+        checksum: "sha256:{{ lookup('vars', 'go_' ~ go_arch ~ '_sha256') }}"
+        mode: "0644"
+
+    # Extracting over an old tree can leave stale files behind
+    - name: Remove previous Go installation
+      ansible.builtin.file:
+        path: /usr/local/go
+        state: absent
+
+    - name: Extract Go
+      ansible.builtin.unarchive:
+        src: "{{ go_tarball }}"
+        dest: /usr/local
+        remote_src: true
+        creates: /usr/local/go/bin/go
+
+  always:
+    - name: Remove Go tarball
+      ansible.builtin.file:
+        path: "{{ go_tarball }}"
+        state: absent
+      changed_when: false
+
+- name: Deploy Go PATH zsh snippet
+  ansible.builtin.copy:
+    src: non-interactive/15-go-path.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/non-interactive/15-go-path.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

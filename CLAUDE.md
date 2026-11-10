@@ -92,6 +92,12 @@ The primary glossary of global variables (`setup_user`, `setup_user_home`, git i
 
 Adding a third-party apt repository also means checking its pin priority against the NYCU mirror's. `apt_nycu_mirror` pins `origin "{{ apt_cacher_ng_host if apt_cacher_ng_enabled else '<mirror-host>' }}"` to `501` (`roles/apt_nycu_mirror/tasks/main.yml`). A new repo defaults to APT's standard `500` — if it happens to ship the exact same package (e.g. WakeMeOps carrying a newer `glab` than Ubuntu/Debian's own archive), APT still prefers the mirror at `501` and the new repo's package is silently never installed, even though the repo itself is configured correctly. Give that package its own `/etc/apt/preferences.d/<name>` pinning the new repo's origin to `501` (or higher) — see `Pin glab to the WakeMeOps apt repository` in `roles/gitlab_cli/tasks/main.yml:56-65`.
 
+### Vendor download URLs: `apt_architecture`, not `ansible_facts['architecture']`
+
+`ansible_facts['architecture']` is the kernel's name (`x86_64`, `aarch64`), but most upstream tarballs/`.deb`s are named `amd64`/`arm64`. Convert with `apt_architecture[ansible_facts['architecture']]` (`group_vars/all.yml`) instead of interpolating the raw fact into a URL, and `assert` the result is one of the arches you actually have a checksum for. See `roles/go/defaults/main.yml`.
+
+A tarball install into a system path (`/usr/local/go`) must decide whether to install from the *installed version* (`go version` registered with `changed_when: false`, `failed_when: false`, `check_mode: false`), not from the binary's existence, and not by deleting the old tree up front on every run. Otherwise a version bump never upgrades, or every run reinstalls. Put download, remove-old and extract in one `block` guarded by that check. See `roles/go/tasks/main.yml`.
+
 ### Identity model: `ansible_user` vs `setup_user`
 
 Two independent axes, easy to conflate:

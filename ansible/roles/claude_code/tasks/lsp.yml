@@ -1,0 +1,59 @@
+---
+# LSPs.
+# Not only required to install Claude Code plugins, but only the toolchains.
+
+# pyright-lsp (the PyPI package is `pyright`; it ships pyright-langserver)
+- name: Install pyright-lsp
+  ansible.builtin.command:
+    cmd: ~/.local/bin/uv tool install pyright
+    creates: ~/.local/bin/pyright-langserver
+  become: true
+  become_user: "{{ setup_user }}"
+
+# clangd-lsp
+- name: Install clangd-lsp
+  ansible.builtin.apt:
+    name: clangd
+    state: present
+  when: ansible_facts['os_family'] == 'Debian'
+
+# - name: Install clangd-lsp  # Won't be tested
+#   ansible.builtin.dnf:
+#     name: clang-tools-extra
+#     state: present
+#   when: ansible_facts['os_family'] == 'RedHat'
+
+# - name: Install clangd-lsp  # Won't be tested
+#   ansible.builtin.pacman:
+#     name: clang
+#     state: present
+#   when: ansible_facts['os_family'] == 'Archlinux'
+
+# - name: Install clangd-lsp  # Won't be tested
+#   ansible.builtin.win_shell:
+#     cmd: winget install --id LLVM.LLVM -e --accept-package-agreements --accept-source-agreements
+#   when: ansible_facts['os_family'] == 'Windows'
+
+# gopls-lsp
+# Decide from the installed version (not `creates:`) so bumping
+# claude_code_gopls_version upgrades. `go install` always reports changed.
+- name: Get installed gopls version
+  ansible.builtin.command:
+    cmd: "{{ setup_user_home }}/go/bin/gopls version"
+  register: claude_code_gopls_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  become: true
+  become_user: "{{ setup_user }}"
+
+- name: Install gopls-lsp
+  ansible.builtin.command:
+    cmd: "go install golang.org/x/tools/gopls@{{ claude_code_gopls_version }}"
+  when: claude_code_gopls_version not in (claude_code_gopls_installed.stdout | default(''))
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    GOPATH: "{{ setup_user_home }}/go"
+    PATH: "{{ setup_user_home }}/go/bin:/usr/local/go/bin:{{ ansible_facts['env']['PATH'] }}"
+  changed_when: true

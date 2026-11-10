@@ -215,7 +215,7 @@ Reference implementations: `roles/claude_code/tasks/hung-yi-lee-skill.yml` and `
 
 ### UTF-8 locale dependency
 
-Any role whose shell integration renders Unicode/nerd-font glyphs or otherwise depends on locale (prompt icons, job-control messages — see `starship`, `zplug`) should add a `meta/main.yml` dependency on `locale_term_env`. Note the asymmetry: `locale_term_env` only deploys the `LANG`/`TERM` zsh env vars (`templates/10-locale-term.zsh.j2`) — it does not generate the `en_US.UTF-8` locale itself. Locale *generation* only happens at bootstrap time, in `utils/locale.sh`, for local-model targets (container/devcontainer) before Ansible even runs. Push-model targets (VM/LXC) are assumed to already have the locale from their base image; this project doesn't verify it there.
+Any role whose shell integration renders Unicode/nerd-font glyphs or otherwise depends on locale (prompt icons, job-control messages — see `starship`, `zplug`) should add a `meta/main.yml` dependency on `locale_term_env`. Note the asymmetry: `locale_term_env` only deploys the `LANG`/`TERM` zsh env vars (`templates/10-locale-term.zsh.j2`) — it does not generate the `en_US.UTF-8` locale itself. Locale *generation* only happens at bootstrap time, in `utils/locale.sh`, for local-model targets (devcontainer, WSL) before Ansible even runs. Those wrappers hand the detected locale to the role with `-e locale_term_env_lang=...` (never read it from `ansible_facts['env']`, which on a push target is the SSH session's environment and has no `LC_ALL`). Push-model targets (VM/LXC) are assumed to already have the locale from their base image and fall back to the role default `C.UTF-8`; this project doesn't verify it there.
 
 ## Commit message convention
 

@@ -28,7 +28,9 @@ T="$(mktemp -d)"
 # never picks up the multiplexer of the shell that started the test from /proc.
 env -i sleep 3600 & CLEAN_PID=$!
 export IC_CLAUDE_PID=$CLEAN_PID
-trap 'kill "$CLEAN_PID" 2>/dev/null; rm -rf "$T" "$ISO"' EXIT
+# KILLS: every background process a row starts (hooks, claude stand-ins), killed on exit
+KILLS=()
+trap 'kill "$CLEAN_PID" "${KILLS[@]}" 2>/dev/null; rm -rf "$T" "$ISO"' EXIT
 export FAKE_LOG="$T/fake.log"
 
 # Layout mirroring ~/.claude: <T>/common-helpers.sh, <T>/hwap-helper.sh (stub), <T>/hooks/ideal-compact.sh
@@ -43,6 +45,9 @@ cat > "$T/hwap-helper.sh" <<'STUB'
 case "${1:-}" in
   current) cat "$STUB_CURRENT" 2>/dev/null ;;
   accounts) cat "$STUB_ACCOUNTS" 2>/dev/null ;;
+  # the gate's call (no argument): $STUB_GATE is a snippet printing its answer,
+  # nothing (= ok) when unset
+  '') [ -n "${STUB_GATE:-}" ] && eval "$STUB_GATE" ;;
 esac
 exit 0
 STUB
@@ -160,7 +165,8 @@ tk() {  # tk <expected> [arg]: runs the hook's __ic_takeover on the current stat
   bash -c '
     . "$1/common-helpers.sh"; __IC_HELPER="$1/hwap-helper.sh"
     SDIR="$2" TPATH="$3" CWD="$4" LOCK="$2/ideal-compact-state.lock"
-    eval "$(sed -n "/^__ic_takeover() {/,/^}/p" "$1/hooks/ideal-compact.sh")"
+    __IC_IN_CS=0 __IC_SIGNALED=0
+    eval "$(sed -n "/^__cs_lock() {/,/^}/p; /^__cs_unlock() {/p; /^__cs_leave() {/,/^}/p; /^__ic_takeover() {/,/^}/p" "$1/hooks/ideal-compact.sh")"
     __ic_takeover "${@:5}"; echo "rc=$?"' _ "$T" "$SDIR" "$TP" "$T/cwd" "$@"
 }
 set_state phase=armed dirty=2 armed_key=ARMK
@@ -722,6 +728,179 @@ for line in skip=1 phase=armed phase=standby; do
 done
 unset RACE_LINE
 unset FAKE_SCREEN FAKE_CURSOR
+
+# ---- PostCompact: switch, wait, continue ----
+# The hook runs in the background (it may wait); pc_wait collects it.
+export IC_MIN_WAIT_SEC=1
+FAKE_SCREEN="$T/screen-empty" FAKE_CURSOR="2 1"; export FAKE_SCREEN FAKE_CURSOR
+PCH="$SDIR/checkpoint-hold-until"; GH="$IC_TMP_BASE/hwap-hold-until"
+# pchist <c5 of KEY1> [<c5 of KEY2>]: history of the cwd's project (5h only)
+pchist() {
+  mkdir -p "$(dirname "$HIST")"
+  printf '1\tL\t1\tKEY1\t10\t1\t10\t1\t0\t%s\t-\t0\t0\t0\t0\t0\t0\n' "$1" > "$HIST"
+  [ -z "${2:-}" ] || printf '1\tL\t1\tKEY2\t10\t1\t10\t1\t0\t%s\t-\t0\t0\t0\t0\t0\t0\n' "$2" >> "$HIST"
+}
+# new_claude: a fresh claude stand-in in IC_CLAUDE_PID (CLAUDE_PID), so a row can kill it
+new_claude() { env -i sleep 3600 & CLAUDE_PID=$!; KILLS+=("$CLAUDE_PID"); export IC_CLAUDE_PID=$CLAUDE_PID; }
+# pc_bg [state...]: phase compacting (plus these keys), then the hook in the background (HPID)
+pc_bg() {
+  set_state phase=compacting "$@"; : > "$FAKE_LOG"; rm -f "$PCH" "$GH"
+  jq -n --arg tp "$TP" --arg cwd "$T/cwd" \
+    '{session_id: "sess1", transcript_path: $tp, cwd: $cwd, hook_event_name: "PostCompact", trigger: "manual"}' > "$T/pc.json"
+  "$T/hooks/ideal-compact.sh" < "$T/pc.json" > "$T/out" 2> "$T/err" & HPID=$!
+  KILLS+=("$HPID")
+}
+# pc_wait <seconds>: RC = the hook's exit status, or `timeout` (the hook is then killed)
+pc_wait() {
+  local i
+  for ((i = 0; i < $1 * 10; i++)); do kill -0 "$HPID" 2>/dev/null || break; sleep 0.1; done
+  if kill -0 "$HPID" 2>/dev/null; then
+    pkill -P "$HPID" 2>/dev/null; kill -9 "$HPID" 2>/dev/null; wait "$HPID" 2>/dev/null; RC=timeout
+  else
+    wait "$HPID"; RC=$?
+  fi
+}
+absent() { [ -e "$1" ] && echo present || echo absent; }
+switched() { grep '^cswap switch' "$FAKE_LOG" 2>/dev/null; }
+pc_cur() { printf 'usage KEY1 50 %s 20 %s 97 99 %s 3\n' "$1" $R7 "${2:-120}" > "$T/current"; }
+
+# budget 2, an alternate with budget 8 -> switch, then 繼續
+pchist 20 10; pc_cur $R5
+printf 'usage KEY2 10 %s 20 %s 97 99 120 3\n' $R5 $R7 > "$T/current-alt"
+printf '1 KEY1 1 1 50 %s 20 %s 1 1\n2 KEY2 0 1 10 %s 20 %s 1 1\n' $R5 $R7 $R5 $R7 > "$T/accounts"
+export STUB_SIDE="grep -q '^cswap switch 2' \"\$FAKE_LOG\" && cp \"$T/current-alt\" \"\$STUB_CURRENT\""
+pc_bg; pc_wait 10
+unset STUB_SIDE
+ck "pc-switch-rc" "0" "$RC"
+ck "pc-switch-switched" "cswap switch 2" "$(switched)"
+ck "pc-switch-sent" "$EXP_CONT" "$(sent)"
+st_all "pc-switch-state" "phase=continuing suppress=0"
+no_stdout "pc-switch-quiet"
+: > "$T/accounts"
+
+# no better alternate, budget 5 -> no switch, 繼續
+pchist 9; pc_cur $R5
+pc_bg; pc_wait 10
+ck "pc-no-alt-switched" "" "$(switched)"
+ck "pc-no-alt-sent" "$EXP_CONT" "$(sent)"
+st_all "pc-no-alt-state" "phase=continuing"
+
+# the helper fails during the gate -> 繼續 at once (budget 2 would otherwise wait)
+pchist 20; pc_cur $R5
+export STUB_GATE='printf error:boom'
+pc_bg; pc_wait 3
+unset STUB_GATE
+ck "pc-gate-error-rc" "0" "$RC"
+ck "pc-gate-error-sent" "$EXP_CONT" "$(sent)"
+ck "pc-gate-error-no-hold" "absent" "$(absent "$PCH")"
+
+# budget 2, 5h reset 3 s ahead, buffer 1 s -> hold written, 繼續 after reset + buffer
+pchist 20; R5S=$(( $(date +%s) + 3 )); pc_cur $R5S 1
+export STUB_SIDE="[ \$(date +%s) -ge $R5S ] && printf 'usage KEY1 0 $R5S 20 $R7 97 99 1 3\n' > \"\$STUB_CURRENT\""
+pc_bg; sleep 1.5
+ck "pc-hold-written" "$((R5S + 1))" "$(cat "$PCH" 2>/dev/null)"
+ck "pc-hold-phase" "waiting" "$(st phase)"
+ck "pc-hold-not-yet" "" "$(sent)"
+pc_wait 12
+unset STUB_SIDE
+ck "pc-hold-rc" "0" "$RC"
+ck "pc-hold-sent" "$EXP_CONT" "$(sent)"
+ck "pc-hold-removed" "absent" "$(absent "$PCH")"
+ck "pc-hold-message-once" "1" "$(grep -c "^ideal-compact: waiting for budget; cancel with kill $HPID\$" "$T/err")"
+[ "$(date +%s)" -ge $((R5S + 1)) ] && pass "pc-hold-after-buffer" ok || bad "pc-hold-after-buffer" "sent after reset + buffer" "early"
+
+# SIGTERM during the gate's wait, and during the budget wait -> exit 1 at once, standby+suppress
+export STUB_GATE='printf "wait %s %s" $(( $(date +%s) + 100 )) $(( $(date +%s) + 90 ))'
+pchist 20; pc_cur $R5
+pc_bg armed_key=ARMK armed_win=5h armed_resets=77; sleep 0.8
+ck "pc-term-gate-hold-published" "present" "$(absent "$GH")"
+kill -TERM "$HPID"; pc_wait 1
+unset STUB_GATE
+ck "pc-term-gate-rc" "1" "$RC"
+st_all "pc-term-gate-state" "phase=standby suppress=1 suppress_key=ARMK suppress_win=5h suppress_resets=77"
+ck "pc-term-gate-holds-gone" "absent absent" "$(absent "$GH") $(absent "$PCH")"
+ck "pc-term-gate-nothing-sent" "" "$(sent)"
+pc_bg; sleep 0.8
+ck "pc-term-budget-hold-written" "present" "$(absent "$PCH")"
+kill -TERM "$HPID"; pc_wait 1
+ck "pc-term-budget-rc" "1" "$RC"
+st_all "pc-term-budget-state" "phase=standby suppress=1"
+ck "pc-term-budget-holds-gone" "absent absent" "$(absent "$GH") $(absent "$PCH")"
+ck "pc-term-budget-nothing-sent" "" "$(sent)"
+
+# the claude process ends during the gate's wait, and during the budget wait -> ends, nothing sent
+export STUB_GATE='printf "wait %s %s" $(( $(date +%s) + 1 )) $(( $(date +%s) + 1 ))'
+new_claude; pc_bg; sleep 0.5
+kill "$CLAUDE_PID"; pc_wait 5
+unset STUB_GATE
+ck "pc-claude-gone-gate-rc" "0" "$RC"
+ck "pc-claude-gone-gate-nothing-sent" "" "$(sent)"
+ck "pc-claude-gone-gate-no-hold" "absent" "$(absent "$PCH")"
+pchist 20; R5S=$(( $(date +%s) + 3 )); pc_cur $R5S 1
+new_claude; pc_bg; sleep 1
+ck "pc-claude-gone-budget-waiting" "present" "$(absent "$PCH")"
+kill "$CLAUDE_PID"; pc_wait 8
+ck "pc-claude-gone-budget-rc" "0" "$RC"
+ck "pc-claude-gone-budget-nothing-sent" "" "$(sent)"
+ck "pc-claude-gone-budget-hold-gone" "absent" "$(absent "$PCH")"
+export IC_CLAUDE_PID=$CLEAN_PID
+
+# another hook sets standby during the gate's wait, and during the budget wait -> ends, nothing sent
+export STUB_GATE='printf "wait %s %s" $(( $(date +%s) + 1 )) $(( $(date +%s) + 1 ))'
+pc_bg; sleep 0.5
+printf 'phase=standby\n' >> "$SDIR/ideal-compact-state"; pc_wait 5
+unset STUB_GATE
+ck "pc-standby-gate-rc" "0" "$RC"
+ck "pc-standby-gate-nothing-sent" "" "$(sent)"
+ck "pc-standby-gate-phase" "standby" "$(st phase)"
+pchist 20; R5S=$(( $(date +%s) + 3 )); pc_cur $R5S 1
+pc_bg; sleep 1
+ck "pc-standby-budget-waiting" "present" "$(absent "$PCH")"
+printf 'phase=standby\n' >> "$SDIR/ideal-compact-state"; pc_wait 8
+ck "pc-standby-budget-rc" "0" "$RC"
+ck "pc-standby-budget-nothing-sent" "" "$(sent)"
+ck "pc-standby-budget-hold-gone" "absent" "$(absent "$PCH")"
+pc_cur $R5
+
+# the limiting window's reset is unknown (0) with budget 2 -> 繼續 at once, no hold
+pchist 20; pc_cur 0
+pc_bg; pc_wait 3
+ck "pc-reset-0-sent" "$EXP_CONT" "$(sent)"
+ck "pc-reset-0-no-wait-message" "" "$(grep 'waiting for budget' "$T/err")"
+pc_cur $R5
+
+# SIGTERM while the main path holds the state lock -> no deadlock, exit 1
+pchist 9
+export IC_TEST_CS_SLEEP=1.5
+pc_bg; sleep 0.6
+kill -TERM "$HPID"; pc_wait 2
+unset IC_TEST_CS_SLEEP
+ck "pc-term-in-lock-rc" "1" "$RC"
+st_all "pc-term-in-lock-state" "phase=standby suppress=1"
+ck "pc-term-in-lock-nothing-sent" "" "$(sent)"
+
+# a draft in the input box at send time -> takeover, nothing sent; unsure -> inputbox_fail
+pchist 9
+FAKE_SCREEN="$T/screen-draft" FAKE_CURSOR="7 1"
+pc_bg; pc_wait 5
+ck "pc-draft-nothing-sent" "" "$(sent)"
+st_all "pc-draft-state" "phase=standby suppress=1 inputbox_fail=0"
+FAKE_SCREEN="$T/screen-none" FAKE_CURSOR="2 1"
+pc_bg; pc_wait 5
+ck "pc-unsure-nothing-sent" "" "$(sent)"
+st_all "pc-unsure-state" "phase=standby suppress=1 inputbox_fail=1"
+FAKE_SCREEN="$T/screen-empty"
+pc_bg inputbox_fail=1; pc_wait 5
+st_all "pc-empty-resets-inputbox-fail" "phase=continuing inputbox_fail=0"
+
+# PostCompact outside compacting does nothing
+for ph in standby armed waiting continuing; do
+  set_state phase=$ph; : > "$FAKE_LOG"
+  send PostCompact --arg trigger manual
+  ck "pc-in-$ph" "$ph|" "$(st phase)|$(cat "$FAKE_LOG")"
+  no_stdout "pc-in-$ph-quiet"
+done
+unset FAKE_SCREEN FAKE_CURSOR IC_MIN_WAIT_SEC
 
 unset TMUX TMUX_PANE
 

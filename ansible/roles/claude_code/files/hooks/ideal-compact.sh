@@ -2,11 +2,10 @@
 # Claude Code hook for the checkpoint-compact flow: pause at a task boundary,
 # /compact through the terminal multiplexer, switch account, send 繼續.
 # Registered on PostToolUse, Stop, Notification, PreCompact, PostCompact,
-# SessionStart and UserPromptSubmit. This file handles SessionStart,
-# UserPromptSubmit, PreCompact, PostToolUse, Stop and Notification; PostCompact
-# is a stub for now.
-# It never blocks Claude Code: exit 0 on every path (never 2), and nothing on
-# stdout except PostToolUse's additionalContext JSON.
+# SessionStart and UserPromptSubmit.
+# It never blocks Claude Code: exit 0 on every path (never 2; PostCompact
+# exits 1 when cancelled by SIGTERM/SIGHUP), and nothing on stdout except
+# PostToolUse's additionalContext JSON.
 set -u
 
 # Relative to this script (~/.claude/hooks/), so a moved ~/.claude keeps working.
@@ -66,6 +65,26 @@ __hist_path() {
   if [ -n "$pdir" ]; then printf '%s/ideal-compact-history' "$pdir"; else printf /dev/null; fi
 }
 
+# Signal deferral (PostCompact only installs the trap, see __on_signal): every
+# lock...unlock of the state lock goes through __cs_lock/__cs_unlock, and a
+# signal that arrives in between only sets __IC_SIGNALED; __cs_unlock replays
+# it. The handler itself takes the lock, which would never return while this
+# process already holds it (locks never nest).
+__IC_IN_CS=0 __IC_SIGNALED=0 __IC_SLEEP_PID=
+__cs_lock() {
+  __IC_IN_CS=1
+  if ! __ic_lock "$LOCK"; then __cs_leave; return 1; fi
+  # Test seam: holds the lock a moment so a signal lands inside it.
+  [ -n "${IC_TEST_CS_SLEEP:-}" ] && sleep "$IC_TEST_CS_SLEEP"
+  return 0
+}
+__cs_unlock() { __ic_unlock; __cs_leave; }
+__cs_leave() {
+  __IC_IN_CS=0
+  [ "$__IC_SIGNALED" = 1 ] && __on_signal
+  return 0
+}
+
 # __ic_takeover <expected> [inputbox_fail]: the user (or something else) took
 # the session over while the flow was running, or a step failed. Sets phase
 # standby with suppress=1 for the window the budget is currently counted on,
@@ -96,12 +115,12 @@ __ic_takeover() {
       *) bwin='' ;;
     esac
   fi
-  __ic_lock "$LOCK" || return 1
+  __cs_lock || return 1
   __ic_state_read "$SDIR"
   if [ "$expected" = nonstandby ]; then
-    [ "$IC_phase" != standby ] || { __ic_unlock; return 1; }
+    [ "$IC_phase" != standby ] || { __cs_unlock; return 1; }
   else
-    [ "$IC_phase" = "$expected" ] || { __ic_unlock; return 1; }
+    [ "$IC_phase" = "$expected" ] || { __cs_unlock; return 1; }
   fi
   if [ -z "$bwin" ]; then
     s_key="$IC_armed_key" s_win="$IC_armed_win" s_resets="$IC_armed_resets"
@@ -110,7 +129,7 @@ __ic_takeover() {
   IC_suppress=1 IC_suppress_key="$s_key" IC_suppress_win="$s_win" IC_suppress_resets="${s_resets:-0}"
   [ -n "$fail" ] && IC_inputbox_fail=1
   __ic_state_write "$SDIR"
-  __ic_unlock
+  __cs_unlock
   return 0
 }
 
@@ -558,6 +577,174 @@ __on_notification() {
   __ic_send "${bw[@]}" "$text" || true
 }
 
+# ---- PostCompact: switch account, wait for budget, send 繼續 ----
+# Registered with a timeout of days: the hook may wait that long. Every sleep
+# runs in the background and is waited for, so SIGTERM/SIGHUP (the user's
+# `kill <pid>`) act at once.
+
+# The trap handler: a signal while waiting hands the session back to the user
+# (standby with suppress). suppress_* comes from armed_* like a phase timeout:
+# asking the helper here would delay the exit. A signal inside a lock section
+# is only remembered and replayed by __cs_unlock.
+__on_signal() {
+  if [ "$__IC_IN_CS" = 1 ]; then __IC_SIGNALED=1; return 0; fi
+  # From here on a second signal only sets the flag; this path exits anyway.
+  __IC_SIGNALED=0 __IC_IN_CS=1
+  [ -n "${__IC_SLEEP_PID:-}" ] && kill "$__IC_SLEEP_PID" 2>/dev/null
+  if __ic_lock "$LOCK"; then
+    __ic_state_read "$SDIR"
+    if [ "$IC_phase" = waiting ]; then
+      __ic_set_phase standby
+      IC_suppress=1 IC_suppress_key="$IC_armed_key" IC_suppress_win="$IC_armed_win" IC_suppress_resets="$IC_armed_resets"
+      __ic_state_write "$SDIR"
+    fi
+    __ic_unlock
+  fi
+  __clear_hold_until
+  rm -f "$SDIR/checkpoint-hold-until" 2>/dev/null
+  exit 1
+}
+
+# __ic_wait_abort: non-zero (abort) when the phase is no longer waiting (the
+# user or another hook took over) or the claude process is gone or a zombie.
+# Reads without the lock (every write is atomic). Also __gate's abort_fn.
+__ic_wait_abort() {
+  local pid s
+  __ic_state_read "$SDIR"
+  [ "$IC_phase" = waiting ] || return 1
+  pid="$(__ic_claude_pid)"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
+  { read -r s < "/proc/$pid/stat"; } 2>/dev/null || return 1
+  s="${s##*) }"
+  [ "${s%% *}" != Z ]
+}
+
+# __ic_sleep <seconds>: an interruptible sleep (see the section comment).
+__ic_sleep() {
+  sleep "$1" >/dev/null 2>&1 & __IC_SLEEP_PID=$!
+  wait "$__IC_SLEEP_PID"
+  __IC_SLEEP_PID=
+}
+
+# __pick_switch <hist> <current> <accounts>: switches to the account
+# __ic_pick_account names; 0 when it did. The number switched to last
+# (PC_LAST_SWITCH) is not tried again until the next wait, so a switch that
+# did not take effect cannot spin.
+PC_LAST_SWITCH=''
+__pick_switch() {
+  local n cswap
+  case "$2" in error:*|'') return 1 ;; esac
+  n="$(__ic_pick_account "$1" "$2" "$3")"
+  [ -n "$n" ] && [ "$n" != "$PC_LAST_SWITCH" ] || return 1
+  cswap="$(__cswap_bin)" || return 1
+  "$cswap" switch "$n" >/dev/null 2>&1
+  PC_LAST_SWITCH="$n"
+  return 0
+}
+
+# __helper_now: CUR and ACC, the helper's `current` and `accounts` (empty on failure).
+__helper_now() {
+  CUR='' ACC=''
+  [ -x "$__IC_HELPER" ] || return 0
+  CUR="$("$__IC_HELPER" current 2>/dev/null)"
+  ACC="$("$__IC_HELPER" accounts 2>/dev/null)"
+  case "$CUR" in error:*) CUR='' ;; esac
+  return 0
+}
+
+# Our /compact finished (compacting -> waiting). Switch to a better account,
+# then wait in rounds until the gate lets the account through and the budget
+# has room (> IDEAL_COMPACT_ARM_TASKS tasks), or nothing can be known (helper
+# error, unknown budget, unknown reset); then send 繼續 (waiting ->
+# continuing). Any round ends the hook without sending once __ic_wait_abort
+# says so. The input box is checked last, right before the lock.
+__on_post_compact() {
+  local hist budget n bwin r5 r7 buf r hold now s tmp told=0 rc box backend pchold
+  local -a bw
+  __ic_state_read "$SDIR"
+  [ "$IC_phase" = compacting ] || return 0
+  pchold="$SDIR/checkpoint-hold-until"
+  trap __on_signal TERM HUP
+  trap 'rm -f "$SDIR/checkpoint-hold-until" 2>/dev/null' EXIT
+  __cs_lock || return 0
+  __ic_state_read "$SDIR"
+  if [ "$IC_phase" != compacting ]; then __cs_unlock; return 0; fi
+  __ic_set_phase waiting
+  __ic_state_write "$SDIR"
+  __cs_unlock
+  # One left behind by a run that was killed (SIGKILL runs no trap).
+  rm -f "$pchold" 2>/dev/null
+  hist="$(__hist_path)"
+  __helper_now
+  __pick_switch "$hist" "$CUR" "$ACC" || true
+
+  while :; do
+    __ic_wait_abort || return 0
+    __gate __ic_wait_abort; rc=$?
+    __IC_SLEEP_PID=
+    case "$rc" in 3) break ;; 4) return 0 ;; esac
+    # The buffer after a reset: the helper may already read the reset window
+    # as 0, so an unexpired hold from an earlier round is waited out first.
+    now="$(date +%s)" hold=''
+    { read -r hold < "$pchold"; } 2>/dev/null
+    if [[ "$hold" =~ ^[0-9]+$ ]] && [ "$hold" -gt "$now" ]; then
+      s=$(( hold - now )); [ "$s" -gt 120 ] && s=120
+      __ic_sleep "$s"
+      continue
+    fi
+    __helper_now
+    [ -n "$CUR" ] || break
+    budget="$(__ic_budget "$hist" "$CUR" "$ACC")"
+    n="${budget%% *}" bwin="${budget#* }"
+    case "$n" in ''|*[!0-9]*) break ;; esac
+    [ "$n" -gt "$IDEAL_COMPACT_ARM_TASKS" ] && break
+    # `current` is: tag key p5 r5 p7 r7 thr5 thr7 buf tol
+    read -r _ _ _ r5 _ r7 _ _ buf _ <<< "$CUR"
+    case "$bwin" in 7d) r="$r7" ;; *) r="$r5" ;; esac
+    # An unknown reset has nothing to wait for.
+    case "$r" in ''|0|*[!0-9]*) break ;; esac
+    __pick_switch "$hist" "$CUR" "$ACC" && continue
+    case "$buf" in ''|*[!0-9]*) buf=0 ;; esac
+    hold=$(( r + buf ))
+    tmp="$(mktemp "$pchold.XXXXXX" 2>/dev/null)" \
+      && { printf '%s\n' "$hold" > "$tmp" && mv -f "$tmp" "$pchold" || rm -f "$tmp"; } 2>/dev/null
+    if [ "$told" = 0 ]; then
+      echo "ideal-compact: waiting for budget; cancel with kill $$" >&2
+      told=1
+    fi
+    s=$(( hold - now )); [ "$s" -gt 120 ] && s=120
+    [ "$s" -lt "${IC_MIN_WAIT_SEC:-30}" ] && s="${IC_MIN_WAIT_SEC:-30}"
+    PC_LAST_SWITCH=''
+    __ic_sleep "$s"
+  done
+
+  __ic_wait_abort || return 0
+  backend="$(__ic_backend)"
+  if [ -z "$backend" ]; then
+    __ic_takeover waiting || true
+    return 0
+  fi
+  read -r -a bw <<< "$backend"
+  box="$(__ic_inputbox_state "${bw[@]}")"
+  case "$box" in
+    empty|placeholder) ;;
+    draft) __ic_takeover waiting || true; return 0 ;;
+    *) __ic_takeover waiting 1 || true; return 0 ;;
+  esac
+  __cs_lock || return 0
+  __ic_state_read "$SDIR"
+  IC_inputbox_fail=0
+  if [ "$IC_phase" != waiting ]; then
+    __ic_state_write "$SDIR"
+    __cs_unlock
+    return 0
+  fi
+  __ic_set_phase continuing
+  __ic_state_write "$SDIR"
+  __cs_unlock
+  __ic_send "${bw[@]}" "$IDEAL_COMPACT_CONTINUE_TEXT" || true
+}
+
 # Fast path, before any lock: an idle standby with nothing queued and no
 # ledger in sight is the common tool call and costs no helper, cswap or git.
 # standby has no timeout, so skipping __ttl_step is safe.
@@ -578,6 +765,6 @@ case "$EVENT" in
   PostToolUse) __on_post_tool_use ;;
   Stop) __on_stop ;;
   Notification) __on_notification ;;
-  PostCompact) : ;;   # Task 13
+  PostCompact) __on_post_compact ;;
 esac
 exit 0

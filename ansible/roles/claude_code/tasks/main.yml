@@ -67,3 +67,6 @@
 
 - name: Install SonarQube MCP server fallback
   ansible.builtin.include_tasks: sonarqube-mcp.yml
+
+- name: Install LSPs
+  ansible.builtin.include_tasks: lsp.yml

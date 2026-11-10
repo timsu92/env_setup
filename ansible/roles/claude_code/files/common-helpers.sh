@@ -177,3 +177,109 @@ __ic_project_dir() {
   [ -n "$key" ] || return 0
   printf '%s' "${IC_TMP_BASE:-/tmp/claude-$(id -u)}/$key"
 }
+
+# ---- state file, locks and phase timeouts ----
+# <session dir>/ideal-compact-state holds key=value lines, read into IC_<key>.
+# Writers hold __ic_lock around read -> change -> write; readers (the
+# statusline) take no lock because every write is a temp file plus mv.
+
+__IC_STATE_KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
+__IC_STATE_NUMERIC=" phase_at skip suppress suppress_resets dirty armed_resets inputbox_fail "
+
+# Sets every IC_<key> (defaults for anything missing or malformed). Parsed
+# line by line, never sourced: values may hold spaces and are not trusted.
+__ic_state_read() {
+  local __k __line __v
+  IC_phase=standby IC_phase_at=0 IC_skip=0 IC_suppress=0 IC_suppress_key='' IC_suppress_win=''
+  IC_suppress_resets=0 IC_dirty=0 IC_ledger='' IC_armed_key='' IC_armed_win='' IC_armed_resets=0
+  IC_cheap_obs='' IC_inputbox_fail=0 IC_pending_inject=''
+  [ -n "${1:-}" ] && [ -r "$1/ideal-compact-state" ] || return 0
+  while IFS= read -r __line || [ -n "$__line" ]; do
+    case "$__line" in *=*) ;; *) continue ;; esac
+    __k="${__line%%=*}"
+    __v="${__line#*=}"
+    case " $__IC_STATE_KEYS " in *" $__k "*) ;; *) continue ;; esac
+    case "$__IC_STATE_NUMERIC" in
+      *" $__k "*) case "$__v" in ''|*[!0-9]*) continue ;; esac ;;
+    esac
+    if [ "$__k" = phase ]; then
+      case "$__v" in standby|armed|waiting|to-compact|compacting|continuing|stopped) ;; *) continue ;; esac
+    fi
+    printf -v "IC_$__k" '%s' "$__v"
+  done < "$1/ideal-compact-state" 2>/dev/null
+  return 0
+}
+
+# Writes every IC_<key> atomically (temp file in the same directory, then mv).
+__ic_state_write() {
+  local __k __n __v __tmp
+  [ -n "${1:-}" ] || return 1
+  mkdir -p "$1" 2>/dev/null || return 1
+  __tmp="$(mktemp "$1/ideal-compact-state.XXXXXX" 2>/dev/null)" || return 1
+  for __k in $__IC_STATE_KEYS; do
+    __n="IC_$__k"
+    __v="${!__n:-}"
+    printf '%s=%s\n' "$__k" "${__v//$'\n'/ }"
+  done > "$__tmp" 2>/dev/null && mv -f "$__tmp" "$1/ideal-compact-state" 2>/dev/null || { rm -f "$__tmp" 2>/dev/null; return 1; }
+}
+
+# __ic_set_phase <new>: only changes the IC_* variables; the caller writes.
+# A caller that queues an injection sets IC_pending_inject after this call.
+__ic_set_phase() {
+  IC_phase="$1"
+  IC_phase_at="$(date +%s)"
+  IC_pending_inject=''
+  [ "$1" = standby ] && IC_skip=0
+  return 0
+}
+
+# __ic_lock <file>: a fresh fd per call (bash picks one >= 10), kept in
+# __IC_LOCK_FD for __ic_unlock. The lock directory is created when missing.
+__IC_LOCK_FD=''
+__ic_lock() {
+  local __fd
+  mkdir -p "$(dirname "$1")" 2>/dev/null || return 1
+  exec {__fd}>>"$1" 2>/dev/null || return 1
+  if ! flock "$__fd"; then exec {__fd}>&-; return 1; fi
+  __IC_LOCK_FD="$__fd"
+}
+
+__ic_unlock() {
+  local __fd="${__IC_LOCK_FD:-}"
+  [ -n "$__fd" ] || return 0
+  flock -u "$__fd" 2>/dev/null
+  exec {__fd}>&-
+  __IC_LOCK_FD=''
+  return 0
+}
+
+# __ic_ttl_check <now>: works on the IC_* variables the caller just read
+# (the caller holds the lock and writes afterwards). A phase that outlived
+# its timeout goes back to standby with suppress=1 for the window it was
+# armed on; armed_* is copied rather than asking the helper because the
+# helper must not run under the lock. Returns 0 when it expired one.
+__ic_ttl_check() {
+  local ttl
+  case "$IC_phase" in
+    to-compact|continuing) ttl="$IDEAL_COMPACT_SENT_TTL_SEC" ;;
+    compacting) ttl="$IDEAL_COMPACT_COMPACT_TTL_SEC" ;;
+    stopped) ttl="$IDEAL_COMPACT_STOPPED_TTL_SEC" ;;
+    *) return 1 ;;
+  esac
+  [ $(( $1 - IC_phase_at )) -gt "$ttl" ] || return 1
+  IC_suppress=1
+  IC_suppress_key="$IC_armed_key" IC_suppress_win="$IC_armed_win" IC_suppress_resets="$IC_armed_resets"
+  __ic_set_phase standby
+  return 0
+}
+
+# __ic_phase_display <session_dir> <now>: the phase the statusline shows
+# (an expired one reads as standby). Reads only, in a subshell so the
+# caller's IC_* variables stay untouched.
+__ic_phase_display() {
+  (
+    __ic_state_read "$1"
+    __ic_ttl_check "$2" >/dev/null
+    printf '%s' "$IC_phase"
+  )
+}

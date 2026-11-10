@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for `hwap-helper.sh current`. Usage: hwap-helper-modes.sh [path-to-helper]
+# Tests for `hwap-helper.sh current` and `hwap-helper.sh accounts`. Usage: hwap-helper-modes.sh [path-to-helper]
 # ---- isolation header: a test must never reach the real session or account ----
 unset TMUX TMUX_PANE STY WINDOW CLAUDECODE
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -129,5 +129,137 @@ for mode in jq python; do
   if [ "$d" = "okx" ]; then pass $mode "default mode: token ok, no newline"; else bad $mode "default mode" "'$d'"; fi
   w="$(HWAP_HINT_DIR="$HD" STUB_JSON="$T/in.json" PATH="$(paths $mode)" "$BASH_BIN" "$HELPER" --with-usage; echo x)"
   if [[ "$w" == "ok"$'\n'"usage 30 40"*" $K 0 0x" ]]; then pass $mode "--with-usage: two lines, no trailing newline"; else bad $mode "--with-usage" "'$w'"; fi
+done
+
+# ---- accounts ----
+CFG="$T/cfg"
+q() { if [ "$1" = null ]; then printf null; else printf '"%s"' "$1"; fi; }
+# mkcfg <num> <seat|null> <user|null> <org|null> [suffix]: a fake cswap config
+# file carrying only the tier fields (never tokens). The suffix keeps the file
+# name unique per call.
+mkcfg() {
+  mkdir -p "$CFG"
+  printf '{"oauthAccount":{"seatTier":%s,"userRateLimitTier":%s,"organizationRateLimitTier":%s}}\n' \
+    "$(q "$2")" "$(q "$3")" "$(q "$4")" > "$CFG/.claude-config-$1-${5:-fix}"
+}
+# ac <num> <email> <active true|false> <status> <disabled true|false> <p5> <r5-iso> <p7> <r7-iso>
+ac() {
+  printf '{"number":%s,"email":"%s","organizationUuid":"","active":%s,"usageStatus":"%s","disabled":%s,"usage":{"fiveHour":{"pct":%s,"resetsAt":"%s"},"sevenDay":{"pct":%s,"resetsAt":"%s"}},"usageAgeSeconds":30,"lastGoodUsage":{"fiveHour":{"pct":12.0,"resetsAt":"%s"},"sevenDay":{"pct":34.0,"resetsAt":"%s"}},"lastGoodAgeSeconds":412.6}' \
+    "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$R5" "$R7"
+}
+EA="acc-a@example.invalid"; EB="acc-b@example.invalid"; KA="$EA-personal"; KB="$EB-personal"
+
+# Fields 1-4 and 9-10 exactly, the pcts and resets numerically, line by line.
+same_acc() { awk -v a="$1" -v b="$2" 'BEGIN{
+  n=split(a,L,"\n"); m=split(b,M,"\n"); if(n!=m) exit 1
+  for(j=1;j<=n;j++){
+    f=split(L[j],x," "); g=split(M[j],y," "); if(f!=10||g!=10) exit 1
+    for(i=1;i<=10;i++){
+      if(i>=5&&i<=8){ if((x[i]+0)!=(y[i]+0)) exit 1 } else if(x[i]!=y[i]) exit 1 } }
+  exit 0 }'; }
+
+# accts <mode> <label> <accounts-json-list> <expected lines, \n-separated>
+accts() {
+  local mode="$1" label="$2" out
+  printf '{"accounts":[%s]}' "$3" > "$T/in.json"
+  out="$(HWAP_HINT_DIR="$HD" HWAP_CSWAP_CONFIG_DIR="$CFG" STUB_JSON="$T/in.json" PATH="$(paths "$mode")" "$BASH_BIN" "$HELPER" accounts; echo x)"
+  out="${out%x}"
+  if [[ "$out" != *$'\n' ]]; then bad "$mode" "$label" "no trailing newline: '$out'"
+  elif same_acc "$4" "${out%$'\n'}"; then pass "$mode" "$label"
+  else bad "$mode" "$label" "got '${out%$'\n'}' want '$4'"; fi
+}
+
+for mode in jq python; do
+  rm -rf "$HD" "$CFG"; mkdir -p "$HD"
+  mkcfg 1 null null null; mkcfg 2 null null null
+  A1="$(ac 1 $EA false ok false 40.0 "$R5" 20.0 "$R7")"
+  A2="$(ac 2 $EB true ok false 1.0 "$R5" 2.0 "$R7")"
+  accts $mode "two accounts, active #2, unknown plans" "$A1,$A2" \
+"1 $KA 0 1 40 $E5 20 $E7 - -
+2 $KB 1 1 1 $E5 2 $E7 - -"
+
+  accts $mode "alt over 97 on 5h before reset+buffer: usable 0" \
+    "$(ac 1 $EA false ok false 98.0 "$R5" 20.0 "$R7"),$A2" \
+"1 $KA 0 0 98 $E5 20 $E7 - -
+2 $KB 1 1 1 $E5 2 $E7 - -"
+  accts $mode "alt over 99 on 7d before reset+buffer: usable 0" \
+    "$(ac 1 $EA false ok false 40.0 "$R5" 99.0 "$R7"),$A2" \
+"1 $KA 0 0 40 $E5 99 $E7 - -
+2 $KB 1 1 1 $E5 2 $E7 - -"
+  accts $mode "alt over 97 but its reset+buffer is past: usable 1, pct 0" \
+    "$(ac 1 $EA false ok false 98.0 "$R5P" 20.0 "$R7"),$A2" \
+"1 $KA 0 1 0 $E5P 20 $E7 - -
+2 $KB 1 1 1 $E5 2 $E7 - -"
+
+  # a hint for key A raises A only and never changes B; usable follows the printed pcts
+  sethint $KA "98 $E5 20 $E7"
+  accts $mode "hint for A raises A's 5h to 98 and its usable to 0, B untouched" "$A1,$A2" \
+"1 $KA 0 0 98 $E5 20 $E7 - -
+2 $KB 1 1 1 $E5 2 $E7 - -"
+  sethint $KA "30 $E5 20 $E7"
+  accts $mode "lower hint for A never lowers" "$A1,$A2" \
+"1 $KA 0 1 40 $E5 20 $E7 - -
+2 $KB 1 1 1 $E5 2 $E7 - -"
+  sethint $KA "10 $E5 50 $E7"
+  sethint $KB "10 $E5 60 $E7"
+  accts $mode "each hint applies to its own key only" "$A1,$A2" \
+"1 $KA 0 1 40 $E5 50 $E7 - -
+2 $KB 1 1 10 $E5 60 $E7 - -"
+  rm -rf "$HD"; mkdir -p "$HD"
+
+  accts $mode "disabled alt: usable 0" \
+    "$(ac 1 $EA false ok true 40.0 "$R5" 20.0 "$R7"),$A2" \
+"1 $KA 0 0 40 $E5 20 $E7 - -
+2 $KB 1 1 1 $E5 2 $E7 - -"
+  accts $mode "token_expired alt: usable 0, its own last numbers" \
+    "$(ac 1 $EA false token_expired false 40.0 "$R5" 20.0 "$R7"),$A2" \
+"1 $KA 0 0 12 $E5 34 $E7 - -
+2 $KB 1 1 1 $E5 2 $E7 - -"
+  accts $mode "accounts are sorted by number" "$A2,$A1" \
+"1 $KA 0 1 40 $E5 20 $E7 - -
+2 $KB 1 1 1 $E5 2 $E7 - -"
+
+  # multipliers, one account each; seat, then user, then organization tier
+  mrow() { # label seat user org want5 want7
+    mkcfg 1 "$2" "$3" "$4"
+    accts $mode "plan: $1" "$(ac 1 $EA true ok false 40.0 "$R5" 20.0 "$R7")" "1 $KA 1 1 40 $E5 20 $E7 $5 $6"
+  }
+  mrow "seat team_standard" team_standard null null 1.25 -
+  mrow "seat team_tier_1" team_tier_1 null null 6.25 -
+  mrow "any other seat is unknown" team_premium null null - -
+  mrow "other seat stops: user tier is not consulted" team_premium default_claude_max_5x default_claude_ai - -
+  mrow "user max_5x" null default_claude_max_5x null 5 5
+  mrow "user max_20x" null default_claude_max_20x null 20 20
+  mrow "org default_claude_ai" null null default_claude_ai 1 1
+  mrow "org max_5x" null null default_claude_max_5x 5 5
+  mrow "org max_20x" null null default_claude_max_20x 20 20
+  mrow "default_raven alone is unknown" null null default_raven - -
+  mrow "nothing set is unknown" null null null - -
+  mrow "unknown user tier falls through to org" null something_else default_claude_ai 1 1
+  mrow "seat team_standard beats user max_5x" team_standard default_claude_max_5x null 1.25 -
+  mrow "user max_5x beats org max_20x" null default_claude_max_5x default_claude_max_20x 5 5
+
+  # config file lookup
+  rm -rf "$CFG"; mkdir -p "$CFG"
+  accts $mode "no config file: - -" "$(ac 1 $EA true ok false 40.0 "$R5" 20.0 "$R7")" "1 $KA 1 1 40 $E5 20 $E7 - -"
+  mkcfg 10 null default_claude_max_20x null
+  accts $mode "config of #10 is not #1's" "$(ac 1 $EA true ok false 40.0 "$R5" 20.0 "$R7")" "1 $KA 1 1 40 $E5 20 $E7 - -"
+  mkcfg 1 null default_claude_max_5x null a
+  mkcfg 1 null default_claude_max_20x null b
+  accts $mode "first .claude-config-1-* wins" "$(ac 1 $EA true ok false 40.0 "$R5" 20.0 "$R7")" "1 $KA 1 1 40 $E5 20 $E7 5 5"
+  echo 'not json' > "$CFG/.claude-config-1-a"
+  accts $mode "unreadable config of #1: - -, others fine" "$(ac 1 $EA true ok false 40.0 "$R5" 20.0 "$R7"),$(ac 10 $EB false ok false 1.0 "$R5" 2.0 "$R7")" \
+"1 $KA 1 1 40 $E5 20 $E7 - -
+10 $KB 0 1 1 $E5 2 $E7 20 20"
+
+  # cswap fails / unparsable: exactly one error: line
+  printf '{"accounts":[%s]}' "$A2" > "$T/in.json"
+  out="$(HWAP_HINT_DIR="$HD" HWAP_CSWAP_CONFIG_DIR="$CFG" STUB_JSON="$T/in.json" STUB_FAIL=1 PATH="$(paths $mode)" "$BASH_BIN" "$HELPER" accounts; echo x)"
+  if [[ "$out" == error:?*$'\n'x && "${out%x}" != *$'\n'*$'\n' ]]; then pass $mode "accounts: cswap fails -> one error: line"
+  else bad $mode "accounts: cswap fails" "out='$out'"; fi
+  echo 'not json' > "$T/in.json"
+  out="$(HWAP_HINT_DIR="$HD" HWAP_CSWAP_CONFIG_DIR="$CFG" STUB_JSON="$T/in.json" PATH="$(paths $mode)" "$BASH_BIN" "$HELPER" accounts; echo x)"
+  if [[ "$out" == error:?*$'\n'x && "${out%x}" != *$'\n'*$'\n' ]]; then pass $mode "accounts: unparsable cswap output -> one error: line"
+  else bad $mode "accounts: unparsable cswap output" "out='$out'"; fi
 done
 exit $fail

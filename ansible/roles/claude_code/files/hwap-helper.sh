@@ -54,6 +54,30 @@
 #                               tolerance, so callers never keep a copy.
 #   error:<reason>              cswap failed or its output is unusable
 #
+# With the single argument `accounts` (used by the compact flow to pick the next
+# account) nothing of the above is printed. Instead one line per cswap account,
+# sorted by number, each ending in a newline (nothing at all when cswap lists
+# none):
+#   <num> <key> <active 0|1> <usable 0|1> <p5> <r5> <p7> <r7> <mult5> <mult7>
+#                               <key> as above. <usable> is 1 only for an ok,
+#                               not disabled account that the decision's own
+#                               "usable" rule passes (the filter it applies to
+#                               alternates). The pcts and resets are as in
+#                               `current`, from usage when usageStatus is ok,
+#                               else from lastGoodUsage, else 0. <mult5>/<mult7>
+#                               are the plan's capacity relative to a Pro
+#                               seat, or - when unknown. They come from the
+#                               oauthAccount tiers in cswap's first config file
+#                               for that number (<config dir>/.claude-config-
+#                               <num>-*), first seatTier, then userRateLimitTier,
+#                               then organizationRateLimitTier:
+#                                 seat team_standard   1.25 -   team_tier_1  6.25 -
+#                                 (any other seat tier is - -, nothing later is read)
+#                                 user default_claude_max_5x 5 5   ..._max_20x 20 20
+#                                 org  default_claude_ai 1 1   ..._max_5x 5 5   ..._max_20x 20 20
+#                                 anything else - -, also a missing/unreadable file
+#   error:<reason>              cswap failed or its output is unusable (one line)
+#
 # --with-usage may be followed by --stdin-resets <r5> <r7>: Claude Code's own
 # resets_at (epoch seconds) for the 5-hour and 7-day windows. Anything that is
 # not all digits counts as 0. Without it <m5> and <m7> are 0.
@@ -69,10 +93,13 @@ set -u
 
 with_usage=0
 current=0
+accounts=0
 stdin_r5=0
 stdin_r7=0
 if [ "${1:-}" = "current" ]; then
   current=1
+elif [ "${1:-}" = "accounts" ]; then
+  accounts=1
 elif [ "${1:-}" = "--with-usage" ]; then
   with_usage=1
   if [ "${2:-}" = "--stdin-resets" ]; then
@@ -84,9 +111,9 @@ fi
 
 # Prints the answer ($1), plus the usage line ($2, default "usage none") in
 # --with-usage mode. Every exit goes through here so no path forgets line 2.
-# In `current` mode the one line gets a trailing newline.
+# In `current` and `accounts` mode the line gets a trailing newline.
 emit() {
-  if [ "$current" = 1 ]; then printf '%s\n' "$1"; return; fi
+  if [ "$current" = 1 ] || [ "$accounts" = 1 ]; then printf '%s\n' "$1"; return; fi
   printf '%s' "$1"
   if [ "$with_usage" = 1 ]; then printf '\n%s' "${2:-usage none}"; fi
 }
@@ -144,8 +171,9 @@ JQ_KEY_DEFS='
     else "\($a.email | clean)-\(if ($a.organizationUuid // "") == "" then "personal" else ($a.organizationUuid | clean) end)" end;
 '
 
-# jq: key(), the reset epoch of a window and the cswap pct raised by a hint.
-# Shared by the decision and `current`, so the hint rule exists once.
+# jq: key(), the reset epoch of a window, the cswap pct raised by a hint and the
+# "exhausted"/"usable" rule. Shared by the decision, `current` and `accounts`, so
+# each rule exists once. Needs $hints $tol $now $thr5 $thr7 $buf.
 JQ_PCT_DEFS="$JQ_KEY_DEFS"'
   def ts: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601;
   def rst($k): (.usage // {})[$k].resetsAt | if . == null then null else ts end;
@@ -159,16 +187,24 @@ JQ_PCT_DEFS="$JQ_KEY_DEFS"'
         | rst($k) as $cr
         | if $hr != 0 and $cr != null and $cr != 0 and (($hr - $cr) | fabs) <= $tol then ([$c, $hp] | max) else $c end
       else $c end;
+  # A window whose reset is already past reads 0, whatever the pct says.
+  def fin($k): rst($k) as $r | (if $r != null and $r < $now then 0 else pct($k) end) as $p | "\($p) \($r // 0)";
+  def thr($k): if $k == "fiveHour" then $thr5 else $thr7 end;
+  def exhausted($k): pct($k) >= thr($k) and (rst($k) == null or rst($k) + $buf > $now);
+  def usable: (exhausted("fiveHour") | not) and (exhausted("sevenDay") | not);
 '
 
-# Python: the same shared definitions (key, reset epoch, hinted pct), prepended
-# to the decision script and to the `current` script.
+# Python: the same shared definitions (key, reset epoch, hinted pct, exhausted,
+# usable), prepended to the decision, `current` and `accounts` scripts.
 read -r -d '' PY_COMMON <<'PYEOF' || true
 import json, os, re
 from datetime import datetime
 
 tol = int(os.environ['HWAP_TOL'])
 hints = json.loads(os.environ['HWAP_HINTS'])
+now = int(os.environ['HWAP_NOW'])
+thr = {'fiveHour': float(os.environ['HWAP_THR_5H']), 'sevenDay': float(os.environ['HWAP_THR_7D'])}
+buf = int(os.environ['HWAP_BUF'])
 
 def clean(x):
     return re.sub(r'[^A-Za-z0-9._@+-]', '_', x)
@@ -201,6 +237,20 @@ def pct(a, k):
     if hr != 0 and cr and abs(hr - cr) <= tol:
         return max(c, hp)
     return c
+
+# A window whose reset is already past reads 0, whatever the pct says.
+def fin(a, k):
+    r = rst(a, k)
+    return '%s %d' % (0 if r is not None and r < now else pct(a, k), r or 0)
+
+def exhausted(a, k):
+    if pct(a, k) < thr[k]:
+        return False
+    r = rst(a, k)
+    return r is None or r + buf > now
+
+def usable(a):
+    return not exhausted(a, 'fiveHour') and not exhausted(a, 'sevenDay')
 PYEOF
 
 # Without jq a Python interpreter is needed, for every mode.
@@ -216,10 +266,9 @@ if [ "$current" = 1 ]; then
   cur=""
   if [ -z "$py" ]; then
     cur="$(printf '%s' "$json" | jq -r \
-      --argjson hints "$hints_json" --argjson tol "$RATE_LIMIT_HINT_TOLERANCE_SEC" --argjson now "$now" '
+      --argjson hints "$hints_json" --argjson tol "$RATE_LIMIT_HINT_TOLERANCE_SEC" --argjson now "$now" \
+      --argjson thr5 "$RATE_LIMIT_GATE_PCT_5H" --argjson thr7 "$RATE_LIMIT_GATE_PCT_7D" --argjson buf "$RATE_LIMIT_RESUME_BUFFER_SEC" '
       '"$JQ_PCT_DEFS"'
-      # A window whose reset is already past reads 0, whatever the pct says.
-      def fin($k): rst($k) as $r | (if $r != null and $r < $now then 0 else pct($k) end) as $p | "\($p) \($r // 0)";
       def line($tag; $a): "\($tag) \(key($a)) \($a | fin("fiveHour")) \($a | fin("sevenDay"))";
       ((.accounts // []) | map(select(.active == true)) | .[0]) as $a
       | if $a == null then "none - 0 0 0 0"
@@ -232,13 +281,7 @@ if [ "$current" = 1 ]; then
     ' 2>/dev/null)" || cur=""
   else
     cur="$({ printf '%s\n' "$PY_COMMON"; cat <<'PYEOF'
-now = int(os.environ['HWAP_NOW'])
 d = json.loads(os.environ['HWAP_JSON'])
-
-# A window whose reset is already past reads 0, whatever the pct says.
-def fin(a, k):
-    r = rst(a, k)
-    return '%s %d' % (0 if r is not None and r < now else pct(a, k), r or 0)
 
 def line(tag, a):
     return '%s %s %s %s' % (tag, key(a), fin(a, 'fiveHour'), fin(a, 'sevenDay'))
@@ -256,10 +299,111 @@ elif isinstance(a.get('lastGoodUsage'), dict) and a['lastGoodUsage'] and a.get('
 else:
     print('none - 0 0 0 0')
 PYEOF
-    } | HWAP_JSON="$json" HWAP_HINTS="$hints_json" HWAP_TOL="$RATE_LIMIT_HINT_TOLERANCE_SEC" HWAP_NOW="$now" "$py" - 2>/dev/null)" || cur=""
+    } | HWAP_JSON="$json" HWAP_HINTS="$hints_json" HWAP_TOL="$RATE_LIMIT_HINT_TOLERANCE_SEC" HWAP_NOW="$now" \
+      HWAP_THR_5H="$RATE_LIMIT_GATE_PCT_5H" HWAP_THR_7D="$RATE_LIMIT_GATE_PCT_7D" HWAP_BUF="$RATE_LIMIT_RESUME_BUFFER_SEC" "$py" - 2>/dev/null)" || cur=""
   fi
   [ -n "$cur" ] || { emit 'error:cswap_output_unparsable'; exit 0; }
   emit "$cur $RATE_LIMIT_GATE_PCT_5H $RATE_LIMIT_GATE_PCT_7D $RATE_LIMIT_RESUME_BUFFER_SEC $RATE_LIMIT_HINT_TOLERANCE_SEC"
+  exit 0
+fi
+
+if [ "$accounts" = 1 ]; then
+  [ -n "$json" ] || { emit 'error:cswap_output_unparsable'; exit 0; }
+  # cswap's config file of each account number (the first one in glob order),
+  # as "<num> <path>" lines. HWAP_CSWAP_CONFIG_DIR is only a test seam.
+  cfg_dir="${HWAP_CSWAP_CONFIG_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/claude-swap/configs}"
+  cfg_list=""
+  cfg_seen=" "
+  for cfg_file in "$cfg_dir"/.claude-config-*; do
+    [ -f "$cfg_file" ] || continue
+    [[ "${cfg_file##*/}" =~ ^\.claude-config-([0-9]+)- ]] || continue
+    cfg_num=$((10#${BASH_REMATCH[1]}))
+    case "$cfg_seen" in *" $cfg_num "*) continue ;; esac
+    cfg_seen="$cfg_seen$cfg_num "
+    cfg_list="$cfg_list$cfg_num $cfg_file"$'\n'
+  done
+  acc=""
+  if [ -z "$py" ]; then
+    # {"<num>": {"s": seatTier, "u": userRateLimitTier, "o": organizationRateLimitTier}, ...}
+    tiers_body=""
+    tiers_sep=""
+    while read -r cfg_num cfg_file; do
+      [ -n "$cfg_num" ] || continue
+      cfg_tiers="$(jq -c '(.oauthAccount // {}) | {s: .seatTier, u: .userRateLimitTier, o: .organizationRateLimitTier}' "$cfg_file" 2>/dev/null)" || cfg_tiers=""
+      [ -n "$cfg_tiers" ] || continue
+      tiers_body="$tiers_body$tiers_sep\"$cfg_num\":$cfg_tiers"
+      tiers_sep=","
+    done <<< "$cfg_list"
+    acc="$(printf '%s' "$json" | jq -r \
+      --argjson hints "$hints_json" --argjson tol "$RATE_LIMIT_HINT_TOLERANCE_SEC" --argjson now "$now" \
+      --argjson thr5 "$RATE_LIMIT_GATE_PCT_5H" --argjson thr7 "$RATE_LIMIT_GATE_PCT_7D" --argjson buf "$RATE_LIMIT_RESUME_BUFFER_SEC" \
+      --argjson tiers "{$tiers_body}" '
+      '"$JQ_PCT_DEFS"'
+      # The account as `current` reads its numbers: usage when ok, else lastGoodUsage, else none.
+      def shown:
+        if .usageStatus == "ok" then .
+        elif (.lastGoodUsage | type) == "object" and .lastGoodUsage != {} and .lastGoodAgeSeconds != null
+        then .usage = .lastGoodUsage | .usageStatus = "lastgood"
+        else .usage = null end;
+      def mult($t):
+        if $t.s != null then (if $t.s == "team_standard" then "1.25 -" elif $t.s == "team_tier_1" then "6.25 -" else "- -" end)
+        elif $t.u == "default_claude_max_5x" then "5 5"
+        elif $t.u == "default_claude_max_20x" then "20 20"
+        elif $t.o == "default_claude_ai" then "1 1"
+        elif $t.o == "default_claude_max_5x" then "5 5"
+        elif $t.o == "default_claude_max_20x" then "20 20"
+        else "- -" end;
+      (.accounts // []) | sort_by(.number)[]
+      | (.usageStatus == "ok" and .disabled != true and usable) as $u
+      | "\(.number) \(key(.)) \(if .active == true then 1 else 0 end) \(if $u then 1 else 0 end) \(shown | "\(fin("fiveHour")) \(fin("sevenDay"))") \(mult($tiers[.number | tostring]))"
+    ' 2>/dev/null)" || { emit 'error:cswap_output_unparsable'; exit 0; }
+  else
+    acc="$({ printf '%s\n' "$PY_COMMON"; cat <<'PYEOF'
+d = json.loads(os.environ['HWAP_JSON'])
+cfgs = {}
+for ln in os.environ['HWAP_CFGS'].split('\n'):
+    if ln:
+        n, f = ln.split(' ', 1)
+        cfgs[n] = f
+
+def tiers(num):
+    f = cfgs.get(str(num))
+    if f is None:
+        return {}
+    try:
+        with open(f) as fh:
+            o = json.load(fh).get('oauthAccount') or {}
+        return {'s': o.get('seatTier'), 'u': o.get('userRateLimitTier'), 'o': o.get('organizationRateLimitTier')}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+def mult(t):
+    s, u, o = t.get('s'), t.get('u'), t.get('o')
+    if s is not None:
+        return {'team_standard': '1.25 -', 'team_tier_1': '6.25 -'}.get(s, '- -')
+    if u in ('default_claude_max_5x', 'default_claude_max_20x'):
+        return {'default_claude_max_5x': '5 5', 'default_claude_max_20x': '20 20'}[u]
+    return {'default_claude_ai': '1 1', 'default_claude_max_5x': '5 5', 'default_claude_max_20x': '20 20'}.get(o, '- -')
+
+# The account as `current` reads its numbers: usage when ok, else lastGoodUsage, else none.
+def shown(a):
+    if a.get('usageStatus') == 'ok':
+        return a
+    lg = a.get('lastGoodUsage')
+    if isinstance(lg, dict) and lg and a.get('lastGoodAgeSeconds') is not None:
+        return dict(a, usage=lg, usageStatus='lastgood')
+    return dict(a, usage=None)
+
+for a in sorted(d.get('accounts') or [], key=lambda x: x.get('number', 0)):
+    u = a.get('usageStatus') == 'ok' and a.get('disabled') is not True and usable(a)
+    s = shown(a)
+    print('%s %s %d %d %s %s %s' % (a.get('number'), key(a), 1 if a.get('active') is True else 0, 1 if u else 0,
+                                    fin(s, 'fiveHour'), fin(s, 'sevenDay'), mult(tiers(a.get('number')))))
+PYEOF
+    } | HWAP_JSON="$json" HWAP_HINTS="$hints_json" HWAP_TOL="$RATE_LIMIT_HINT_TOLERANCE_SEC" HWAP_NOW="$now" HWAP_CFGS="$cfg_list" \
+      HWAP_THR_5H="$RATE_LIMIT_GATE_PCT_5H" HWAP_THR_7D="$RATE_LIMIT_GATE_PCT_7D" HWAP_BUF="$RATE_LIMIT_RESUME_BUFFER_SEC" "$py" - 2>/dev/null)" || { emit 'error:cswap_output_unparsable'; exit 0; }
+  fi
+  [ -z "$acc" ] || emit "$acc"
   exit 0
 fi
 
@@ -269,9 +413,6 @@ if [ -z "$py" ]; then
     --argjson hints "$hints_json" --argjson tol "$RATE_LIMIT_HINT_TOLERANCE_SEC" \
     --argjson thr5 "$RATE_LIMIT_GATE_PCT_5H" --argjson thr7 "$RATE_LIMIT_GATE_PCT_7D" --argjson buf "$RATE_LIMIT_RESUME_BUFFER_SEC" --argjson now "$now" '
     '"$JQ_PCT_DEFS"'
-    def thr($k): if $k == "fiveHour" then $thr5 else $thr7 end;
-    def exhausted($k): pct($k) >= thr($k) and (rst($k) == null or rst($k) + $buf > $now);
-    def usable: (exhausted("fiveHour") | not) and (exhausted("sevenDay") | not);
     # Epoch this account clears, or null when a window gives no resetsAt.
     def clears_at:
       [ ("fiveHour", "sevenDay") as $k | select(exhausted($k)) | rst($k) ]
@@ -297,18 +438,6 @@ if [ -z "$py" ]; then
 else
   out="$({ printf '%s\n' "$PY_COMMON"; cat <<'PYEOF'
 d = json.loads(os.environ['HWAP_JSON'])
-thr = {'fiveHour': float(os.environ['HWAP_THR_5H']), 'sevenDay': float(os.environ['HWAP_THR_7D'])}
-buf = int(os.environ['HWAP_BUF'])
-now = int(os.environ['HWAP_NOW'])
-
-def exhausted(a, k):
-    if pct(a, k) < thr[k]:
-        return False
-    r = rst(a, k)
-    return r is None or r + buf > now
-
-def usable(a):
-    return not exhausted(a, 'fiveHour') and not exhausted(a, 'sevenDay')
 
 def clears_at(a):
     times = [rst(a, k) for k in ('fiveHour', 'sevenDay') if exhausted(a, k)]

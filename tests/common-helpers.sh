@@ -1,27 +1,8 @@
 #!/usr/bin/env bash
 # Tests for common-helpers.sh (the shared library) and the gate hook that sources it.
 # Usage: common-helpers.sh
-# ---- isolation header: a test must never reach the real session or account ----
-unset TMUX TMUX_PANE STY WINDOW CLAUDECODE
-TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ISO="$(mktemp -d)"
-mkdir -p "$ISO/tmp" "$ISO/home" "$ISO/claude" "$ISO/xdg" "$ISO/cswap" "$ISO/hints"
-export IC_TMP_BASE="$ISO/tmp" IC_CLAUDE_PID=$$ HOME="$ISO/home" CLAUDE_CONFIG_DIR="$ISO/claude" \
-  XDG_DATA_HOME="$ISO/xdg" HWAP_CSWAP_CONFIG_DIR="$ISO/cswap" HWAP_HINT_DIR="$ISO/hints"
-export PATH="$TESTS_DIR/fakes:$PATH"
-# iso_guard <PATH> [own stub dir...]: tmux, screen and cswap must resolve into
-# tests/fakes (or one of the test's own stub dirs) under <PATH>, else abort.
-iso_guard() {
-  local c p ok d
-  for c in tmux screen cswap; do
-    p="$(PATH="$1" command -v "$c")"; ok=0
-    [[ "$p" == "$TESTS_DIR"/fakes/* ]] && ok=1
-    for d in "${@:2}"; do [[ "$p" == "$d"/* ]] && ok=1; done
-    [ "$ok" = 1 ] || { echo "ISOLATION: '$c' resolves to '${p:-nothing}' under that PATH" >&2; exit 2; }
-  done
-}
-iso_guard "$PATH"
-# ---- end isolation header ----
+source "$(dirname "${BASH_SOURCE[0]}")/lib/isolation.sh"
+source "$TESTS_DIR/lib/rows.sh"
 SRC="$TESTS_DIR/../ansible/roles/claude_code/files"
 T="$(mktemp -d)"
 trap 'rm -rf "$T" "$ISO"' EXIT
@@ -45,9 +26,6 @@ STUB
 chmod +x "$T/hwap-helper.sh"
 export STUB_SEQ="$T/seq"
 
-fail=0
-pass() { echo "PASS [$1] $2"; }
-bad()  { echo "FAIL [$1] $2 -> $3"; fail=1; }
 seq_set() { printf '%s\n' "$@" > "$STUB_SEQ"; }
 # run_gate [abort_fn]: runs __gate in a fresh bash, prints "rc=<n> secs=<n>" and keeps stderr in $T/err
 run_gate() {

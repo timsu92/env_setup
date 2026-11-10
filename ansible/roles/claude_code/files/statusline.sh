@@ -680,16 +680,23 @@ else
     wait\ *) read -r _ __resume_epoch _ <<< "$__hwap" ;;
   esac
 fi
-if [ -z "$__resume_epoch" ]; then
-  __hold_file="/tmp/claude-$(id -u)/hwap-hold-until"
+# This session's directory, shared by the hold file below and the budget line.
+__ic_sdir=""
+if declare -F __ic_session_dir >/dev/null; then
+  __ic_sdir="$(__ic_session_dir "$(__field 'transcript_path')" "$(__field 'session_id')")"
+fi
+# The global hold file first, then the one the compact flow keeps per session.
+for __hold_file in "${IC_TMP_BASE:-/tmp/claude-$(id -u)}/hwap-hold-until" ${__ic_sdir:+"$__ic_sdir/checkpoint-hold-until"}; do
+  [ -z "$__resume_epoch" ] || break
   if [ -r "$__hold_file" ]; then
+    __hold_until=""
     read -r __hold_until < "$__hold_file" 2>/dev/null
     case "${__hold_until:-}" in
       ''|*[!0-9]*) ;;
       *) [ "$__hold_until" -gt "$(date +%s)" ] && __resume_epoch="$__hold_until" ;;
     esac
   fi
-fi
+done
 if [ -n "$__resume_epoch" ]; then
   __repeat_char ' ' 1
   __now=$(date +%s)
@@ -716,5 +723,48 @@ __p="$(__tokens_pct_int)"
 __uf="$(__fmt_token_compact "$__u")"
 __tf="$(__fmt_token_compact "$__t")"
 __emit '2;38;2;211;134;155' "$__uf/$__tf ($__p%)"
+
+# Third line, only while the session's state names a readable ledger (the
+# ideal-compact flow): tasks left in the plan, how many more tasks the account
+# is expected to last, and the flow's phase. Reads the state without a lock
+# and never writes it. The helper's current/accounts modes are asked for only
+# here, so a session without a ledger costs no extra cswap call.
+if [ -n "$__ic_sdir" ] && declare -F __ic_state_read >/dev/null && declare -F __ic_budget >/dev/null; then
+  __ic_state_read "$__ic_sdir"
+  if [ -n "$IC_ledger" ] && [ -r "$IC_ledger" ]; then
+    __ic_plan="$(__ic_ledger_plan "$IC_ledger")"
+    __ic_total="$(__ic_plan_total "$__ic_plan")"
+    __ic_left="?"
+    if [ "$__ic_total" -gt 0 ]; then
+      __ic_left=$(( __ic_total - $(__ic_ledger_done "$IC_ledger") ))
+      [ "$__ic_left" -ge 0 ] || __ic_left=0
+    fi
+    __ic_hist="$(__ic_project_dir "$(dirname "$IC_ledger")" "$(__field 'transcript_path')")/ideal-compact-history"
+    __ic_cur=""; __ic_acc=""
+    if [ -x "$HWAP_HELPER" ]; then
+      __ic_cur="$("$HWAP_HELPER" current)"
+      __ic_acc="$("$HWAP_HELPER" accounts)"
+    fi
+    read -r __ic_n _ <<< "$(__ic_budget "$__ic_hist" "${__ic_cur%%$'\n'*}" "$__ic_acc")"
+    __ic_text="📋 $__ic_left left · budget "
+    __ic_warn=0
+    case "$__ic_n" in
+      ''|*[!0-9]*) __ic_text+="?" ;;
+      *) __ic_text+="$__ic_n"; [ "$__ic_n" -le "${IDEAL_COMPACT_WARN_TASKS:-6}" ] && __ic_warn=1 ;;
+    esac
+    __ic_phase="$(__ic_phase_display "$__ic_sdir" "$(date +%s)")"
+    case "$__ic_phase" in ''|standby) ;; *) __ic_text+=" [$__ic_phase]" ;; esac
+    [ "$IC_skip" = 1 ] && __ic_text+=" skip"
+    [ "$IC_suppress" = 1 ] && __ic_text+=" suppressed"
+    if [ "$__ic_warn" = 1 ] && declare -F __ic_backend >/dev/null && [ -z "$(__ic_backend)" ]; then
+      __ic_text+=" · no auto-compact: no tmux/screen"
+    fi
+    [ "$IC_inputbox_fail" = 1 ] && __ic_text+=" · input box check failed"
+    __reset
+    printf '\n'
+    __reset
+    if [ "$__ic_warn" = 1 ]; then __emit '1;38;2;224;175;104' "$__ic_text"; else __emit '' "$__ic_text"; fi
+  fi
+fi
 
 exit 0

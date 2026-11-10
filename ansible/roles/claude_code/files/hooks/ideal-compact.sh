@@ -122,9 +122,10 @@ __on_session_start() {
   case "$(__field source)" in startup|resume|clear) ;; *) return 0 ;; esac
   __ic_lock "$LOCK" || return 0
   __ic_state_read "$SDIR"
-  if [ "$IC_phase" != standby ] || [ "$IC_skip" != 0 ] || [ "$IC_suppress" != 0 ] || [ -n "$IC_ledger" ]; then
+  if [ "$IC_phase" != standby ] || [ "$IC_skip" != 0 ] || [ "$IC_suppress" != 0 ] || [ -n "$IC_ledger" ] \
+     || [ -n "$IC_pending_inject" ] || [ "$IC_ledger_done" != 0 ]; then
     __ic_set_phase standby
-    IC_suppress=0 IC_suppress_key='' IC_suppress_win='' IC_suppress_resets=0 IC_ledger=''
+    IC_suppress=0 IC_suppress_key='' IC_suppress_win='' IC_suppress_resets=0 IC_ledger='' IC_ledger_done=0
     __ic_state_write "$SDIR"
   fi
   __ic_unlock
@@ -355,24 +356,28 @@ __on_post_tool_use() {
   if [ -n "$ledger" ] && [ "$ledger" != "$IC_ledger" ]; then
     __ic_lock "$LOCK" || return 0
     __ic_state_read "$SDIR"
-    IC_ledger="$ledger"
+    IC_ledger="$ledger" IC_ledger_done=0
     __ic_state_write "$SDIR"
     __ic_unlock
   fi
   [ -n "$ledger" ] || ledger="$IC_ledger"
 
-  # Completion: the ledger's done count grew past its newest history entry.
-  # A lower count (the ledger was recreated) is recorded as a new baseline.
+  # Completion: the ledger's done count grew past its newest history entry
+  # and past the count this session already evaluated (ledger_done), so a
+  # completion the history skipped (current not `usage`) is not evaluated
+  # again on every call. A lower count (the ledger was recreated) is recorded
+  # as a new baseline, once per count.
   if [ -n "$ledger" ] && [ -r "$ledger" ]; then
     pdir="$(__ic_project_dir "$(dirname "$ledger")" "$TPATH")"
     if [ -n "$pdir" ]; then
       hist="$pdir/ideal-compact-history"
       done="$(__ic_ledger_done "$ledger")"
+      case "$done" in ''|*[!0-9]*) done=0 ;; esac
       latest="$(__ic_history_latest "$hist" "$ledger" | awk -F'\t' '{ print $3 }')"
       case "$latest" in *[!0-9]*) latest='' ;; esac
-      if [ "$done" -ge 1 ] && { [ -z "$latest" ] || [ "$done" -gt "$latest" ]; }; then
+      if [ "$done" -ge 1 ] && { [ -z "$latest" ] || [ "$done" -gt "$latest" ]; } && [ "$done" -gt "$IC_ledger_done" ]; then
         completion=1 record=1
-      elif [ -n "$latest" ] && [ "$done" -lt "$latest" ]; then
+      elif [ -n "$latest" ] && [ "$done" -lt "$latest" ] && [ "$done" != "$IC_ledger_done" ]; then
         record=1
       fi
     fi
@@ -382,16 +387,14 @@ __on_post_tool_use() {
     __ic_state_read "$SDIR"
     d0="$IC_dirty"
     res="$(__ic_history_record "$hist" "$ledger" "$done" "$CUR" "$d0")"
-    case "$res" in
-      baseline|counted)
-        # Only what this record carried: a prompt meanwhile stays counted.
-        if __ic_lock "$LOCK"; then
-          __ic_state_read "$SDIR"
-          IC_dirty=$(( IC_dirty > d0 ? IC_dirty - d0 : 0 ))
-          __ic_state_write "$SDIR"
-          __ic_unlock
-        fi ;;
-    esac
+    if __ic_lock "$LOCK"; then
+      __ic_state_read "$SDIR"
+      # Only what this record carried: a prompt meanwhile stays counted.
+      case "$res" in baseline|counted) IC_dirty=$(( IC_dirty > d0 ? IC_dirty - d0 : 0 )) ;; esac
+      [ "$IC_ledger" = "$ledger" ] && IC_ledger_done="$done"
+      __ic_state_write "$SDIR"
+      __ic_unlock
+    fi
   fi
 
   # Evaluate on a completion, or in armed when the account or a window's
@@ -401,7 +404,8 @@ __on_post_tool_use() {
   __ic_state_read "$SDIR"
   seen="$IC_phase"
   if [ "$seen" = standby ] || [ "$seen" = armed ]; then
-    [ "$sub" = 0 ] && __cheap_obs
+    # Built only where it is used: arming on a completion, or armed.
+    [ "$sub" = 0 ] && { [ "$seen" = armed ] || [ "$completion" = 1 ]; } && __cheap_obs
     [ "$sub" = 0 ] && [ "$seen" = armed ] && [ -n "$OBS" ] && [ "$OBS" != "$IC_cheap_obs" ] && changed=1
   fi
   if [ "$completion" = 1 ] || [ "$changed" = 1 ]; then

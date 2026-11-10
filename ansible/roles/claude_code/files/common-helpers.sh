@@ -183,15 +183,15 @@ __ic_project_dir() {
 # Writers hold __ic_lock around read -> change -> write; readers (the
 # statusline) take no lock because every write is a temp file plus mv.
 
-__IC_STATE_KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
-__IC_STATE_NUMERIC=" phase_at skip suppress suppress_resets dirty armed_resets inputbox_fail "
+__IC_STATE_KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger ledger_done armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
+__IC_STATE_NUMERIC=" phase_at skip suppress suppress_resets dirty ledger_done armed_resets inputbox_fail "
 
 # Sets every IC_<key> (defaults for anything missing or malformed). Parsed
 # line by line, never sourced: values may hold spaces and are not trusted.
 __ic_state_read() {
   local __k __line __v
   IC_phase=standby IC_phase_at=0 IC_skip=0 IC_suppress=0 IC_suppress_key='' IC_suppress_win=''
-  IC_suppress_resets=0 IC_dirty=0 IC_ledger='' IC_armed_key='' IC_armed_win='' IC_armed_resets=0
+  IC_suppress_resets=0 IC_dirty=0 IC_ledger='' IC_ledger_done=0 IC_armed_key='' IC_armed_win='' IC_armed_resets=0
   IC_cheap_obs='' IC_inputbox_fail=0 IC_pending_inject=''
   [ -n "${1:-}" ] && [ -r "$1/ideal-compact-state" ] || return 0
   while IFS= read -r __line || [ -n "$__line" ]; do

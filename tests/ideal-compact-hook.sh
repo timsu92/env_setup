@@ -6,7 +6,7 @@ unset TMUX TMUX_PANE STY WINDOW CLAUDECODE
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ISO="$(mktemp -d)"
 mkdir -p "$ISO/tmp" "$ISO/home" "$ISO/claude" "$ISO/xdg" "$ISO/cswap" "$ISO/hints"
-export IC_TMP_BASE="$ISO/tmp" IC_CLAUDE_PID=$$ HOME="$ISO/home" CLAUDE_CONFIG_DIR="$ISO/claude" \
+export IC_TMP_BASE="$ISO/tmp" HOME="$ISO/home" CLAUDE_CONFIG_DIR="$ISO/claude" \
   XDG_DATA_HOME="$ISO/xdg" HWAP_CSWAP_CONFIG_DIR="$ISO/cswap" HWAP_HINT_DIR="$ISO/hints"
 export PATH="$TESTS_DIR/fakes:$PATH"
 # iso_guard <PATH> [own stub dir...]: tmux, screen and cswap must resolve into
@@ -94,6 +94,9 @@ for src in startup resume clear; do
   st_all "ss-$src" "phase=standby suppress=0 skip=0 ledger= dirty=1"
   no_stdout "ss-$src-quiet"
 done
+set_state phase=standby pending_inject=cancel ledger_done=3
+send SessionStart --arg source resume
+st_all "ss-pending-cleared" "phase=standby pending_inject= ledger_done=0"
 set_state phase=armed suppress=1 skip=1 ledger=x dirty=1
 send SessionStart --arg source compact
 st_all "ss-compact-unchanged" "phase=armed suppress=1 skip=1 ledger=x dirty=1"
@@ -365,6 +368,7 @@ cfg b@x.com
 read_any
 st_all "ptu-armed-cancel" "phase=standby suppress=0"
 ck "ptu-armed-cancel-text" "$CANCEL" "$(ctx)"
+ck "ptu-armed-cancel-rc" "0" "$RC"
 seed 9 2; set_state phase=armed ledger="$LEDP" armed_key=KEY1 armed_win=5h armed_resets=$R5 cheap_obs="$OBS_A"
 read_any
 st_all "ptu-armed-mid" "phase=armed"
@@ -509,6 +513,29 @@ ledger 1 2; seed 9 2; set_state phase=armed ledger="$LEDP" cheap_obs=old
 printf '%s' "{\"session_id\":\"sess1\",\"transcript_path\":\"$TP\",\"cwd\":\"$R\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/etc/hostname\"}}" \
   | PATH="$T/nojq" "$T/nojq/bash" "$T/hooks/ideal-compact.sh" >"$T/out" 2>"$T/err"
 ck "ptu-nojq-obs" "$OBS_A" "$(st cheap_obs)"
+# an unrecorded completion (current not `usage`) is evaluated once, not on every call
+for cl in "lastgood 0 50 $R5 20 $R7" "error:cswap_failed"; do
+  printf '%s\n' "$cl" > "$T/current"
+  ledger 1 2; seed - 1
+  set_state phase=armed ledger="$LEDP" cheap_obs="$OBS_A"
+  edit_led
+  ck "ptu-skipped-once-done [${cl%% *}]" "1 2" "$(hl "$LEDP") $(st ledger_done)"
+  : > "$FAKE_LOG"
+  read_any
+  ck "ptu-skipped-once-no-helper [${cl%% *}]" "" "$(cat "$FAKE_LOG")"
+done
+printf 'usage KEY1 50 %s 20 %s 97 99 120 3\n' $R5 $R7 > "$T/current"
+# a new ledger path starts its remembered count over
+ledger 1 2; seed - 1
+set_state phase=standby ledger=/elsewhere/progress.md ledger_done=5
+edit_led
+ck "ptu-ledger-change-resets-done" "2 2" "$(hlast "$LEDP" 3) $(st ledger_done)"
+# standby without a completion never builds the observation (no helper fallback)
+mv "$CLAUDE_CONFIG_DIR/.claude.json" "$T/cfg.bak"
+ledger 1 2; seed - 2; set_state phase=standby ledger="$LEDP" ledger_done=2; : > "$FAKE_LOG"
+edit_led
+ck "ptu-standby-no-obs" "" "$(cat "$FAKE_LOG")"
+mv "$T/cfg.bak" "$CLAUDE_CONFIG_DIR/.claude.json"
 unset TMUX TMUX_PANE
 
 exit $fail

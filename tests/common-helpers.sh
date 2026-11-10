@@ -180,9 +180,9 @@ seq_set ok
   && pass stamp-no-transcript "no transcript_path -> nothing written" || bad stamp-no-transcript "wrote" "$(find "$IC_TMP_BASE" -name 'turn_*')"
 
 # ---- state file ----
-KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
+KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger ledger_done armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
 DUMP='for k in '"$KEYS"'; do n=IC_$k; printf "%s=%s\n" "$k" "${!n}"; done'
-DEFAULTS="$(printf '%s\n' phase=standby phase_at=0 skip=0 suppress=0 suppress_key= suppress_win= suppress_resets=0 dirty=0 ledger= armed_key= armed_win= armed_resets=0 cheap_obs= inputbox_fail=0 pending_inject=)"
+DEFAULTS="$(printf '%s\n' phase=standby phase_at=0 skip=0 suppress=0 suppress_key= suppress_win= suppress_resets=0 dirty=0 ledger= ledger_done=0 armed_key= armed_win= armed_resets=0 cheap_obs= inputbox_fail=0 pending_inject=)"
 # sc '<script>': the script runs in a fresh bash with the library sourced under set -u
 sc() { bash -c 'set -u; . "$1"; shift; eval "$1"' _ "$T/common-helpers.sh" "$1"; }
 
@@ -192,16 +192,16 @@ out="$(sc "IC_phase=armed IC_dirty=7 IC_cheap_obs=old; __ic_state_read '$T/sess/
 out="$(sc "__ic_state_read ''; $DUMP" 2>&1)"
 [ "$out" = "$DEFAULTS" ] && pass state-no-dir "empty session dir -> defaults" || bad state-no-dir "got" "$out"
 
-sc "IC_phase=to-compact IC_phase_at=1700000000 IC_skip=1 IC_suppress=1 IC_suppress_key=sk IC_suppress_win=5h IC_suppress_resets=1700000500 IC_dirty=3 IC_ledger=/a/b/ledger.md IC_armed_key=ak IC_armed_win=7d IC_armed_resets=1700009999 IC_cheap_obs='3 4  5=x' IC_inputbox_fail=2 IC_pending_inject='繼續 now'; __ic_state_write '$SD'"
+sc "IC_phase=to-compact IC_phase_at=1700000000 IC_skip=1 IC_suppress=1 IC_suppress_key=sk IC_suppress_win=5h IC_suppress_resets=1700000500 IC_dirty=3 IC_ledger=/a/b/ledger.md IC_ledger_done=4 IC_armed_key=ak IC_armed_win=7d IC_armed_resets=1700009999 IC_cheap_obs='3 4  5=x' IC_inputbox_fail=2 IC_pending_inject='繼續 now'; __ic_state_write '$SD'"
 [ -f "$SD/ideal-compact-state" ] && [ "$(ls -A "$SD" | wc -l)" = 1 ] && pass state-write "mkdir -p, one file, no temp left behind" || bad state-write "dir" "$(ls -A "$SD" 2>&1)"
-want="$(printf '%s\n' phase=to-compact phase_at=1700000000 skip=1 suppress=1 suppress_key=sk suppress_win=5h suppress_resets=1700000500 dirty=3 ledger=/a/b/ledger.md armed_key=ak armed_win=7d armed_resets=1700009999 'cheap_obs=3 4  5=x' inputbox_fail=2 'pending_inject=繼續 now')"
+want="$(printf '%s\n' phase=to-compact phase_at=1700000000 skip=1 suppress=1 suppress_key=sk suppress_win=5h suppress_resets=1700000500 dirty=3 ledger=/a/b/ledger.md ledger_done=4 armed_key=ak armed_win=7d armed_resets=1700009999 'cheap_obs=3 4  5=x' inputbox_fail=2 'pending_inject=繼續 now')"
 [ "$(sc "__ic_state_read '$SD'; $DUMP")" = "$want" ] && pass state-roundtrip "every key survives write -> read (spaces, '=' and CJK in values)" || bad state-roundtrip "got" "$(sc "__ic_state_read '$SD'; $DUMP")"
 [ "$(cat "$SD/ideal-compact-state")" = "$want" ] && pass state-format "plain key=value lines" || bad state-format "file" "$(cat "$SD/ideal-compact-state")"
 
 mkdir -p "$T/g"
-printf 'phase=bogus\n\nphase_at\n=x\nskip=1\ndirty=abc\nsuppress_key=kk\nunknown=zz\nsuppress_resets=-5\nlinewithout\narmed_win=7d\ncheap_obs=a=b c\narme' > "$T/g/ideal-compact-state"
+printf 'phase=bogus\n\nphase_at\n=x\nskip=1\ndirty=abc\nsuppress_key=kk\nunknown=zz\nsuppress_resets=-5\nlinewithout\nledger_done=x1\narmed_win=7d\ncheap_obs=a=b c\narme' > "$T/g/ideal-compact-state"
 out="$(sc "__ic_state_read '$T/g'; $DUMP" 2>&1)"
-want="$(printf '%s\n' phase=standby phase_at=0 skip=1 suppress=0 suppress_key=kk suppress_win= suppress_resets=0 dirty=0 ledger= armed_key= armed_win=7d armed_resets=0 'cheap_obs=a=b c' inputbox_fail=0 pending_inject=)"
+want="$(printf '%s\n' phase=standby phase_at=0 skip=1 suppress=0 suppress_key=kk suppress_win= suppress_resets=0 dirty=0 ledger= ledger_done=0 armed_key= armed_win=7d armed_resets=0 'cheap_obs=a=b c' inputbox_fail=0 pending_inject=)"
 [ "$out" = "$want" ] && pass state-garbage "bogus phase, '=x', no-'=', non-numbers, unknown key, truncated tail -> defaults, rest kept, no output" || bad state-garbage "got" "$out"
 : > "$T/g/ideal-compact-state"
 [ "$(sc "__ic_state_read '$T/g'; $DUMP" 2>&1)" = "$DEFAULTS" ] && pass state-empty "empty file -> defaults" || bad state-empty "got" "$(sc "__ic_state_read '$T/g'; $DUMP" 2>&1)"

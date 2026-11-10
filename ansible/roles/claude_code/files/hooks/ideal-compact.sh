@@ -3,7 +3,8 @@
 # /compact through the terminal multiplexer, switch account, send 繼續.
 # Registered on PostToolUse, Stop, Notification, PreCompact, PostCompact,
 # SessionStart and UserPromptSubmit. This file handles SessionStart,
-# UserPromptSubmit, PreCompact and PostToolUse; the other events are stubs for now.
+# UserPromptSubmit, PreCompact, PostToolUse, Stop and Notification; PostCompact
+# is a stub for now.
 # It never blocks Claude Code: exit 0 on every path (never 2), and nothing on
 # stdout except PostToolUse's additionalContext JSON.
 set -u
@@ -52,6 +53,19 @@ SDIR="$(__ic_session_dir "$TPATH" "$(__field session_id)")"
 [ -n "$SDIR" ] || exit 0
 LOCK="$SDIR/ideal-compact-state.lock"
 
+# __hist_path: the history file of the project the stored ledger (else the
+# cwd) belongs to; /dev/null when the project directory is unknown. Reads the
+# state the caller just read into IC_*.
+__hist_path() {
+  local pdir
+  if [ -n "$IC_ledger" ]; then
+    pdir="$(__ic_project_dir "$(dirname "$IC_ledger")" "$TPATH")"
+  else
+    pdir="$(__ic_project_dir "$CWD" "$TPATH")"
+  fi
+  if [ -n "$pdir" ]; then printf '%s/ideal-compact-history' "$pdir"; else printf /dev/null; fi
+}
+
 # __ic_takeover <expected> [inputbox_fail]: the user (or something else) took
 # the session over while the flow was running, or a step failed. Sets phase
 # standby with suppress=1 for the window the budget is currently counted on,
@@ -62,7 +76,7 @@ LOCK="$SDIR/ideal-compact-state.lock"
 # The helper and the budget run BEFORE the lock (the lock never spans them);
 # when the helper fails or the budget is unknown, armed_* is used instead.
 __ic_takeover() {
-  local expected="$1" fail="${2:-}" cur='' acc='' ledger pdir hist budget bwin='' key r5 r7
+  local expected="$1" fail="${2:-}" cur='' acc='' hist budget bwin='' key r5 r7
   local s_key='' s_win='' s_resets=0
   if [ -x "$__IC_HELPER" ]; then
     cur="$("$__IC_HELPER" current 2>/dev/null)"
@@ -70,14 +84,7 @@ __ic_takeover() {
   fi
   case "$cur" in error:*) cur='' ;; esac
   __ic_state_read "$SDIR"
-  ledger="$IC_ledger"
-  if [ -n "$ledger" ]; then
-    pdir="$(__ic_project_dir "$(dirname "$ledger")" "$TPATH")"
-  else
-    pdir="$(__ic_project_dir "$CWD" "$TPATH")"
-  fi
-  hist=/dev/null
-  [ -n "$pdir" ] && hist="$pdir/ideal-compact-history"
+  hist="$(__hist_path)"
   if [ -n "$cur" ]; then
     budget="$(__ic_budget "$hist" "$cur" "$acc")"
     bwin="${budget#* }"
@@ -468,6 +475,83 @@ __on_post_tool_use() {
   return 0
 }
 
+# ---- Stop and Notification ----
+
+# __trim <text>: without leading and trailing whitespace.
+__trim() {
+  local t="$1"
+  t="${t#"${t%%[![:space:]]*}"}"
+  printf '%s' "${t%"${t##*[![:space:]]}"}"
+}
+
+# The agent stopped. Its last message ends with the marker and nothing runs
+# in the background (both lists present and empty): armed -> stopped, a
+# repeated one refreshes stopped. Anything else sends stopped back to armed.
+__on_stop() {
+  local last quiet=0 ok=0
+  last="$(__field last_assistant_message | awk 'NF { l = $0 } END { print l }')"
+  [ "$(__trim "$last")" = "$IDEAL_COMPACT_MARKER" ] || last=''
+  [ "$(__trim "$(__field background_tasks)")" = '[]' ] && [ "$(__trim "$(__field session_crons)")" = '[]' ] && quiet=1
+  [ -n "$last" ] && [ "$quiet" = 1 ] && ok=1
+  __ic_lock "$LOCK" || return 0
+  __ic_state_read "$SDIR"
+  case "$IC_phase:$ok" in
+    armed:1|stopped:1) __ic_set_phase stopped; __ic_state_write "$SDIR" ;;
+    stopped:0) __ic_set_phase armed; __ic_state_write "$SDIR" ;;
+  esac
+  __ic_unlock
+}
+
+# The user is away (idle_prompt) while stopped: send /compact, or 繼續 when
+# the budget says the paused window has room again. The input box check, the
+# helper and the budget run before the lock; the lock only re-reads and
+# writes the phase, the keys go out after it.
+__on_notification() {
+  local backend box cur='' acc='' budget n next text
+  local -a bw
+  [ "$(__field notification_type)" = idle_prompt ] || return 0
+  __ic_state_read "$SDIR"
+  [ "$IC_phase" = stopped ] && [ "$IC_skip" = 0 ] || return 0
+  backend="$(__ic_backend)"
+  if [ -z "$backend" ]; then
+    __ic_takeover stopped || true
+    return 0
+  fi
+  read -r -a bw <<< "$backend"
+  box="$(__ic_inputbox_state "${bw[@]}")"
+  case "$box" in
+    empty|placeholder) ;;
+    unsure) __ic_takeover stopped 1 || true; return 0 ;;
+    *) __ic_takeover stopped || true; return 0 ;;
+  esac
+  if [ -x "$__IC_HELPER" ]; then
+    cur="$("$__IC_HELPER" current 2>/dev/null)"
+    acc="$("$__IC_HELPER" accounts 2>/dev/null)"
+  fi
+  n=''
+  case "$cur" in
+    error:*|'') ;;
+    *) budget="$(__ic_budget "$(__hist_path)" "$cur" "$acc")"; n="${budget%% *}" ;;
+  esac
+  case "$n" in ''|*[!0-9]*) n='' ;; esac
+  if [ -n "$n" ] && [ "$n" -gt "$IDEAL_COMPACT_WARN_TASKS" ]; then
+    next=continuing text="$IDEAL_COMPACT_CONTINUE_TEXT"
+  else
+    next=to-compact text="/compact $IDEAL_COMPACT_COMPACT_TEXT"
+  fi
+  __ic_lock "$LOCK" || return 0
+  __ic_state_read "$SDIR"
+  if [ "$IC_phase" != stopped ] || [ "$IC_skip" != 0 ]; then
+    __ic_unlock
+    return 0
+  fi
+  __ic_set_phase "$next"
+  IC_inputbox_fail=0
+  __ic_state_write "$SDIR"
+  __ic_unlock
+  __ic_send "${bw[@]}" "$text" || true
+}
+
 # Fast path, before any lock: an idle standby with nothing queued and no
 # ledger in sight is the common tool call and costs no helper, cswap or git.
 # standby has no timeout, so skipping __ttl_step is safe.
@@ -486,8 +570,8 @@ case "$EVENT" in
   UserPromptSubmit) __on_prompt ;;
   PreCompact) __on_precompact ;;
   PostToolUse) __on_post_tool_use ;;
-  Stop) : ;;          # Task 12
-  Notification) : ;;  # Task 12
+  Stop) __on_stop ;;
+  Notification) __on_notification ;;
   PostCompact) : ;;   # Task 13
 esac
 exit 0

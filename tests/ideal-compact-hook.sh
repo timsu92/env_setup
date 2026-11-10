@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for hooks/ideal-compact.sh: SessionStart, UserPromptSubmit, PreCompact,
-# PostToolUse, phase timeouts and __ic_takeover. Usage: ideal-compact-hook.sh
+# PostToolUse, Stop, Notification, phase timeouts and __ic_takeover. Usage: ideal-compact-hook.sh
 # ---- isolation header: a test must never reach the real session or account ----
 unset TMUX TMUX_PANE STY WINDOW CLAUDECODE
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -536,6 +536,174 @@ ledger 1 2; seed - 2; set_state phase=standby ledger="$LEDP" ledger_done=2; : > 
 edit_led
 ck "ptu-standby-no-obs" "" "$(cat "$FAKE_LOG")"
 mv "$T/cfg.bak" "$CLAUDE_CONFIG_DIR/.claude.json"
+
+# ---- Stop: marker + quiet ----
+MARK='[[STOP_FOR_COMPACT]]'
+# stop <message> [jq args]: a Stop with both quiet lists present and empty
+stop() { local m="$1"; shift; send Stop --arg last_assistant_message "$m" --argjson background_tasks '[]' --argjson session_crons '[]' "$@"; }
+set_state phase=armed
+stop $'OK\n'"$MARK"
+st_all "stop-armed-marker" "phase=stopped"
+no_stdout "stop-quiet"
+set_state phase=armed
+stop $'OK\n'"$MARK"$'   \n\n \n'
+st_all "stop-marker-trailing-blank" "phase=stopped"
+set_state phase=armed
+stop "$MARK"
+st_all "stop-marker-only" "phase=stopped"
+set_state phase=armed
+stop $'OK\n  '"$MARK"$'\t\r\n'
+st_all "stop-marker-trim" "phase=stopped"
+set_state phase=armed
+stop $'OK\n'"$MARK"$'\nand then some'
+st_all "stop-marker-then-text" "phase=armed"
+set_state phase=armed
+stop "see $MARK"
+st_all "stop-marker-inline" "phase=armed"
+set_state phase=armed
+stop "done"
+st_all "stop-no-marker" "phase=armed"
+set_state phase=armed
+send Stop --arg last_assistant_message "$MARK" --argjson session_crons '[]'
+st_all "stop-bg-missing" "phase=armed"
+set_state phase=armed
+send Stop --arg last_assistant_message "$MARK" --argjson background_tasks '[]'
+st_all "stop-crons-missing" "phase=armed"
+set_state phase=armed
+send Stop --arg last_assistant_message "$MARK" --argjson background_tasks '[]' --argjson session_crons '[{"id":"c1"}]'
+st_all "stop-crons-nonempty" "phase=armed"
+set_state phase=armed
+send Stop --arg last_assistant_message "$MARK" --argjson background_tasks '[{"id":"a1","type":"subagent","status":"running"}]' --argjson session_crons '[]'
+st_all "stop-bg-running" "phase=armed"
+set_state phase=armed
+send Stop --arg last_assistant_message "$MARK" --argjson background_tasks null --argjson session_crons '[]'
+st_all "stop-bg-null" "phase=armed"
+set_state phase=armed
+send Stop --argjson background_tasks '[]' --argjson session_crons '[]'
+st_all "stop-no-message" "phase=armed"
+# stopped + marker again: still stopped, phase_at refreshed; otherwise back to armed
+set_state phase=stopped phase_at=$((NOW - 100))
+stop "$MARK"
+ck "stop-stopped-marker" "stopped" "$(st phase)"
+[ "$(st phase_at)" -gt $((NOW - 100)) ] && pass "stop-stopped-phase-at" ok || bad "stop-stopped-phase-at" "refreshed" "$(st phase_at)"
+set_state phase=stopped
+stop "carry on"
+st_all "stop-stopped-no-marker" "phase=armed"
+set_state phase=stopped
+send Stop --arg last_assistant_message "$MARK" --argjson background_tasks '[{"id":"a1"}]' --argjson session_crons '[]'
+st_all "stop-stopped-not-quiet" "phase=armed"
+for ph in standby waiting to-compact compacting continuing; do
+  set_state phase=$ph
+  stop "$MARK"
+  st_all "stop-$ph-unchanged" "phase=$ph"
+done
+set_state phase=armed
+printf '%s' "{\"session_id\":\"sess1\",\"transcript_path\":\"$TP\",\"cwd\":\"$T/cwd\",\"hook_event_name\":\"Stop\",\"last_assistant_message\":\"OK\\n$MARK\",\"background_tasks\":[],\"session_crons\":[]}" \
+  | PATH="$T/nojq" "$T/nojq/bash" "$T/hooks/ideal-compact.sh" >"$T/out" 2>"$T/err"
+st_all "stop-nojq" "phase=stopped"
+
+# ---- Notification ----
+export TMUX="$T/sock,1,0" TMUX_PANE=%3
+SOCK="$T/sock"
+RULE="$(printf '─%.0s' 1 2 3 4 5 6 7 8 9 10)"
+NB=$'\xc2\xa0'
+printf '%s\n❯%s\n%s\n' "$RULE" "$NB" "$RULE" > "$T/screen-empty"
+printf '%s\n❯%sTry "fix lint errors"\n%s\n' "$RULE" "$NB" "$RULE" > "$T/screen-placeholder"
+printf '%s\n❯%sdraft text\n%s\n' "$RULE" "$NB" "$RULE" > "$T/screen-draft"
+: > "$T/screen-none"
+COMPACT="$(bash -c '. "$1"; printf %s "$IDEAL_COMPACT_COMPACT_TEXT"' _ "$T/common-helpers.sh")"
+CR=$'\r'
+sent() { grep ' send-keys ' "$FAKE_LOG" 2>/dev/null; }
+# idle <screen> <cursor> [phase state...]: an idle_prompt in `stopped` from the repo
+idle() {
+  FAKE_SCREEN="$T/screen-$1" FAKE_CURSOR="$2"; export FAKE_SCREEN FAKE_CURSOR
+  shift 2
+  set_state phase=stopped "$@"; : > "$FAKE_LOG"
+  SEND_CWD="$R" send Notification --arg notification_type idle_prompt
+}
+EXP_COMPACT="tmux -S $SOCK send-keys -l -t %3 /compact $COMPACT"$'\n'"tmux -S $SOCK send-keys -l -t %3 $CR"
+EXP_CONT="tmux -S $SOCK send-keys -l -t %3 繼續"$'\n'"tmux -S $SOCK send-keys -l -t %3 $CR"
+
+seed 20
+for kind in empty placeholder; do
+  idle $kind "2 1" inputbox_fail=1
+  ck "idle-$kind-compact-sent" "$EXP_COMPACT" "$(sent)"
+  st_all "idle-$kind-compact-state" "phase=to-compact inputbox_fail=0 suppress=0"
+  no_stdout "idle-$kind-quiet"
+done
+[ "$(st phase_at)" -ge "$NOW" ] && pass "idle-compact-phase-at" ok || bad "idle-compact-phase-at" ">= now" "$(st phase_at)"
+seed 6
+idle empty "2 1" inputbox_fail=1
+ck "idle-continue-sent" "$EXP_CONT" "$(sent)"
+st_all "idle-continue-state" "phase=continuing inputbox_fail=0 suppress=0"
+seed 5
+idle placeholder "2 1"
+ck "idle-budget-9-continues" "$EXP_CONT" "$(sent)"
+seed 7   # (97-50)/7 = 6: not above the warn count
+idle empty "2 1"
+ck "idle-budget-6-compact" "to-compact" "$(st phase)"
+rm -f "$RHIST"
+idle empty "2 1"
+ck "idle-budget-unknown-compact-sent" "$EXP_COMPACT" "$(sent)"
+seed 20
+# nothing is sent on skip, and nothing is touched at all
+idle empty "2 1" skip=1
+ck "idle-skip-log-empty" "" "$(cat "$FAKE_LOG")"
+st_all "idle-skip-state" "phase=stopped skip=1 suppress=0"
+# a draft: takeover without inputbox_fail
+idle draft "7 1" inputbox_fail=0
+ck "idle-draft-nothing-sent" "" "$(sent)"
+st_all "idle-draft-takeover" "phase=standby suppress=1 inputbox_fail=0"
+# unsure (cursor query fails / no box): takeover with inputbox_fail=1
+export FAKE_FAIL_CURSOR=1
+idle empty "2 1"
+ck "idle-unsure-cursor-nothing-sent" "" "$(sent)"
+st_all "idle-unsure-cursor-takeover" "phase=standby suppress=1 inputbox_fail=1"
+unset FAKE_FAIL_CURSOR
+idle none "2 1"
+ck "idle-unsure-nobox-nothing-sent" "" "$(sent)"
+st_all "idle-unsure-nobox-takeover" "phase=standby suppress=1 inputbox_fail=1"
+# no backend: takeover, nothing sent, no capture
+TMUX_PANE='' idle empty "2 1"
+ck "idle-nobackend-log" "" "$(cat "$FAKE_LOG" | grep -v '^helper ')"
+st_all "idle-nobackend-takeover" "phase=standby suppress=1 inputbox_fail=0"
+# the takeover is tied to the stopped phase and to the budget's window
+idle draft "7 1" armed_key=ARMK
+st_all "idle-takeover-suppress-key" "suppress_key=KEY1 suppress_win=5h suppress_resets=$R5"
+# other notification types and other phases do nothing
+set_state phase=stopped; : > "$FAKE_LOG"
+SEND_CWD="$R" send Notification --arg notification_type permission_prompt
+ck "idle-other-type" "stopped|" "$(st phase)|$(cat "$FAKE_LOG")"
+no_stdout "idle-other-type-quiet"
+SEND_CWD="$R" send Notification
+ck "idle-no-type" "stopped|" "$(st phase)|$(cat "$FAKE_LOG")"
+for ph in standby armed waiting to-compact compacting continuing; do
+  set_state phase=$ph; : > "$FAKE_LOG"
+  FAKE_SCREEN="$T/screen-empty" FAKE_CURSOR="2 1" SEND_CWD="$R" send Notification --arg notification_type idle_prompt
+  ck "idle-in-$ph" "$ph|" "$(st phase)|$(cat "$FAKE_LOG")"
+done
+# races: the state changes after the input box check, before the lock
+mkdir -p "$T/racebin"
+cat > "$T/racebin/tmux" <<'RACE'
+#!/usr/bin/env bash
+"$TESTS_DIR/fakes/tmux" "$@"; rc=$?
+case " $* " in *" display-message "*) [ -n "${RACE_LINE:-}" ] && printf '%s\n' "$RACE_LINE" >> "$RACE_SDIR/ideal-compact-state" ;; esac
+exit $rc
+RACE
+chmod +x "$T/racebin/tmux"
+iso_guard "$T/racebin:$PATH" "$T/racebin"
+export TESTS_DIR RACE_SDIR="$SDIR"
+for line in skip=1 phase=armed phase=standby; do
+  RACE_LINE="$line"; export RACE_LINE
+  OLDPATH="$PATH"; PATH="$T/racebin:$PATH"
+  idle empty "2 1"
+  PATH="$OLDPATH"
+  ck "idle-race-$line-nothing-sent" "" "$(sent)"
+  ck "idle-race-$line-state" "${line#*=}" "$(st "${line%%=*}")"
+done
+unset RACE_LINE
+unset FAKE_SCREEN FAKE_CURSOR
+
 unset TMUX TMUX_PANE
 
 exit $fail

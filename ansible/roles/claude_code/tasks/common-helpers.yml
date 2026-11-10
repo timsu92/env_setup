@@ -1,7 +1,7 @@
 ---
-# Sourced (never executed) by hooks/high-watermark-auto-pause.sh and
-# statusline.sh, which both look for it in ~/.claude/, so either one can be
-# installed alone and still finds it.
+# Sourced (never executed) by hooks/high-watermark-auto-pause.sh,
+# hooks/ideal-compact.sh and statusline.sh, which all look for it in
+# ~/.claude/, so any one of them can be installed alone and still finds it.
 - name: Create Claude Code home directory
   ansible.builtin.include_tasks:
     file: claude-dir.yml

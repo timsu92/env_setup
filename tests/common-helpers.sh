@@ -279,4 +279,178 @@ bash -c '. "$1"; '"$rmw" _ "$T/common-helpers.sh" "$CD" & w2=$!
 wait "$w1" "$w2"
 [ "$(sc "__ic_state_read '$CD'; echo \$IC_dirty")" = 100 ] && pass lock-concurrent "2 writers x 50 rounds -> dirty=100" || bad lock-concurrent "got" "$(sc "__ic_state_read '$CD'; echo \$IC_dirty")"
 
+
+# ---- ledger counting, plan lookup ----
+LD="$T/led"; mkdir -p "$LD"
+printf '# Plan 6 progress ledger\nTask 1: complete (a)\nTask 2: complete\nTask 2: complete (rerun)\nTask 3: pending\n  Task 4: complete\n' > "$LD/l1.md"
+[ "$(sc "__ic_ledger_done '$LD/l1.md'")" = 2 ] && pass ledger-done "distinct N among 'Task N: complete' lines (rerun counted once)" || bad ledger-done "got" "$(sc "__ic_ledger_done '$LD/l1.md'")"
+[ "$(sc "__ic_ledger_done '$LD/none.md'")" = 0 ] && pass ledger-done-missing "no ledger -> 0" || bad ledger-done-missing "got" "$(sc "__ic_ledger_done '$LD/none.md'")"
+
+RP="$T/repo"; mkdir -p "$RP/docs" "$RP/.superpowers/sdd/w"
+git -C "$RP" init -q
+printf '# Plan\n### Task 1: a\ntext\n### Task 2: b\n#### Task 3: not a heading\n### Task 10: c\n' > "$RP/docs/p.md"
+RPP="$(cd "$RP" && pwd -P)"
+WL="$RP/.superpowers/sdd/w/progress.md"
+printf '# Plan 6 progress ledger\nTask 1: complete\n' > "$WL"
+[ "$(sc "__ic_plan_total '$RP/docs/p.md'")" = 3 ] && pass plan-total "counts '### Task N:' headings only" || bad plan-total "got" "$(sc "__ic_plan_total '$RP/docs/p.md'")"
+[ "$(sc "__ic_plan_total '$RP/docs/none.md'")" = 0 ] && pass plan-total-missing "no plan -> 0" || bad plan-total-missing "got" ""
+[ -z "$(sc "__ic_ledger_plan '$WL'")" ] && pass plan-none "no plan-path and no plan line -> empty (done still counted: $(sc "__ic_ledger_done '$WL'"))" || bad plan-none "got" "$(sc "__ic_ledger_plan '$WL'")"
+printf 'docs/p.md\n' > "$RP/.superpowers/sdd/w/plan-path"
+out="$(sc "__ic_ledger_plan '$WL'")"
+[ "$out" = "$RPP/docs/p.md" ] && pass plan-path-rel "plan-path file, repo-relative" || bad plan-path-rel "got" "$out"
+mkdir -p "$T/outside"; printf '### Task 1: x\n' > "$T/outside/q.md"
+printf '%s\n' "$T/outside/q.md" > "$RP/.superpowers/sdd/w/plan-path"
+out="$(sc "__ic_ledger_plan '$WL'")"
+[ "$out" = "$(cd "$T/outside" && pwd -P)/q.md" ] && pass plan-path-abs "plan-path file, absolute outside the repo" || bad plan-path-abs "got" "$out"
+printf 'docs/gone.md\n' > "$RP/.superpowers/sdd/w/plan-path"
+[ -z "$(sc "__ic_ledger_plan '$WL'")" ] && pass plan-path-missing "plan-path names a missing file -> empty" || bad plan-path-missing "got" "$(sc "__ic_ledger_plan '$WL'")"
+rm "$RP/.superpowers/sdd/w/plan-path"
+printf '# SDD ledger — plan: docs/p.md\nTask 1: complete\n' > "$WL"
+out="$(sc "__ic_ledger_plan '$WL'")"
+[ "$out" = "$RPP/docs/p.md" ] && pass plan-line-rel "first line, relative to the repo root" || bad plan-line-rel "got" "$out"
+printf '# SDD ledger — plan: %s\n' "$T/outside/q.md" > "$WL"
+out="$(sc "__ic_ledger_plan '$WL'")"
+[ "$out" = "$(cd "$T/outside" && pwd -P)/q.md" ] && pass plan-line-abs "first line, absolute" || bad plan-line-abs "got" "$out"
+# outside git: relative path tried against the ledger's directory
+mkdir -p "$T/nogit"; printf '### Task 1: x\n' > "$T/nogit/np.md"; printf '# SDD ledger — plan: np.md\n' > "$T/nogit/progress.md"
+out="$(sc "__ic_ledger_plan '$T/nogit/progress.md'")"
+[ "$out" = "$(cd "$T/nogit" && pwd -P)/np.md" ] && pass plan-line-ledger-dir "not in git: falls back to the ledger's directory" || bad plan-line-ledger-dir "got" "$out"
+# the repo-root candidate wins over the ledger directory when both exist
+printf 'other\n' > "$RP/.superpowers/sdd/w/docs-p.txt"; mkdir -p "$RP/.superpowers/sdd/w/docs"; printf '### Task 1: z\n' > "$RP/.superpowers/sdd/w/docs/p.md"
+printf '# SDD ledger — plan: docs/p.md\n' > "$WL"
+out="$(sc "__ic_ledger_plan '$WL'")"
+[ "$out" = "$RPP/docs/p.md" ] && pass plan-root-first "repo root tried before the ledger directory" || bad plan-root-first "got" "$out"
+rm -rf "$RP/.superpowers/sdd/w/docs" "$RP/.superpowers/sdd/w/docs-p.txt"
+
+# ---- history ----
+HD="$T/hist"; H="$HD/ideal-compact-history"
+R5=1800000000 R7=1900000000
+# rec <ledger> <done> <p5> <r5> <p7> <r7> [key=k1] [dirty=0] [tag=usage]; prints the function's answer
+rec() { sc "__ic_history_record '$H' '$1' '$2' '${9:-usage} ${7:-k1} $3 $4 $5 $6 97 99 120 3' '${8:-0}'"; }
+# fld <ledger> <n>: field n of the newest line for that ledger
+fld() { sc "__ic_history_latest '$H' '$1'" | cut -f"$2"; }
+# num_eq <a> <b>: numeric equality
+num_eq() { awk -v a="$1" -v b="$2" 'BEGIN{d=a-b; exit !(d<1e-9 && d>-1e-9)}'; }
+chk() { # chk <id> <desc> <ledger> <field> <expected>
+  local g; g="$(fld "$3" "$4")"
+  if [ "$g" = "$5" ] || { [[ "$g" =~ ^[0-9.]+$ && "$5" =~ ^[0-9.]+$ ]] && num_eq "$g" "$5"; }; then pass "$1" "$2"; else bad "$1" "$2" "field $4 = '$g', expected '$5'"; fi
+}
+
+[ -z "$(sc "__ic_history_latest '$H' '/l/a'")" ] && pass hist-latest-missing "no file -> empty" || bad hist-latest-missing "got" ""
+A=/l/a
+out="$(rec $A 2 10 $R5 20 $R7)"
+[ "$out" = baseline ] && pass hist-first "first record of a ledger -> baseline" || bad hist-first "got" "$out"
+chk hist-first-c "first record has no numbers" $A 10 -
+chk hist-first-c7 "first record has no 7d number" $A 11 -
+chk hist-first-base "baseline snapshot = this entry" $A 12 2
+[ "$(fld $A 13)" = 10 ] && [ "$(fld $A 14)" = $R5 ] && [ "$(fld $A 15)" = 2 ] && [ "$(fld $A 16)" = 20 ] && [ "$(fld $A 17)" = $R7 ] && pass hist-first-snap "all six baseline fields" || bad hist-first-snap "fields" "$(sc "__ic_history_latest '$H' '$A'")"
+[ "$(fld $A 2)" = "$A" ] && [ "$(fld $A 3)" = 2 ] && [ "$(fld $A 4)" = k1 ] && [ "$(fld $A 5)" = 10 ] && [ "$(fld $A 6)" = $R5 ] && [ "$(fld $A 9)" = 0 ] && pass hist-layout "ledger/done/key/pct/reset/dirty columns" || bad hist-layout "fields" "$(sc "__ic_history_latest '$H' '$A'")"
+[[ "$(fld $A 1)" =~ ^[0-9]{10}$ ]] && pass hist-ts "epoch timestamp" || bad hist-ts "got" "$(fld $A 1)"
+
+out="$(rec $A 3 10 $R5 22 $R7)"
+[ "$out" = counted ] && pass hist-delta-7d "7d moved, 5h did not -> counted" || bad hist-delta-7d "got" "$out"
+chk hist-zero-c5 "delta 0 -> c5 '-'" $A 10 -
+chk hist-zero-b5done "delta 0 -> 5h baseline carried (done stays 2)" $A 12 2
+chk hist-zero-b5pct "5h baseline pct carried" $A 13 10
+chk hist-c7 "7d: 2 over 1 task" $A 11 2
+chk hist-b7done "7d baseline moved to 3" $A 15 3
+chk hist-b7pct "7d baseline pct moved to 22" $A 16 22
+out="$(rec $A 4 12 $R5 22 $R7)"
+chk hist-c5 "5h: 2 over (4-2) tasks = 1" $A 10 1
+chk hist-c5-b "5h baseline moved to 4" $A 12 4
+chk hist-c5-bpct "5h baseline pct 12" $A 13 12
+chk hist-c7-zero "7d delta 0 -> '-'" $A 11 -
+chk hist-b7-carry "7d baseline carried (3/22)" $A 15 3
+[ "$out" = counted ] && pass hist-counted "counted" || bad hist-counted "got" "$out"
+out="$(rec $A 5 12 $R5 22 $R7)"
+[ "$out" = baseline ] && pass hist-both-zero "both deltas 0 -> baseline (no number)" || bad hist-both-zero "got" "$out"
+chk hist-both-zero-b "baselines both carried" $A 12 4
+
+# reset tolerance
+B=/l/b
+rec $B 1 10 $R5 10 $R7 >/dev/null
+out="$(rec $B 2 11 $((R5+4)) 11 $R7)"
+chk reset-4s-c5 "5h reset moved 4 s -> no number" $B 10 -
+chk reset-4s-rebase "5h window rebased to this entry" $B 12 2
+chk reset-4s-c7 "7d window still yields its number" $B 11 1
+[ "$out" = counted ] && pass reset-4s-out "counted" || bad reset-4s-out "got" "$out"
+C=/l/c
+rec $C 1 10 $R5 10 $R7 >/dev/null
+rec $C 2 11 $((R5+3)) 11 $((R7-3)) >/dev/null
+chk reset-3s-c5 "5h reset moved 3 s -> same window" $C 10 1
+chk reset-3s-c7 "7d reset moved 3 s earlier -> same window" $C 11 1
+
+# negative delta
+D=/l/d
+rec $D 1 10 $R5 10 $R7 >/dev/null
+out="$(rec $D 2 9 $R5 12 $R7)"
+chk neg-c5 "5h delta -1 -> no number" $D 10 -
+chk neg-b5 "5h rebased (done 2)" $D 12 2
+chk neg-b5pct "5h rebased (pct 9)" $D 13 9
+chk neg-c7 "7d still counted" $D 11 2
+
+# key change, dirty, done regression
+E=/l/e
+rec $E 1 10 $R5 10 $R7 >/dev/null
+out="$(rec $E 2 12 $R5 12 $R7 k2)"
+[ "$out" = baseline ] && pass key-change "key changed -> baseline" || bad key-change "got" "$out"
+[ "$(fld $E 10)" = - ] && [ "$(fld $E 11)" = - ] && [ "$(fld $E 12)" = 2 ] && [ "$(fld $E 15)" = 2 ] && [ "$(fld $E 4)" = k2 ] && pass key-change-b "no numbers, both rebased to the new key" || bad key-change-b "line" "$(sc "__ic_history_latest '$H' '$E'")"
+out="$(rec $E 3 14 $R5 14 $R7 k2 1)"
+[ "$out" = baseline ] && pass dirty "dirty=1 -> baseline" || bad dirty "got" "$out"
+[ "$(fld $E 10)" = - ] && [ "$(fld $E 11)" = - ] && [ "$(fld $E 12)" = 3 ] && [ "$(fld $E 9)" = 1 ] && pass dirty-b "no numbers, rebased, dirty stored" || bad dirty-b "line" "$(sc "__ic_history_latest '$H' '$E'")"
+out="$(rec $E 4 16 $R5 16 $R7 k2 3)"
+[ "$out" = baseline ] && [ "$(fld $E 9)" = 3 ] && pass dirty-counter "dirty counter 3 -> baseline" || bad dirty-counter "got" "$out"
+out="$(rec $E 5 18 $R5 18 $R7 k2 0)"
+[ "$out" = counted ] && [ "$(fld $E 10)" = 2 ] && pass dirty-zero "dirty=0 counts" || bad dirty-zero "got" "$out"
+out="$(rec $E 1 20 $R5 20 $R7 k2)"
+[ "$out" = baseline ] && [ "$(fld $E 12)" = 1 ] && [ "$(fld $E 10)" = - ] && pass done-regress "done 1 after 5 -> baseline, rebased" || bad done-regress "got" "$out"
+out="$(rec $E 1 21 $R5 21 $R7 k2)"
+[ "$out" = baseline ] && pass done-equal "done equal to the previous -> baseline" || bad done-equal "got" "$out"
+
+# arithmetic: floats, 4 decimals
+F=/l/f
+rec $F 1 40.0 $R5 10.0 $R7 >/dev/null
+rec $F 4 41.5 $R5 11.0 $R7 >/dev/null
+chk float-c5 "40.0 -> 41.5 over 3 tasks = 0.5" $F 10 0.5
+chk float-c7 "10.0 -> 11.0 over 3 tasks = 0.3333" $F 11 0.3333
+chk float-pct-kept "raw pct stored as given" $F 5 41.5
+
+# skipped
+before="$(cksum < "$H")"
+out="$(rec $A 9 50 $R5 50 $R7 k1 0 lastgood)"
+[ "$out" = skipped ] && [ "$before" = "$(cksum < "$H")" ] && pass skip-tag "tag lastgood -> skipped, file unchanged" || bad skip-tag "got" "$out"
+out="$(rec $A 9 50 $R5 50 $R7 - 0)"
+[ "$out" = skipped ] && [ "$before" = "$(cksum < "$H")" ] && pass skip-key "key '-' -> skipped, file unchanged" || bad skip-key "got" "$out"
+out="$(rec $A 9 50 $R5 50 $R7 k1 0 none)"
+[ "$out" = skipped ] && [ "$before" = "$(cksum < "$H")" ] && pass skip-none "tag none -> skipped" || bad skip-none "got" "$out"
+[ "$(sc "__ic_history_latest '$H' '$A'" | cut -f3)" = 5 ] && pass skip-latest "skipped record is not the latest" || bad skip-latest "got" ""
+
+# pruning per account
+P=/l/p; H0="$H"; H="$HD/prune/ideal-compact-history"
+for i in $(seq 25); do rec $P $i 10 $R5 10 $R7 >/dev/null; done
+rec /l/q 1 10 $R5 10 $R7 k2 >/dev/null
+n1="$(awk -F'\t' '$4=="k1"' "$H" | wc -l)"; n2="$(awk -F'\t' '$4=="k2"' "$H" | wc -l)"
+[ "$n1" = 20 ] && [ "$n2" = 1 ] && pass prune "25 k1 + 1 k2 -> 20 k1 lines and the k2 line" || bad prune "counts" "k1=$n1 k2=$n2"
+[ "$(awk -F'\t' '$4=="k1"{print $3}' "$H" | head -1)" = 6 ] && [ "$(awk -F'\t' '$4=="k1"{print $3}' "$H" | tail -1)" = 25 ] && pass prune-newest "the newest 20 are kept (done 6..25)" || bad prune-newest "range" "$(awk -F'\t' '$4=="k1"{print $3}' "$H" | tr '\n' ' ')"
+[ -z "$(ls "$HD/prune" | grep -v '^ideal-compact-history')" ] && [ "$(ls "$HD/prune" | wc -l)" = 2 ] && pass prune-clean "history file and lock only, no temp left" || bad prune-clean "dir" "$(ls "$HD/prune")"
+
+# two ledgers interleaving
+H="$HD/inter/ideal-compact-history"
+rec /l/x 1 10 $R5 10 $R7 >/dev/null
+rec /l/y 1 50 $R5 50 $R7 >/dev/null
+rec /l/x 2 12 $R5 12 $R7 >/dev/null
+rec /l/y 2 55 $R5 56 $R7 >/dev/null
+[ "$(fld /l/x 10)" = 2 ] && [ "$(fld /l/y 10)" = 5 ] && [ "$(fld /l/y 11)" = 6 ] && pass interleave "each ledger pairs with its own previous line" || bad interleave "got" "x=$(fld /l/x 10) y=$(fld /l/y 10)"
+rec /l/y 3 58 $R5 56 $R7 >/dev/null
+[ "$(fld /l/y 10)" = 3 ] && pass interleave-2 "y: 55 -> 58 over one task" || bad interleave-2 "got" "$(fld /l/y 10)"
+[ "$(sc "__ic_history_latest '$H' /l/x" | cut -f3)" = 2 ] && [ -z "$(sc "__ic_history_latest '$H' /l/z")" ] && pass hist-latest-ledger "latest per ledger; unknown ledger -> empty" || bad hist-latest-ledger "got" ""
+
+# concurrent writers keep every line
+H="$HD/conc/ideal-compact-history"
+wr='for i in $(seq 20); do __ic_history_record "$2" "$3" "$i" "usage k$4 $i 1800000000 $i 1900000000 97 99 120 3" 0 >/dev/null; done'
+bash -c '. "$1"; '"$wr" _ "$T/common-helpers.sh" "$H" /l/m 1 & w1=$!
+bash -c '. "$1"; '"$wr" _ "$T/common-helpers.sh" "$H" /l/n 2 & w2=$!
+wait "$w1" "$w2"
+[ "$(wc -l < "$H")" = 40 ] && [ "$(awk -F'\t' 'NF==17' "$H" | wc -l)" = 40 ] && pass hist-concurrent "2 writers x 20 records -> 40 whole lines" || bad hist-concurrent "lines" "$(wc -l < "$H")"
+
 exit $fail

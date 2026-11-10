@@ -286,3 +286,129 @@ __ic_phase_display() {
     printf '%s' "$IC_phase"
   )
 }
+
+# ---- ledger counting, history and per-task consumption ----
+# A task is complete when "Task N: complete" is a line of the plan's ledger
+# (superpowers' progress.md). Every completion appends one line to the
+# project's history; see the design's section 4 for the consumption rules.
+
+# __ic_ledger_done <ledger>: the number of distinct N in "Task N: complete"
+# lines (task-done does not deduplicate, a rerun adds a line). 0 when the
+# ledger is unreadable.
+__ic_ledger_done() {
+  [ -r "${1:-}" ] || { printf 0; return 0; }
+  awk '/^Task [0-9]+: complete/ { split($0, a, /[: ]+/); seen[a[2] + 0] = 1 }
+       END { n = 0; for (k in seen) n++; printf "%d", n }' "$1"
+}
+
+# __ic_plan_total <plan>: the number of "### Task N:" headings; 0 when the
+# plan is unreadable.
+__ic_plan_total() {
+  [ -r "${1:-}" ] || { printf 0; return 0; }
+  awk '/^### Task [0-9]+:/ { n++ } END { printf "%d", n }' "$1"
+}
+
+# __ic_ledger_plan <ledger>: the plan's physical absolute path, or empty.
+# Candidates come from the plan-path file next to the ledger (written by
+# superpowers' sdd-workspace), then from the ledger's first line
+# "# SDD ledger — plan: <path>". An absolute path is used as is; a relative
+# one is tried against the repo root of the ledger's directory and then
+# against the ledger's directory, and the first that exists wins.
+__ic_ledger_plan() {
+  local __dir __root __cand __rel __base
+  [ -n "${1:-}" ] || return 0
+  __dir="$(dirname "$1")"
+  __root="$(git -C "$__dir" rev-parse --show-toplevel 2>/dev/null)" || __root=''
+  for __rel in \
+    "$( [ -r "$__dir/plan-path" ] && head -n 1 "$__dir/plan-path" | tr -d '\r' )" \
+    "$( [ -r "$1" ] && head -n 1 "$1" | tr -d '\r' | sed -n 's/^# SDD ledger — plan: //p' )"
+  do
+    [ -n "$__rel" ] || continue
+    case "$__rel" in
+      /*) __cand="$__rel"; [ -f "$__cand" ] || continue ;;
+      *)
+        if [ -n "$__root" ] && [ -f "$__root/$__rel" ]; then __cand="$__root/$__rel"
+        elif [ -f "$__dir/$__rel" ]; then __cand="$__dir/$__rel"
+        else continue
+        fi ;;
+    esac
+    __base="$(basename "$__cand")"
+    __dir="$(cd "$(dirname "$__cand")" 2>/dev/null && pwd -P)" || continue
+    printf '%s/%s' "$__dir" "$__base"
+    return 0
+  done
+  return 0
+}
+
+# __ic_history_latest <hist> <ledger>: the newest history line for that
+# ledger (field 2), or empty.
+__ic_history_latest() {
+  [ -r "${1:-}" ] || return 0
+  IC_LEDGER="${2:-}" awk -F'\t' '$2 == ENVIRON["IC_LEDGER"] { l = $0 } END { if (l != "") print l }' "$1"
+}
+
+# __ic_history_record <hist> <ledger> <done> <current_line> <dirty>: appends
+# one line
+#   ts ledger done key p5 r5 p7 r7 dirty c5 c7 b5done b5pct b5r b7done b7pct b7r
+# and keeps only the newest IDEAL_COMPACT_HISTORY_PER_ACCOUNT lines of that
+# key. <current_line> is the helper's `current` line. Prints `skipped`
+# (nothing written) when it is not a usage reading with a known key, else
+# `counted` when a window got a per-task consumption, else `baseline`.
+# c5/c7 are '-' when the entry yields no number. b* is the window's baseline
+# snapshot this entry carries: the entry itself after a rebase, the previous
+# entry's snapshot when the delta is 0.
+__ic_history_record() {
+  local __hist="$1" __ledger="$2" __done="$3" __cur="$4" __dirty="${5:-0}"
+  local __tag __key __p5 __r5 __p7 __r7 __thr5 __thr7 __buf __tol __rest
+  local __prev __out __status __line __tmp='' __tmp2=''
+  read -r __tag __key __p5 __r5 __p7 __r7 __thr5 __thr7 __buf __tol __rest <<< "$__cur"
+  if [ "$__tag" != usage ] || [ -z "$__key" ] || [ "$__key" = - ] || [ -z "$__tol" ]; then
+    printf skipped
+    return 0
+  fi
+  __ic_lock "$(dirname "$__hist")/ideal-compact-history.lock" || return 1
+  __prev="$(__ic_history_latest "$__hist" "$__ledger")"
+  __out="$(IC_PREV="$__prev" IC_LEDGER="$__ledger" awk -v ts="$(date +%s)" -v done="$__done" -v key="$__key" \
+    -v p5="$__p5" -v r5="$__r5" -v p7="$__p7" -v r7="$__r7" -v dirty="$__dirty" -v tol="$__tol" '
+    # Sets OC (consumption or "-") and returns 1 when the window is rebased
+    # onto this entry, 0 when the previous baseline is carried.
+    function calc(pct, r, bd, bp, br,    d) {
+      OC = "-"
+      if (all || r - br > tol || br - r > tol) return 1
+      d = pct - bp
+      if (d < -1e-9 || done - bd <= 0) return 1
+      if (d <= 1e-9) return 0
+      OC = sprintf("%.4f", d / (done - bd))
+      sub(/0+$/, "", OC); sub(/\.$/, "", OC)
+      return 1
+    }
+    BEGIN {
+      OFS = "\t"
+      n = split(ENVIRON["IC_PREV"], P, "\t")
+      all = (n == 0 || done <= P[3] + 0 || key != P[4] || dirty + 0 > 0)
+      rb5 = calc(p5, r5, P[12] + 0, P[13] + 0, P[14] + 0); c5 = OC
+      rb7 = calc(p7, r7, P[15] + 0, P[16] + 0, P[17] + 0); c7 = OC
+      print ((c5 != "-" || c7 != "-") ? "counted" : "baseline")
+      print ts, ENVIRON["IC_LEDGER"], done, key, p5, r5, p7, r7, dirty + 0, c5, c7, \
+        rb5 ? done : P[12], rb5 ? p5 : P[13], rb5 ? r5 : P[14], \
+        rb7 ? done : P[15], rb7 ? p7 : P[16], rb7 ? r7 : P[17]
+    }')"
+  __status="${__out%%$'\n'*}"
+  __line="${__out#*$'\n'}"
+  __tmp="$(mktemp "$__hist.XXXXXX" 2>/dev/null)" && __tmp2="$(mktemp "$__hist.XXXXXX" 2>/dev/null)" || {
+    rm -f "$__tmp" 2>/dev/null; __ic_unlock; return 1
+  }
+  { [ -r "$__hist" ] && cat "$__hist"; printf '%s\n' "$__line"; } > "$__tmp" 2>/dev/null
+  # Drop this key's lines beyond the newest <keep> (the file is in append order).
+  if awk -F'\t' -v k="$__key" -v keep="$IDEAL_COMPACT_HISTORY_PER_ACCOUNT" \
+       'NR == FNR { if ($4 == k) total++; next } $4 == k && ++seen <= total - keep { next } { print }' \
+       "$__tmp" "$__tmp" > "$__tmp2" 2>/dev/null && mv -f "$__tmp2" "$__hist" 2>/dev/null; then
+    rm -f "$__tmp"
+  else
+    rm -f "$__tmp" "$__tmp2" 2>/dev/null
+    __ic_unlock
+    return 1
+  fi
+  __ic_unlock
+  printf '%s' "$__status"
+}

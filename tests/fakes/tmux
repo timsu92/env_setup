@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Test double for tmux, so a test can never reach a real session. Logs its argv
+# to $FAKE_LOG and does nothing else.
+[ -n "${FAKE_LOG:-}" ] && printf 'tmux %s\n' "$*" >> "$FAKE_LOG"
+exit 0

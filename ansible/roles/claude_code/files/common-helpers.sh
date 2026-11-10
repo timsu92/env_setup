@@ -412,3 +412,94 @@ __ic_history_record() {
   __ic_unlock
   printf '%s' "$__status"
 }
+
+# __ic_budget <hist> <current_line> <accounts_text>: how many more tasks fit
+# before the lower threshold is hit, as "<n> <win>" (win 5h or 7d, the
+# smaller window; 5h on a tie) or "unknown -". No trailing newline.
+# Read-only: no lock, no write. <current_line> is the helper's `current`
+# line (tag key p5 r5 p7 r7 thr5 thr7 buf tol), <accounts_text> its
+# `accounts` output (empty or an error: line = no accounts).
+# Per window, avg is the mean of the newest IDEAL_COMPACT_RATE_SAMPLES
+# positive c of this key. Only when the key has none, positive c of other
+# keys count, each c * source multiplier / current multiplier, both taken
+# from <accounts_text> (`-`/missing = unknown = skipped), newest N across
+# keys. A window without an avg is left out.
+__ic_budget() {
+  local __hist="$1" __cur="${2:-}" __acc="${3:-}"
+  local __tag __key __p5 __r5 __p7 __r7 __thr5 __thr7 __rest
+  read -r __tag __key __p5 __r5 __p7 __r7 __thr5 __thr7 __rest <<< "$__cur"
+  if [ "$__tag" != usage ] || [ -z "$__key" ] || [ "$__key" = - ]; then
+    printf 'unknown -'
+    return 0
+  fi
+  [ -r "$__hist" ] || __hist=/dev/null
+  IC_ACC="$__acc" awk -F'\t' -v key="$__key" -v p5="$__p5" -v p7="$__p7" -v t5="$__thr5" -v t7="$__thr7" \
+    -v nmax="${IDEAL_COMPACT_RATE_SAMPLES:-5}" '
+    function isnum(x) { return x ~ /^[0-9]+([.][0-9]+)?$/ }
+    function mean(arr, cnt,    i, from, sum, n) {
+      from = cnt - nmax + 1; if (from < 1) from = 1
+      for (i = from; i <= cnt; i++) { sum += arr[i]; n++ }
+      return sum / n
+    }
+    function budget(pct, thr, avg,    b) {
+      if (!isnum(pct) || !isnum(thr)) return -1
+      b = int((thr - pct) / avg + 1e-9)
+      return (thr - pct) / avg < 0 ? 0 : b
+    }
+    BEGIN {
+      n = split(ENVIRON["IC_ACC"], L, "\n")
+      for (i = 1; i <= n; i++) {
+        m = split(L[i], A, /[ \t]+/)
+        if (m < 10) continue
+        M5[A[2]] = isnum(A[9]) && A[9] + 0 > 0 ? A[9] + 0 : 0
+        M7[A[2]] = isnum(A[10]) && A[10] + 0 > 0 ? A[10] + 0 : 0
+      }
+    }
+    NF >= 11 {
+      for (w = 5; w <= 7; w += 2) {
+        c = $(w == 5 ? 10 : 11)
+        if (!isnum(c) || c + 0 <= 0) continue
+        if ($4 == key) { o[w, ++on[w]] = c + 0; continue }
+        src = (w == 5 ? M5[$4] : M7[$4]); cm = (w == 5 ? M5[key] : M7[key])
+        if (src > 0 && cm > 0) { x[w, ++xn[w]] = c * src / cm }
+      }
+    }
+    END {
+      for (w = 5; w <= 7; w += 2) {
+        cnt = 0
+        if (on[w] > 0) { for (i = 1; i <= on[w]; i++) T[++cnt] = o[w, i] }
+        else if (xn[w] > 0) { for (i = 1; i <= xn[w]; i++) T[++cnt] = x[w, i] }
+        else continue
+        b = budget(w == 5 ? p5 : p7, w == 5 ? t5 : t7, mean(T, cnt))
+        for (i = 1; i <= cnt; i++) delete T[i]
+        if (b < 0) continue
+        if (best == "" || b < best) { best = b; win = (w == 5 ? "5h" : "7d") }
+      }
+      if (best == "") printf "unknown -"; else printf "%d %s", best, win
+    }' "$__hist"
+}
+
+# __ic_pick_account <hist> <current_line> <accounts_text>: the number of the
+# usable, non-active account with the largest known budget, only when it is
+# larger than the current account's known budget; empty otherwise. An
+# alternate is measured as a `usage` line built from its own accounts row
+# plus the thresholds/buf/tol of <current_line>. Read-only.
+__ic_pick_account() {
+  local __hist="$1" __cur="$2" __acc="${3:-}"
+  local __tag __key __p5 __r5 __p7 __r7 __tail __cb __best='' __bestn=-1
+  local __num __akey __act __usable __a5 __ar5 __a7 __ar7 __rest __n __out
+  read -r __tag __key __p5 __r5 __p7 __r7 __tail <<< "$__cur"
+  __cb="$(__ic_budget "$__hist" "$__cur" "$__acc")"
+  __cb="${__cb%% *}"
+  case "$__cb" in ''|unknown) return 0 ;; esac
+  __bestn="$__cb"
+  while read -r __num __akey __act __usable __a5 __ar5 __a7 __ar7 __rest; do
+    [ "$__act" = 0 ] && [ "$__usable" = 1 ] && [ -n "$__akey" ] && [ "$__akey" != - ] || continue
+    __out="$(__ic_budget "$__hist" "usage $__akey $__a5 $__ar5 $__a7 $__ar7 $__tail" "$__acc")"
+    __n="${__out%% *}"
+    case "$__n" in ''|unknown) continue ;; esac
+    if [ "$__n" -gt "$__bestn" ]; then __bestn="$__n"; __best="$__num"; fi
+  done <<< "$__acc"
+  [ -n "$__best" ] && printf '%s' "$__best"
+  return 0
+}

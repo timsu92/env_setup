@@ -453,4 +453,139 @@ bash -c '. "$1"; '"$wr" _ "$T/common-helpers.sh" "$H" /l/n 2 & w2=$!
 wait "$w1" "$w2"
 [ "$(wc -l < "$H")" = 40 ] && [ "$(awk -F'\t' 'NF==17' "$H" | wc -l)" = 40 ] && pass hist-concurrent "2 writers x 20 records -> 40 whole lines" || bad hist-concurrent "lines" "$(wc -l < "$H")"
 
+# ---- budget and account picking ----
+BD="$T/budget"; mkdir -p "$BD"; BH="$BD/ideal-compact-history"
+# hl <key> <c5> <c7>: one history line (17 fields), appended to $BH
+hl() { printf '1\t/l/x\t1\t%s\t0\t0\t0\t0\t0\t%s\t%s\t0\t0\t0\t0\t0\t0\n' "$1" "$2" "$3" >> "$BH"; }
+# bud <current_line> [accounts_text]: __ic_budget on $BH
+bud() { sc "__ic_budget '$BH' '$1' '$2'"; }
+TH='97 99 120 3'
+: > "$BH"
+for c in 1 1 1 1 1 3; do hl k1 "$c" -; done
+out="$(bud "usage k1 90 $R5 10 $R7 $TH")"
+[ "$out" = "5 5h" ] && pass bud-5h "newest 5 of 1 1 1 1 1 3 -> avg 1.4, (97-90)/1.4 = 5" || bad bud-5h "got" "$out"
+: > "$BH"; for c in 1 1 1 1 1 3; do hl k1 "$c" 0.5; done
+out="$(bud "usage k1 90 $R5 98 $R7 $TH")"
+[ "$out" = "2 7d" ] && pass bud-7d "7d avg 0.5, (99-98)/0.5 = 2 beats 5h 5 -> 2 7d" || bad bud-7d "got" "$out"
+out="$(bud "usage k1 97 $R5 10 $R7 $TH")"
+[ "$out" = "0 5h" ] && pass bud-zero "p5 at 97 -> 0 5h" || bad bud-zero "got" "$out"
+out="$(bud "usage k1 99 $R5 10 $R7 $TH")"
+[ "$out" = "0 5h" ] && pass bud-floor0 "p5 above the threshold never goes below 0" || bad bud-floor0 "got" "$out"
+out="$(bud "usage k1 90 $R5 10 $R7 $TH")"
+[ "$out" = "5 5h" ] && pass bud-5h-smaller "5h 5, 7d 178 -> the smaller window" || bad bud-5h-smaller "got" "$out"
+out="$(sc "__ic_budget '$BH' 'usage k1 90 $R5 98 $R7 $TH' ''" | wc -c)"
+[ "$out" = 4 ] && pass bud-no-newline "'2 7d' without a trailing newline" || bad bud-no-newline "bytes" "$out"
+
+# conversion from other keys
+: > "$BH"; hl k2 2 -
+ACC="1 k1 1 1 90 $R5 10 $R7 1 1
+2 k2 0 1 5 $R5 5 $R7 5 5"
+out="$(bud "usage k1 90 $R5 10 $R7 $TH" "$ACC")"
+[ "$out" = "0 5h" ] && pass bud-convert "no own 5h samples: k2 c5 2 x 5/1 = 10 -> (97-90)/10 = 0.7 -> 0" || bad bud-convert "got" "$out"
+ACC="1 k1 1 1 50 $R5 10 $R7 1 1
+2 k2 0 1 5 $R5 5 $R7 5 5"
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "$ACC")"
+[ "$out" = "4 5h" ] && pass bud-convert-n "(97-50)/10 = 4" || bad bud-convert-n "got" "$out"
+ACC="1 k1 1 1 50 $R5 10 $R7 - 1
+2 k2 0 1 5 $R5 5 $R7 5 5"
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "$ACC")"
+[ "$out" = "unknown -" ] && pass bud-cur-unknown-mult "current mult5 '-' -> window left out" || bad bud-cur-unknown-mult "got" "$out"
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "")"
+[ "$out" = "unknown -" ] && pass bud-no-accounts "no accounts text -> no conversion" || bad bud-no-accounts "got" "$out"
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "error:cswap failed")"
+[ "$out" = "unknown -" ] && pass bud-error-accounts "error line -> no accounts" || bad bud-error-accounts "got" "$out"
+ACC="1 k3 1 1 50 $R5 10 $R7 1 1
+2 k2 0 1 5 $R5 5 $R7 5 5"
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "$ACC")"
+[ "$out" = "unknown -" ] && pass bud-cur-not-listed "current key not in accounts -> no conversion" || bad bud-cur-not-listed "got" "$out"
+: > "$BH"; hl k2 - 2
+ACC="1 k1 1 1 50 $R5 10 $R7 1 -
+2 k2 0 1 5 $R5 5 $R7 5 5"
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "$ACC")"
+[ "$out" = "unknown -" ] && pass bud-7d-team-cur "7d conversion, current is a Team seat -> left out" || bad bud-7d-team-cur "got" "$out"
+ACC="1 k1 1 1 50 $R5 10 $R7 1 1
+2 k2 0 1 5 $R5 5 $R7 5 -"
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "$ACC")"
+[ "$out" = "unknown -" ] && pass bud-7d-team-src "7d conversion, source is a Team seat -> left out" || bad bud-7d-team-src "got" "$out"
+ACC="1 k1 1 1 50 $R5 10 $R7 1 1
+2 k2 0 1 5 $R5 5 $R7 5 5"
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "$ACC")"
+[ "$out" = "8 7d" ] && pass bud-7d-convert "7d: 2 x 5 = 10 -> (99-10)/10 = 8.9 -> 8, 5h has no source" || bad bud-7d-convert "got" "$out"
+# newest 5 across other keys, each with its own multiplier
+: > "$BH"; hl k2 1 -; hl k3 4 -; for i in 1 2 3 4; do hl k2 1 -; done
+ACC="1 k1 1 1 50 $R5 10 $R7 2 1
+2 k2 0 1 5 $R5 5 $R7 2 5
+3 k3 0 1 5 $R5 5 $R7 6 5"
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "$ACC")"
+[ "$out" = "14 5h" ] && pass bud-convert-newest5 "newest 5 of the others: k3 4x6/2 = 12 and four k2 1x2/2 = 1 -> avg 3.2, 47/3.2 = 14" || bad bud-convert-newest5 "got" "$out"
+: > "$BH"; hl k3 4 -; hl k2 1 -; hl k2 1 -
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "$ACC")"
+# k3: 4 x 6/2 = 12 ; k2: 1 x 2/2 = 1, 1 -> mean 14/3 = 4.667 -> 47/4.667 = 10.07
+[ "$out" = "10 5h" ] && pass bud-convert-mixed "per-key multipliers applied, mean over the sources" || bad bud-convert-mixed "got" "$out"
+# own samples win over conversion
+: > "$BH"; hl k2 2 -; hl k1 2 -
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "$ACC")"
+[ "$out" = "23 5h" ] && pass bud-own-first "own sample present -> no conversion (47/2 = 23)" || bad bud-own-first "got" "$out"
+# only positive samples count
+: > "$BH"; hl k1 2 -; hl k1 0 -; hl k1 - -
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "")"
+[ "$out" = "23 5h" ] && pass bud-positive-only "0 and '-' are not samples" || bad bud-positive-only "got" "$out"
+# tags
+out="$(bud "lastgood k1 50 $R5 10 $R7 $TH" "")"
+[ "$out" = "unknown -" ] && pass bud-lastgood "tag lastgood -> unknown -" || bad bud-lastgood "got" "$out"
+out="$(bud "none - - - - - $TH" "")"
+[ "$out" = "unknown -" ] && pass bud-none "tag none -> unknown -" || bad bud-none "got" "$out"
+BH_SAVE="$BH"; BH="$BD/missing"
+out="$(bud "usage k1 50 $R5 10 $R7 $TH" "")"
+[ "$out" = "unknown -" ] && pass bud-no-file "no history file -> unknown -" || bad bud-no-file "got" "$out"
+BH="$BH_SAVE"
+
+# pick
+pk() { sc "__ic_pick_account '$BH' '$1' '$2'"; }
+: > "$BH"; hl k1 2 -; hl k2 1 -; hl k3 5 -
+CUR="usage k1 95 $R5 10 $R7 $TH"
+ACC="1 k1 1 1 95 $R5 10 $R7 1 1
+2 k2 0 0 0 $R5 0 $R7 1 1
+3 k3 0 1 82 $R5 0 $R7 1 1
+4 k4 0 1 96 $R5 0 $R7 - -"
+# current: (97-95)/2 = 1 ; k2 not usable ; k3: (97-82)/5 = 3 ; k4 unknown
+out="$(pk "$CUR" "$ACC")"
+[ "$out" = 3 ] && pass pick-best "alt #3 budget 3 > current 1 -> 3" || bad pick-best "got" "$out"
+ACC="1 k1 1 1 95 $R5 10 $R7 1 1
+2 k2 0 1 0 $R5 0 $R7 1 1
+3 k3 0 1 82 $R5 0 $R7 1 1"
+out="$(pk "$CUR" "$ACC")"
+[ "$out" = 2 ] && pass pick-largest "k2 budget 97 beats k3 3" || bad pick-largest "got" "$out"
+ACC="1 k1 1 1 95 $R5 10 $R7 1 1
+3 k3 0 1 92 $R5 0 $R7 1 1"
+out="$(pk "$CUR" "$ACC")"
+[ -z "$out" ] && pass pick-not-larger "alt budget 1 = current 1 -> empty" || bad pick-not-larger "got" "$out"
+ACC="1 k1 1 1 95 $R5 10 $R7 1 1
+4 k4 0 1 5 $R5 0 $R7 - -"
+out="$(pk "$CUR" "$ACC")"
+[ -z "$out" ] && pass pick-alt-unknown "usable alt with no budget -> empty" || bad pick-alt-unknown "got" "$out"
+ACC="1 k1 1 1 95 $R5 10 $R7 1 1
+2 k2 0 0 0 $R5 0 $R7 1 1"
+out="$(pk "$CUR" "$ACC")"
+[ -z "$out" ] && pass pick-not-usable "alt not usable -> empty" || bad pick-not-usable "got" "$out"
+: > "$BH"; hl k3 5 -
+ACC="1 k1 1 1 95 $R5 10 $R7 - -
+3 k3 0 1 0 $R5 0 $R7 1 1"
+out="$(pk "$CUR" "$ACC")"
+[ -z "$out" ] && pass pick-cur-unknown "current budget unknown -> empty" || bad pick-cur-unknown "got" "$out"
+out="$(pk "$CUR" "")"
+[ -z "$out" ] && pass pick-no-accounts "no accounts text -> empty" || bad pick-no-accounts "got" "$out"
+out="$(pk "$CUR" "error:cswap failed")"
+[ -z "$out" ] && pass pick-error "error line -> empty" || bad pick-error "got" "$out"
+# the alternate is measured with its own row, thresholds from the current line
+: > "$BH"; hl k1 2 -; hl k3 1 -
+CUR="usage k1 95 $R5 10 $R7 97 99 120 3"
+ACC="1 k1 1 1 95 $R5 10 $R7 1 1
+3 k3 0 1 90 $R5 0 $R7 1 1"
+out="$(pk "$CUR" "$ACC")"
+[ "$out" = 3 ] && pass pick-alt-row "alt p5 90 from its own row: 7/1 = 7 > 1" || bad pick-alt-row "got" "$out"
+# read-only: no writes
+before="$(cksum < "$BH")"; pk "$CUR" "$ACC" >/dev/null; bud "$CUR" "$ACC" >/dev/null
+[ "$before" = "$(cksum < "$BH")" ] && [ "$(ls "$BD" | wc -l)" = 1 ] && pass bud-read-only "history untouched, no lock or temp file created" || bad bud-read-only "dir" "$(ls "$BD")"
+
 exit $fail

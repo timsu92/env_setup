@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for hooks/ideal-compact.sh: SessionStart, UserPromptSubmit, PreCompact,
-# phase timeouts and __ic_takeover. Usage: ideal-compact-hook.sh
+# PostToolUse, phase timeouts and __ic_takeover. Usage: ideal-compact-hook.sh
 # ---- isolation header: a test must never reach the real session or account ----
 unset TMUX TMUX_PANE STY WINDOW CLAUDECODE
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,11 @@ iso_guard "$PATH"
 # ---- end isolation header ----
 SRC="$TESTS_DIR/../ansible/roles/claude_code/files"
 T="$(mktemp -d)"
-trap 'rm -rf "$T" "$ISO"' EXIT
+# IC_CLAUDE_PID: a process the test owns with an empty environment, so __ic_backend
+# never picks up the multiplexer of the shell that started the test from /proc.
+env -i sleep 3600 & CLEAN_PID=$!
+export IC_CLAUDE_PID=$CLEAN_PID
+trap 'kill "$CLEAN_PID" 2>/dev/null; rm -rf "$T" "$ISO"' EXIT
 export FAKE_LOG="$T/fake.log"
 
 # Layout mirroring ~/.claude: <T>/common-helpers.sh, <T>/hwap-helper.sh (stub), <T>/hooks/ideal-compact.sh
@@ -34,6 +38,7 @@ cp "$SRC/hooks/ideal-compact.sh" "$T/hooks/ideal-compact.sh"
 # The stub helper prints the scripted `current` / `accounts` text.
 cat > "$T/hwap-helper.sh" <<'STUB'
 #!/usr/bin/env bash
+[ -n "${FAKE_LOG:-}" ] && printf 'helper %s\n' "$*" >> "$FAKE_LOG"
 case "${1:-}" in
   current) cat "$STUB_CURRENT" 2>/dev/null ;;
   accounts) cat "$STUB_ACCOUNTS" 2>/dev/null ;;
@@ -60,10 +65,11 @@ set_state() {
 }
 # st <key>: value of a state key ('' when absent), the last line wins like in the reader
 st() { sed -n "s/^$1=//p" "$SDIR/ideal-compact-state" 2>/dev/null | tail -n1; }
-# send <json fields as jq --arg pairs>: runs the hook; sets RC; stdout/stderr in $T/out, $T/err
+# send <json fields as jq --arg pairs>: runs the hook; sets RC; stdout/stderr in $T/out, $T/err.
+# cwd is $SEND_CWD when set, else $T/cwd.
 send() {
   local ev="$1"; shift
-  jq -n --arg ev "$ev" --arg tp "$TP" --arg cwd "$T/cwd" "$@" \
+  jq -n --arg ev "$ev" --arg tp "$TP" --arg cwd "${SEND_CWD:-$T/cwd}" "$@" \
     '{session_id: "sess1", transcript_path: $tp, cwd: $cwd, hook_event_name: $ev} + ($ARGS.named | del(.ev, .tp, .cwd))' \
     | "$T/hooks/ideal-compact.sh" >"$T/out" 2>"$T/err"
   RC=$?
@@ -245,7 +251,8 @@ st_all "ttl-standby-none" "phase=standby suppress=0"
 
 # ---- robustness ----
 for ev in Stop PostToolUse Notification PostCompact SessionStart UserPromptSubmit PreCompact Bogus; do
-  set_state phase=armed
+  # PostToolUse in armed may legitimately print (see below); waiting only records
+  if [ "$ev" = PostToolUse ]; then set_state phase=waiting; else set_state phase=armed; fi
   send "$ev"
   ck "never-exit-2-$ev" "rc=0 out=" "rc=$RC out=$(cat "$T/out")"
 done
@@ -266,5 +273,242 @@ set_state phase=armed dirty=0 armed_key=ARMK armed_win=5h armed_resets=9
 printf '%s' "{\"session_id\":\"sess1\",\"transcript_path\":\"$TP\",\"cwd\":\"$T/cwd\",\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"hi\"}" \
   | PATH="$T/nojq" "$T/nojq/bash" "$T/hooks/ideal-compact.sh" >"$T/out" 2>"$T/err"
 st_all "nojq-python" "phase=standby suppress=1 dirty=1"
+
+
+# ---- PostToolUse ----
+# A git repo with a 4-task plan and a 7.0.0-style ledger; the cwd of these rows is the repo.
+R="$T/repo"; mkdir -p "$R/docs" "$R/.superpowers/sdd/ws"
+git -C "$R" init -q
+printf '### Task 1: a\n### Task 2: b\n### Task 3: c\n### Task 4: d\n' > "$R/docs/plan.md"
+RP="$(cd "$R" && pwd -P)"
+LED="$R/.superpowers/sdd/ws/progress.md"; LEDP="$RP/.superpowers/sdd/ws/progress.md"
+RHIST="$IC_TMP_BASE/$(printf '%s' "$RP" | sed 's/[^A-Za-z0-9]/-/g')/ideal-compact-history"
+R5=$((NOW + 9000)) R7=$((NOW + 90000))
+printf 'usage KEY1 50 %s 20 %s 97 99 120 3\n' $R5 $R7 > "$T/current"
+PAUSE="$(bash -c '. "$1"; printf %s "$IDEAL_COMPACT_PAUSE_TEXT"' _ "$T/common-helpers.sh")"
+CANCEL="$(bash -c '. "$1"; printf %s "$IDEAL_COMPACT_CANCEL_TEXT"' _ "$T/common-helpers.sh")"
+# ledger <N...>: the ledger with these tasks complete
+ledger() { { printf '# SDD ledger — plan: docs/plan.md\n'; for n in "$@"; do printf 'Task %s: complete (ok)\n' "$n"; done; } > "$LED"; }
+# seed <c5> [<done>]: history with one other-ledger line of KEY1 carrying c5 (budget
+# (97-50)/c5 on 5h; '-' = unknown) and, with <done>, a line of our ledger at that count
+seed() {
+  mkdir -p "$(dirname "$RHIST")"
+  printf '1\tL\t1\tKEY1\t10\t%s\t10\t%s\t0\t%s\t-\t1\t10\t%s\t1\t10\t%s\n' $R5 $R7 "$1" $R5 $R7 > "$RHIST"
+  [ -z "${2:-}" ] || printf '2\t%s\t%s\tKEY1\t50\t%s\t20\t%s\t0\t-\t-\t%s\t50\t%s\t%s\t20\t%s\n' \
+    "$LEDP" "$2" $R5 $R7 "$2" $R5 "$2" $R7 >> "$RHIST"
+}
+# hl <ledger>: history lines of that ledger; hlast <ledger> <field>: a field of its newest
+hl() { awk -F'\t' -v l="$1" '$2 == l' "$RHIST" 2>/dev/null | wc -l | tr -d ' '; }
+hlast() { awk -F'\t' -v l="$1" -v f="$2" '$2 == l { v = $f } END { print v }' "$RHIST" 2>/dev/null; }
+# cfg <email>: the account the statusline reads, plus its usage hint (r5 r7 = $R5 $R7)
+cfg() {
+  printf '{"oauthAccount":{"emailAddress":"%s","organizationUuid":"org1"}}\n' "$1" > "$CLAUDE_CONFIG_DIR/.claude.json"
+  printf '50 %s 20 %s\n' $R5 $R7 > "$HWAP_HINT_DIR/usage-$1-org1"
+}
+OBS_A="a@x.com-org1 $R5 $R7"
+cfg a@x.com
+# ptu <tool> <tool_input json> [jq args]: a PostToolUse from the repo
+ptu() { local tool="$1" ti="$2"; shift 2; SEND_CWD="$R" send PostToolUse --arg tool_name "$tool" --argjson tool_input "$ti" "$@"; }
+edit_led() { ptu Edit "$(jq -cn --arg f "${1:-$LED}" '{file_path: $f, old_string: "x", new_string: "Task 2: complete (ok)"}')" "${@:2}"; }
+read_any() { ptu Read '{"file_path":"/etc/hostname"}' "$@"; }
+ctx() { jq -r '.hookSpecificOutput.additionalContext // empty' "$T/out" 2>/dev/null; }
+export TMUX="$T/sock,1,0" TMUX_PANE=%3
+
+# fast path: idle standby, nothing about a ledger -> no lock, no helper
+set_state phase=standby; : > "$FAKE_LOG"
+read_any
+ck "ptu-fast-no-calls" "" "$(cat "$FAKE_LOG")"
+ck "ptu-fast-no-lock" "absent" "$([ -e "$SDIR/ideal-compact-state.lock" ] && echo present || echo absent)"
+no_stdout "ptu-fast-quiet"
+
+# stopped + any tool call -> armed (also from a subagent)
+set_state phase=stopped
+read_any
+st_all "ptu-stopped-armed" "phase=armed"
+no_stdout "ptu-stopped-quiet"
+set_state phase=stopped
+read_any --arg agent_id ag1
+st_all "ptu-stopped-armed-subagent" "phase=armed"
+
+# an empty ledger counts nothing; the first completion is a baseline
+rm -f "$RHIST"; ledger
+set_state phase=standby
+ptu Write "$(jq -cn --arg f "$LED" '{file_path: $f, content: "# SDD ledger"}')"
+ck "ptu-empty-ledger-no-history" "absent" "$([ -e "$RHIST" ] && echo present || echo absent)"
+ck "ptu-empty-ledger-stored" "$LEDP" "$(st ledger)"
+ledger 1
+edit_led
+ck "ptu-first-baseline" "1 1 - -" "$(hl "$LEDP") $(hlast "$LEDP" 3) $(hlast "$LEDP" 10) $(hlast "$LEDP" 11)"
+no_stdout "ptu-first-baseline-quiet"
+
+# task-done completion with budget 2 -> armed + pause text
+seed 20 1; ledger 1 2
+set_state phase=standby
+ptu Bash '{"command":"task-done docs/plan.md 2 abc -- true"}'
+st_all "ptu-arm" "phase=armed armed_key=KEY1 armed_win=5h armed_resets=$R5 suppress=0 ledger=$LEDP"
+ck "ptu-arm-text" "$PAUSE" "$(ctx)"
+ck "ptu-arm-json" "$(jq -cn --arg t "$PAUSE" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $t}}')" "$(cat "$T/out")"
+ck "ptu-arm-obs" "$OBS_A" "$(st cheap_obs)"
+ck "ptu-arm-recorded" "2" "$(hlast "$LEDP" 3)"
+# the same without a backend -> stays standby
+seed 20 1; ledger 1 2
+set_state phase=standby
+TMUX_PANE='' ptu Bash '{"command":"task-done docs/plan.md 2 abc -- true"}'
+st_all "ptu-no-backend" "phase=standby"
+no_stdout "ptu-no-backend-quiet"
+ck "ptu-no-backend-recorded" "2" "$(hlast "$LEDP" 3)"
+
+# armed: a key change re-evaluates on any tool call (the ledger is at its recorded count, so no completion)
+ledger 1 2
+seed 6 2; set_state phase=armed ledger="$LEDP" armed_key=KEY1 armed_win=5h armed_resets=$R5 cheap_obs="$OBS_A"
+cfg b@x.com
+read_any
+st_all "ptu-armed-cancel" "phase=standby suppress=0"
+ck "ptu-armed-cancel-text" "$CANCEL" "$(ctx)"
+seed 9 2; set_state phase=armed ledger="$LEDP" armed_key=KEY1 armed_win=5h armed_resets=$R5 cheap_obs="$OBS_A"
+read_any
+st_all "ptu-armed-mid" "phase=armed"
+ck "ptu-armed-mid-obs" "b@x.com-org1 $R5 $R7" "$(st cheap_obs)"
+no_stdout "ptu-armed-mid-quiet"
+printf 'error:cswap_failed\n' > "$T/current"
+seed 6 2; set_state phase=armed ledger="$LEDP" armed_key=KEY1 armed_win=5h armed_resets=$R5 cheap_obs="$OBS_A"
+read_any
+st_all "ptu-armed-helper-error" "phase=armed"
+no_stdout "ptu-armed-helper-error-quiet"
+printf 'usage KEY1 50 %s 20 %s 97 99 120 3\n' $R5 $R7 > "$T/current"
+# unchanged observation: no evaluation even with a high budget
+seed 6 2; set_state phase=armed ledger="$LEDP" cheap_obs="b@x.com-org1 $R5 $R7"; : > "$FAKE_LOG"
+read_any
+st_all "ptu-armed-unchanged" "phase=armed"
+no_stdout "ptu-armed-unchanged-quiet"
+ck "ptu-armed-unchanged-no-helper" "" "$(cat "$FAKE_LOG")"
+cfg a@x.com
+# missing config: falls back to the helper's key and resets
+mv "$CLAUDE_CONFIG_DIR/.claude.json" "$T/cfg.bak"
+seed 9 2; set_state phase=armed ledger="$LEDP" cheap_obs="$OBS_A"
+read_any
+ck "ptu-obs-fallback" "KEY1 $R5 $R7" "$(st cheap_obs)"
+mv "$T/cfg.bak" "$CLAUDE_CONFIG_DIR/.claude.json"
+
+# armed + completion with budget 2 -> pause again
+seed 20 1; ledger 1 2
+set_state phase=armed ledger="$LEDP" armed_key=KEY1 armed_win=5h armed_resets=$R5 cheap_obs="$OBS_A"
+edit_led
+st_all "ptu-rearm" "phase=armed"
+ck "ptu-rearm-text" "$PAUSE" "$(ctx)"
+
+# standby + suppress
+seed 20 1; ledger 1 2
+set_state phase=standby suppress=1 suppress_key=KEY1 suppress_win=5h suppress_resets=$R5
+edit_led
+st_all "ptu-suppress-kept" "phase=standby suppress=1"
+no_stdout "ptu-suppress-kept-quiet"
+seed 20 1; ledger 1 2
+set_state phase=standby suppress=1 suppress_key=KEY1 suppress_win=5h suppress_resets=$((R5 - 2))
+edit_led
+st_all "ptu-suppress-tolerance" "phase=standby suppress=1"
+seed 20 1; ledger 1 2
+set_state phase=standby suppress=1 suppress_key=KEY1 suppress_win=5h suppress_resets=$((R5 - 4))
+edit_led
+st_all "ptu-suppress-reset-moved" "phase=armed suppress=0"
+ck "ptu-suppress-reset-moved-text" "$PAUSE" "$(ctx)"
+seed 20 1; ledger 1 2
+set_state phase=standby suppress=1 suppress_key=OTHER suppress_win=5h suppress_resets=$R5
+edit_led
+st_all "ptu-suppress-key-changed" "phase=armed suppress=0"
+seed 20 1; ledger 1 2
+set_state phase=standby suppress=1 armed_key=KEY1 armed_win=5h armed_resets=$R5
+edit_led
+st_all "ptu-suppress-armed-fallback" "phase=standby suppress=1"
+seed 20 1; ledger 1 2
+set_state phase=standby suppress=1 armed_key=KEY1 armed_win=7d armed_resets=$((R7 + 10))
+edit_led
+st_all "ptu-suppress-armed-fallback-moved" "phase=armed suppress=0"
+seed 20 1; ledger 1 2
+set_state phase=standby suppress=1
+edit_led
+st_all "ptu-suppress-nothing-stored" "phase=standby suppress=1"
+# standby with budget 5: suppress cleared, not armed
+seed 9 1; ledger 1 2
+set_state phase=standby suppress=1 suppress_key=OTHER suppress_win=5h suppress_resets=$R5
+edit_led
+st_all "ptu-suppress-cleared-no-arm" "phase=standby suppress=0 suppress_key="
+no_stdout "ptu-suppress-cleared-no-arm-quiet"
+
+# Review Focus 1: an old-style ledger found through an Edit's file_path
+OLD="$R/.superpowers/sdd/progress.md"; OLDP="$RP/.superpowers/sdd/progress.md"
+printf '# Plan 6 progress ledger\nTask 1: complete\n' > "$OLD"
+seed -; set_state phase=standby
+edit_led "$OLD"
+printf 'Task 2: complete\n' >> "$OLD"
+edit_led "$OLD"
+ck "ptu-old-ledger" "2 2" "$(hl "$OLDP") $(hlast "$OLDP" 3)"
+ck "ptu-old-ledger-stored" "$OLDP" "$(st ledger)"
+
+# Review Focus 2: one completion seen twice is recorded once; a recreated ledger is a baseline
+seed - 1; ledger 1 2; set_state phase=standby
+edit_led
+ptu Bash '{"command":"task-done docs/plan.md 2 abc -- true"}'
+ck "ptu-seen-twice" "1" "$(awk -F'\t' -v l="$LEDP" '$2 == l && $3 == 2' "$RHIST" | wc -l | tr -d ' ')"
+seed 20 2; ledger 1; set_state phase=standby
+edit_led
+ck "ptu-recreated-baseline" "1 - -" "$(hlast "$LEDP" 3) $(hlast "$LEDP" 10) $(hlast "$LEDP" 11)"
+st_all "ptu-recreated-no-arm" "phase=standby"
+no_stdout "ptu-recreated-quiet"
+
+# dirty: the record carries it (a baseline) and the state's dirty drops by it
+for d in 0 1; do
+  mkdir -p "$(dirname "$RHIST")"
+  printf '2\t%s\t1\tKEY1\t40\t%s\t20\t%s\t0\t-\t-\t1\t40\t%s\t1\t20\t%s\n' "$LEDP" $R5 $R7 $R5 $R7 > "$RHIST"
+  ledger 1 2; set_state phase=standby dirty=$d
+  edit_led
+  ck "ptu-dirty-$d" "$d $([ "$d" = 0 ] && echo 10 || echo -) 0" "$(hlast "$LEDP" 9) $(hlast "$LEDP" 10) $(st dirty)"
+done
+
+# TTL-expired stopped (suppress copied from armed_*), then a completion with budget 2
+seed 20 1; ledger 1 2
+set_state phase=stopped phase_at=$((NOW - 901)) armed_key=KEY1 armed_win=5h armed_resets=$R5
+edit_led
+st_all "ptu-ttl-stopped-suppressed" "phase=standby suppress=1 suppress_key=KEY1"
+no_stdout "ptu-ttl-stopped-quiet"
+
+# armed, observation changed, backend gone -> standby + cancel
+ledger 1 2; seed 20 2; set_state phase=armed ledger="$LEDP" armed_key=KEY1 armed_win=5h armed_resets=$R5 cheap_obs=old
+TMUX_PANE='' read_any
+st_all "ptu-backend-gone" "phase=standby suppress=0"
+ck "ptu-backend-gone-text" "$CANCEL" "$(ctx)"
+
+# subagent calls: completions count, nothing printed, injection queued for the main agent
+seed 20 1; ledger 1 2; set_state phase=standby ledger="$LEDP"
+edit_led "$LED" --arg agent_id ag1
+no_stdout "ptu-sub-quiet"
+st_all "ptu-sub-armed" "phase=armed pending_inject=pause cheap_obs="
+ck "ptu-sub-recorded" "2" "$(hlast "$LEDP" 3)"
+read_any
+ck "ptu-sub-delivered" "$PAUSE" "$(ctx)"
+st_all "ptu-sub-delivered-cleared" "phase=armed pending_inject="
+seed 6 1; ledger 1 2; set_state phase=armed ledger="$LEDP" cheap_obs="$OBS_A"
+edit_led "$LED" --arg agent_id ag1
+no_stdout "ptu-sub-cancel-quiet"
+st_all "ptu-sub-cancel-queued" "phase=standby pending_inject=cancel"
+read_any
+ck "ptu-sub-cancel-delivered" "$CANCEL" "$(ctx)"
+st_all "ptu-sub-cancel-cleared" "phase=standby pending_inject="
+# a subagent never runs the observation re-evaluation
+ledger 1 2; seed 6 2; set_state phase=armed ledger="$LEDP" cheap_obs=old
+read_any --arg agent_id ag1
+st_all "ptu-sub-no-obs-eval" "phase=armed cheap_obs=old"
+no_stdout "ptu-sub-no-obs-eval-quiet"
+# a queued injection that no longer fits the phase is dropped
+set_state phase=standby pending_inject=pause
+read_any
+no_stdout "ptu-pending-dropped"
+st_all "ptu-pending-dropped-cleared" "phase=standby pending_inject="
+# no jq: the account key comes from the Python fallback
+ledger 1 2; seed 9 2; set_state phase=armed ledger="$LEDP" cheap_obs=old
+printf '%s' "{\"session_id\":\"sess1\",\"transcript_path\":\"$TP\",\"cwd\":\"$R\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/etc/hostname\"}}" \
+  | PATH="$T/nojq" "$T/nojq/bash" "$T/hooks/ideal-compact.sh" >"$T/out" 2>"$T/err"
+ck "ptu-nojq-obs" "$OBS_A" "$(st cheap_obs)"
+unset TMUX TMUX_PANE
 
 exit $fail

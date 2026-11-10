@@ -215,6 +215,13 @@ set_state phase=armed dirty=3 skip=1
 send UserPromptSubmit --arg prompt $'<agent-message from="abc">\n[Subagent hand-back] done'
 st_all "agent-message" "phase=armed dirty=3 skip=1 suppress=0"
 no_stdout "agent-message-quiet"
+# A background shell's completion notice (e2e, Claude Code 2.1.322) is not the user either.
+for ph in armed stopped; do
+  set_state phase=$ph dirty=3 skip=1
+  send UserPromptSubmit --arg prompt $'<task-notification>\n<task-id>b1</task-id>\n<status>failed</status>\n</task-notification>'
+  st_all "task-notification-$ph" "phase=$ph dirty=3 skip=1 suppress=0"
+done
+no_stdout "task-notification-quiet"
 
 # ---- PreCompact ----
 set_state phase=to-compact dirty=0

@@ -160,8 +160,9 @@ __on_session_start() {
 __on_prompt() {
   local prompt first kind=other seen
   prompt="$(__field prompt)"
-  # A background agent's hand-back is not the user speaking (Task 1 ruling).
-  case "$prompt" in '<agent-message '*) return 0 ;; esac
+  # A background agent's hand-back or a background shell's completion notice
+  # is not the user speaking.
+  case "$prompt" in '<agent-message '*|'<task-notification>'*) return 0 ;; esac
   read -r first _ <<< "$prompt"
   if [ "$first" = /ideal-compact-skip ] || [[ "$prompt" == *'<!-- ideal-compact:skip -->'* ]]; then
     kind=skip

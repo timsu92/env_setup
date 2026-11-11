@@ -10,8 +10,15 @@
 	editor = vim
 	quotepath = false
 
+[pull]
+	rebase = true
+
 [rebase]
 	autosquash = true
+	autoStash = true
+
+[merge]
+	autoStash = true
 
 [alias]
 	adog  = log --all --decorate --oneline --graph

@@ -38,7 +38,7 @@ bin/setup-container      # inside a Docker container, local
 bin/setup-devcontainer   # inside a devcontainer, local
 ```
 
-There is no CI, and most roles have no tests — their correctness is validated via `ansible-lint`, `--syntax-check`, and `--check --diff` dry runs against a real or throwaway target. The exception is `claude_code`'s shell scripts (hooks, `common-helpers.sh`, `hwap-helper.sh`, `statusline.sh`, the `claude` launcher): after changing any of them, run `bash tests/run` from the repo root. It puts fakes for `tmux`/`screen`/`cswap` from `tests/fakes/` first on `PATH` and refuses to run if a real one would be reached, so it never touches the real session or account. The `tests/` location is temporary.
+There is no CI, and most roles have no tests — their correctness is validated via `ansible-lint`, `--syntax-check`, and `--check --diff` dry runs against a real or throwaway target. The exception is `claude_code`'s shell scripts (hooks, `install_hooks.bash`, `common-helpers.sh`, `hwap-helper.sh`, `statusline.sh`, the `claude` launcher): after changing any of them, run `bash tests/run` from the repo root. It puts fakes for `tmux`/`screen`/`cswap` from `tests/fakes/` first on `PATH` and refuses to run if a real one would be reached, so it never touches the real session or account. The `tests/` location is temporary.
 
 ### Verifying a role: run it in Docker, never on the host
 

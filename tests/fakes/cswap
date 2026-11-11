@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test double for cswap. Logs its argv to $FAKE_LOG, prints the file named by
+# $STUB_JSON for `list --json`, exits 1 when $STUB_FAIL is set, else exits 0.
+[ -n "${FAKE_LOG:-}" ] && printf 'cswap %s\n' "$*" >> "$FAKE_LOG"
+[ -n "${STUB_FAIL:-}" ] && exit 1
+if [ "${1:-}" = list ] && [ "${2:-}" = --json ]; then cat "$STUB_JSON"; fi
+exit 0

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Test double for screen, so a test can never reach a real session. Logs its argv
+# to $FAKE_LOG. `-X hardcopy <file>` copies the file $FAKE_SCREEN to <file>,
+# `-Q info` prints $FAKE_CURSOR (fails with FAKE_FAIL_CURSOR=1); everything
+# else does nothing.
+[ -n "${FAKE_LOG:-}" ] && printf 'screen %s\n' "$*" >> "$FAKE_LOG"
+prev=''
+for a in "$@"; do
+  case "$prev $a" in
+    '-X hardcopy') shift_next=1 ;;
+    '-Q info') [ "${FAKE_FAIL_CURSOR:-}" = 1 ] && exit 1; printf '%s\n' "${FAKE_CURSOR:-}"; exit 0 ;;
+    *) if [ "${shift_next:-}" = 1 ]; then [ -r "${FAKE_SCREEN:-}" ] && cp "$FAKE_SCREEN" "$a"; exit 0; fi ;;
+  esac
+  prev="$a"
+done
+exit 0

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(dirname "${BASH_SOURCE[0]}")/lib/isolation.sh"
 set -u
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,7 +9,7 @@ statusline="$script_dir/ansible/roles/claude_code/files/statusline.sh"
 # developer's ~/.claude.json. XDG_DATA_HOME is also isolated so no real cswap
 # sequence.json leaks an alias into the output.
 fixture_home="$(mktemp -d)"
-trap 'rm -rf "$fixture_home"' EXIT
+trap 'rm -rf "$fixture_home" "$ISO"' EXIT
 test_email="statusline-test@example.invalid"
 printf '{"oauthAccount":{"emailAddress":"%s"}}' "$test_email" > "$fixture_home/.claude.json"
 

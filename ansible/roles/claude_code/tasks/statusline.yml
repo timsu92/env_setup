@@ -7,6 +7,10 @@
   ansible.builtin.include_tasks:
     file: hwap-helper.yml
 
+- name: Install common-helpers library
+  ansible.builtin.include_tasks:
+    file: common-helpers.yml
+
 - name: Install statusline script
   ansible.builtin.copy:
     src: statusline.sh

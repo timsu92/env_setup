@@ -1,0 +1,15 @@
+---
+# Sourced (never executed) by hooks/high-watermark-auto-pause.sh,
+# hooks/ideal-compact.sh and statusline.sh, which all look for it in
+# ~/.claude/, so any one of them can be installed alone and still finds it.
+- name: Create Claude Code home directory
+  ansible.builtin.include_tasks:
+    file: claude-dir.yml
+
+- name: Install common-helpers library
+  ansible.builtin.copy:
+    src: common-helpers.sh
+    dest: "{{ claude_code_dir }}/common-helpers.sh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

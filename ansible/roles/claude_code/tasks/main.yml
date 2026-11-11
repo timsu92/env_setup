@@ -47,6 +47,9 @@
 - name: Install high-watermark-auto-pause hooks
   ansible.builtin.include_tasks: high-watermark-auto-pause.yml
 
+- name: Install ideal-compact hook and skills
+  ansible.builtin.include_tasks: ideal-compact.yml
+
 - name: Install RTK
   ansible.builtin.include_tasks: rtk.yml
 

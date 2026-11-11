@@ -32,12 +32,14 @@
   register: claude_code_codex
   changed_when: false
 
+# `creates` takes one path, never a list: a list is stringified and globbed as
+# "['a', 'b']", which matches nothing, so the command would run every time.
+# RTK.md is the file every RTK version's `init -g` writes; v1.x no longer
+# writes hooks/rtk-rewrite.sh (it registers `rtk hook claude` instead).
 - name: Install RTK for Claude Code / Copilot
   ansible.builtin.command:
     cmd: "rtk init -g --auto-patch"
-    creates:
-      - "{{ claude_code_hook_dir }}/rtk-rewrite.sh"
-      - "{{ claude_code_dir }}/RTK.md"
+    creates: "{{ claude_code_dir }}/RTK.md"
   become: true
   become_user: "{{ setup_user }}"
   environment:
@@ -46,9 +48,7 @@
 - name: Install RTK for Codex
   ansible.builtin.command:
     cmd: "rtk init -g --codex"
-    creates:
-      - "{{ setup_user_home }}/.codex/RTK.md"
-      - "{{ setup_user_home }}/.codex/AGENTS.md"
+    creates: "{{ setup_user_home }}/.codex/RTK.md"
   become: true
   become_user: "{{ setup_user }}"
   when: claude_code_codex.stat.exists

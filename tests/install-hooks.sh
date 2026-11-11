@@ -36,14 +36,16 @@ for b in jq python; do
   rm -rf "${CLAUDE_CONFIG_DIR:?}"/*
 
   rc="$(hwap $b)"; [ "$rc" = 0 ] && pass "$b" "first registration changes settings.json" || bad "$b" "first registration" "rc=$rc"
+  [ "$(cat "$SETTINGS.bak" 2>/dev/null)" = '{}' ] && pass "$b" "rewrite backs up the old file to settings.json.bak" || bad "$b" "first backup" "$(cat "$SETTINGS.bak" 2>&1)"
   rc="$(hwap $b)"; [ "$rc" = 10 ] && pass "$b" "same registration again is a no-op" || bad "$b" "same registration again" "rc=$rc"
 
   # Two scripts sharing Stop and UserPromptSubmit must both settle.
   ic "$b" >/dev/null
-  before="$(cat "$SETTINGS")"
+  before="$(cat "$SETTINGS")"; bak="$(cat "$SETTINGS.bak")"
   rc1="$(hwap $b)"; rc2="$(ic $b)"
   [ "$rc1/$rc2" = "10/10" ] && pass "$b" "scripts sharing events both settle" || bad "$b" "scripts sharing events" "hwap rc=$rc1 ic rc=$rc2"
   [ "$(cat "$SETTINGS")" = "$before" ] && pass "$b" "settled run leaves the file byte-identical" || bad "$b" "settled run" "file rewritten"
+  [ "$(cat "$SETTINGS.bak")" = "$bak" ] && pass "$b" "settled run leaves the backup alone" || bad "$b" "settled run backup" "rewritten"
 
   # An entry someone else appended after ours (RTK does this on PreToolUse).
   jq '.hooks.PreToolUse += [{"matcher":"Bash","hooks":[{"type":"command","command":"rtk hook claude"}]}]' \
@@ -71,13 +73,15 @@ for b in jq python; do
   # Duplicated entries of our own collapse into one, at the first one's place.
   jq '.hooks.Stop += [{"hooks":[{"type":"command","command":"/h/hwap.sh"}]}]' \
     "$SETTINGS" > "$ISO/s" && mv "$ISO/s" "$SETTINGS"
+  before="$(cat "$SETTINGS")"
   rc="$(reg $b /h/hwap.sh PreToolUse:60 UserPromptSubmit:691200 Stop)"
   [ "$rc" = 0 ] && [ "$(commands Stop)" = '["/h/hwap.sh","/h/ic.sh"]' ] \
     && pass "$b" "duplicate own entries collapse in place" || bad "$b" "duplicate own entries" "rc=$rc $(commands Stop)"
+  [ "$(cat "$SETTINGS.bak")" = "$before" ] && pass "$b" "backup holds the file as it was before the latest rewrite" || bad "$b" "latest backup" "stale"
 
-  # settings.json is replaced without keeping a copy of the old one.
+  # Every rewrite reuses the one backup file.
   n="$(find "$CLAUDE_CONFIG_DIR" -name 'settings.json.bak*' | wc -l)"
-  [ "$n" = 0 ] && pass "$b" "no run leaves a backup" || bad "$b" "backups left" "$n"
+  [ "$n" = 1 ] && pass "$b" "only settings.json.bak is kept" || bad "$b" "backup files" "$n"
 done
 
 exit $fail

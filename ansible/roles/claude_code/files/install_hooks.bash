@@ -13,7 +13,9 @@
 # without touching each other's (or anyone else's) entries.
 #
 # settings.json is rewritten only when its parsed content changes, so another
-# writer's formatting or key order is never reported as a change.
+# writer's formatting or key order is never reported as a change. A rewrite
+# first copies the old file to settings.json.bak, overwriting the previous
+# backup (RTK's `rtk init` uses the same name), so only the latest one is kept.
 #
 # Exit codes: 0 = settings.json changed, 10 = already correct (no change
 # needed), anything else = failure.
@@ -31,6 +33,13 @@ CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 mkdir -p "$CLAUDE_DIR"
 SETTINGS="$CLAUDE_DIR/settings.json"
 [ -s "$SETTINGS" ] || echo '{}' > "$SETTINGS"
+
+# Replaces $SETTINGS with the merged file $1, keeping the old one as the
+# single backup $SETTINGS.bak.
+__commit() {
+  cp "$SETTINGS" "$SETTINGS.bak"
+  mv "$1" "$SETTINGS"
+}
 
 __merge_with_jq() {
   local tmp
@@ -58,7 +67,7 @@ __merge_with_jq() {
     rm -f "$tmp"
     return 10
   fi
-  mv "$tmp" "$SETTINGS"
+  __commit "$tmp"
 }
 
 # The python script exits 10 without writing OUT_PATH when nothing changed.
@@ -118,7 +127,7 @@ PYEOF
     rm -f "$tmp"
     return "$rc"
   fi
-  mv "$tmp" "$SETTINGS"
+  __commit "$tmp"
 }
 
 if command -v jq >/dev/null 2>&1; then

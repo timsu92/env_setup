@@ -26,8 +26,10 @@ BANNER_EOF
 SETTINGS="$CLAUDE_DIR/settings.json"
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
 
-# Replaces $SETTINGS with the merged file $1, keeping a timestamped backup of
-# the old one. Does nothing (and returns 10) when the content is identical.
+# Replaces $SETTINGS with the merged file $1, keeping the old one as the
+# single backup $SETTINGS.bak (overwriting the previous backup; RTK and
+# install_hooks.bash use the same name). Does nothing (and returns 10) when
+# the content is identical.
 __commit_if_changed() {
   local merged="$1" before after
   before="$(cat "$SETTINGS")"
@@ -36,7 +38,7 @@ __commit_if_changed() {
     rm -f "$merged"
     return 10
   fi
-  cp "$SETTINGS" "$SETTINGS.bak.$(date +%s)"
+  cp "$SETTINGS" "$SETTINGS.bak"
   mv "$merged" "$SETTINGS"
   return 0
 }
@@ -62,7 +64,7 @@ PROMPT_EOF
   echo "Could not merge settings.json automatically." >&2
   echo "Install 'jq' (brew install jq / apt-get install jq) or python3 and re-run." >&2
   echo "Or set STATUSLINE_SELFHEAL=1 and ensure 'claude' is on PATH to auto-repair." >&2
-  echo "Your previous settings.json is backed up at $SETTINGS.bak.*" >&2
+  echo "Your previous settings.json is backed up at $SETTINGS.bak" >&2
   return 1
 }
 

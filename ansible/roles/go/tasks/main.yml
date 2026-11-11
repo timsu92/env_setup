@@ -23,7 +23,7 @@
   check_mode: false
 
 - name: Install Go {{ go_version }}
-  when: ('go version go' ~ go_version ~ ' ') not in (go_installed.stdout | default(''))
+  when: ('go version go' ~ go_version ~ ' ') not in (go_installed.stdout | default('')) and not ansible_check_mode
   block:
     - name: Download Go tarball
       ansible.builtin.get_url:

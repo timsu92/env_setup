@@ -31,7 +31,6 @@ reg() {
 hwap() { reg "$1" /h/hwap.sh PreToolUse:691200 UserPromptSubmit:691200 Stop; }
 ic()   { reg "$1" /h/ic.sh PostToolUse Stop PostCompact:691200 UserPromptSubmit; }
 commands() { jq -c "[.hooks.$1[].hooks[0].command]" "$SETTINGS"; }
-backups() { find "$CLAUDE_CONFIG_DIR" -name 'settings.json.bak.*' | wc -l; }
 
 for b in jq python; do
   rm -rf "${CLAUDE_CONFIG_DIR:?}"/*
@@ -41,11 +40,10 @@ for b in jq python; do
 
   # Two scripts sharing Stop and UserPromptSubmit must both settle.
   ic "$b" >/dev/null
-  before="$(cat "$SETTINGS")"; nbak="$(backups)"
+  before="$(cat "$SETTINGS")"
   rc1="$(hwap $b)"; rc2="$(ic $b)"
   [ "$rc1/$rc2" = "10/10" ] && pass "$b" "scripts sharing events both settle" || bad "$b" "scripts sharing events" "hwap rc=$rc1 ic rc=$rc2"
   [ "$(cat "$SETTINGS")" = "$before" ] && pass "$b" "settled run leaves the file byte-identical" || bad "$b" "settled run" "file rewritten"
-  [ "$(backups)" = "$nbak" ] && pass "$b" "settled run leaves no backup" || bad "$b" "settled run backups" "$nbak -> $(backups)"
 
   # An entry someone else appended after ours (RTK does this on PreToolUse).
   jq '.hooks.PreToolUse += [{"matcher":"Bash","hooks":[{"type":"command","command":"rtk hook claude"}]}]' \
@@ -76,6 +74,10 @@ for b in jq python; do
   rc="$(reg $b /h/hwap.sh PreToolUse:60 UserPromptSubmit:691200 Stop)"
   [ "$rc" = 0 ] && [ "$(commands Stop)" = '["/h/hwap.sh","/h/ic.sh"]' ] \
     && pass "$b" "duplicate own entries collapse in place" || bad "$b" "duplicate own entries" "rc=$rc $(commands Stop)"
+
+  # settings.json is replaced without keeping a copy of the old one.
+  n="$(find "$CLAUDE_CONFIG_DIR" -name 'settings.json.bak*' | wc -l)"
+  [ "$n" = 0 ] && pass "$b" "no run leaves a backup" || bad "$b" "backups left" "$n"
 done
 
 exit $fail

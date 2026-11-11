@@ -32,13 +32,6 @@ mkdir -p "$CLAUDE_DIR"
 SETTINGS="$CLAUDE_DIR/settings.json"
 [ -s "$SETTINGS" ] || echo '{}' > "$SETTINGS"
 
-# Replaces $SETTINGS with the merged file $1, keeping a timestamped backup of
-# the old one.
-__commit() {
-  cp "$SETTINGS" "$SETTINGS.bak.$(date +%s)"
-  mv "$1" "$SETTINGS"
-}
-
 __merge_with_jq() {
   local tmp
   tmp="$(mktemp)"
@@ -65,7 +58,7 @@ __merge_with_jq() {
     rm -f "$tmp"
     return 10
   fi
-  __commit "$tmp"
+  mv "$tmp" "$SETTINGS"
 }
 
 # The python script exits 10 without writing OUT_PATH when nothing changed.
@@ -125,7 +118,7 @@ PYEOF
     rm -f "$tmp"
     return "$rc"
   fi
-  __commit "$tmp"
+  mv "$tmp" "$SETTINGS"
 }
 
 if command -v jq >/dev/null 2>&1; then

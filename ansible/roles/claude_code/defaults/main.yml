@@ -67,7 +67,7 @@ claude_code_sonarqube_server_file: "{{ setup_user_home }}/.config/zsh/non-intera
 
 # SonarQube MCP server JAR, the fallback when no container runtime can run
 # `sonar run mcp`. Needs Java 21+; Debian 12 has no openjdk-21 package.
-claude_code_sonarqube_mcp_version: 1.27.0.4335
+claude_code_sonarqube_mcp_version: 1.32.0.5118
 claude_code_sonarqube_mcp_dir: "{{ setup_user_home }}/.local/share/sonarqube-mcp"
 claude_code_sonarqube_mcp_url: "https://binaries.sonarsource.com/Distribution/sonarqube-mcp-server/\
   sonarqube-mcp-server-{{ claude_code_sonarqube_mcp_version }}.jar"

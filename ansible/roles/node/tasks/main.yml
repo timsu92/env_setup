@@ -2,6 +2,14 @@
 # node: install Node.js via nvm
 # Sources: docs/js/node.md
 
+# The official Node.js binaries nvm downloads link against libatomic.so.1,
+# which slim images (docker ubuntu:24.04) don't ship. Without it `node` can't
+# start at all, and nvm's "already installed" path hides that on a re-run.
+- name: Install Node.js runtime prerequisites
+  ansible.builtin.apt:
+    name: libatomic1
+    state: present
+
 - name: Install Node.js via nvm
   ansible.builtin.shell:
     cmd: >

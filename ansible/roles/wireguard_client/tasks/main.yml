@@ -32,72 +32,93 @@
     group: root
     mode: "0700"
 
-- name: Generate WireGuard private key
-  ansible.builtin.shell:
-    cmd: wg genkey > /etc/wireguard/privatekey
-    creates: /etc/wireguard/privatekey
-  no_log: true
+- name: Collect unset or empty required WireGuard variables
+  ansible.builtin.set_fact:
+    wireguard_client_missing_vars: >-
+      {%- set missing = [] -%}
+      {%- for name in ['wireguard_client_address', 'wireguard_client_server_pubkey', 'wireguard_client_endpoint'] -%}
+      {%- if (lookup('ansible.builtin.vars', name, default='') | string | trim | length) == 0 -%}
+      {%- set _ = missing.append(name) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ missing | to_json }}
 
-- name: Set secure permissions on private key file
-  ansible.builtin.file:
-    path: /etc/wireguard/privatekey
-    owner: root
-    group: root
-    mode: "0600"
-
-- name: Generate WireGuard preshared key
-  ansible.builtin.shell:
-    cmd: wg genpsk > /etc/wireguard/presharedkey
-    creates: /etc/wireguard/presharedkey
-  no_log: true
-
-- name: Set secure permissions on preshared key file
-  ansible.builtin.file:
-    path: /etc/wireguard/presharedkey
-    owner: root
-    group: root
-    mode: "0600"
-
-- name: Read WireGuard private key
-  ansible.builtin.slurp:
-    src: /etc/wireguard/privatekey
-  register: wireguard_client_privatekey
-  no_log: true
-
-- name: Read WireGuard preshared key
-  ansible.builtin.slurp:
-    src: /etc/wireguard/presharedkey
-  register: wireguard_client_psk
-  no_log: true
-
-- name: Derive WireGuard public key from private key
-  ansible.builtin.shell:
-    cmd: wg pubkey < /etc/wireguard/privatekey
-  register: wireguard_client_pubkey
-  changed_when: false
-
-- name: Deploy /etc/wireguard/wg0.conf
-  ansible.builtin.template:
-    src: wg0.conf.j2
-    dest: /etc/wireguard/wg0.conf
-    owner: root
-    group: root
-    mode: "0600"
-  no_log: true
-  notify: Restart wg-quick@wg0
-
-- name: "Client keys — add these to the server [Peer] block"
+- name: Warn that WireGuard client setup is skipped
   ansible.builtin.debug:
-    msg:
-      - "PublicKey    = {{ wireguard_client_pubkey.stdout }}"
-      - "PresharedKey = {{ wireguard_client_psk.content | b64decode | trim }}"
+    msg: >-
+      WireGuard client setup skipped, these variables are unset or empty:
+      {{ wireguard_client_missing_vars | from_json | join(', ') }}
+  when: (wireguard_client_missing_vars | from_json | length) > 0
 
-- name: Delete private key file from the client for security
-  ansible.builtin.file:
-    path: /etc/wireguard/privatekey
-    state: absent
+- name: Generate WireGuard keys only when variables are set
+  when: (wireguard_client_missing_vars | from_json | length) == 0
+  block:
+    - name: Generate WireGuard private key
+      ansible.builtin.shell:
+        cmd: wg genkey > /etc/wireguard/privatekey
+        creates: /etc/wireguard/privatekey
+      no_log: true
 
-- name: Delete preshared key file from the client for security
-  ansible.builtin.file:
-    path: /etc/wireguard/presharedkey
-    state: absent
+    - name: Set secure permissions on private key file
+      ansible.builtin.file:
+        path: /etc/wireguard/privatekey
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Generate WireGuard preshared key
+      ansible.builtin.shell:
+        cmd: wg genpsk > /etc/wireguard/presharedkey
+        creates: /etc/wireguard/presharedkey
+      no_log: true
+
+    - name: Set secure permissions on preshared key file
+      ansible.builtin.file:
+        path: /etc/wireguard/presharedkey
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Read WireGuard private key
+      ansible.builtin.slurp:
+        src: /etc/wireguard/privatekey
+      register: wireguard_client_privatekey
+      no_log: true
+
+    - name: Read WireGuard preshared key
+      ansible.builtin.slurp:
+        src: /etc/wireguard/presharedkey
+      register: wireguard_client_psk
+      no_log: true
+
+    - name: Derive WireGuard public key from private key
+      ansible.builtin.shell:
+        cmd: wg pubkey < /etc/wireguard/privatekey
+      register: wireguard_client_pubkey
+      changed_when: false
+
+    - name: Deploy /etc/wireguard/wg0.conf
+      ansible.builtin.template:
+        src: wg0.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      notify: Restart wg-quick@wg0
+
+    - name: "Client keys — add these to the server [Peer] block"
+      ansible.builtin.debug:
+        msg:
+          - "PublicKey    = {{ wireguard_client_pubkey.stdout }}"
+          - "PresharedKey = {{ wireguard_client_psk.content | b64decode | trim }}"
+
+    - name: Delete private key file from the client for security
+      ansible.builtin.file:
+        path: /etc/wireguard/privatekey
+        state: absent
+
+    - name: Delete preshared key file from the client for security
+      ansible.builtin.file:
+        path: /etc/wireguard/presharedkey
+        state: absent

@@ -53,10 +53,17 @@
     SHELL: /bin/zsh
     ZPLUG_SKIP_PROMPT: "1"
   register: zplug_install_result
-  changed_when: >-
-    'Installed packages' in zplug_install_result.stdout or
-    'Build package' in zplug_install_result.stdout or
-    'No packages to install' not in zplug_install_result.stdout
+  # The list is combined with "and", so all conditions must meet
+  changed_when:
+    # The module's own value, read before changed_when overrides it: false when
+    # `creates` short-circuited the command (that is not a task skip, so
+    # `is skipped` cannot tell), true when the command actually ran.
+    - zplug_install_result.changed
+    # Check if the install really ran and actually installed or built anything
+    - >-
+      'Installed packages' in zplug_install_result.stdout or
+      'Build package' in zplug_install_result.stdout or
+      'No packages to install' not in zplug_install_result.stdout
 
 - name: Install Vim plugins
   # might be zplug's hook-build doesn't work in non-interactive shell, so run the install script directly

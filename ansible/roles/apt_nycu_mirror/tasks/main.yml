@@ -31,6 +31,7 @@
       deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-updates main universe restricted multiverse
       deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-backports main universe restricted multiverse
       deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] {{ apt_https_repo_prefix }}ubuntu.cs.nycu.edu.tw/ubuntu/ {{ ansible_facts["distribution_release"] }}-security main universe restricted multiverse
+  register: apt_nycu_mirror_ubuntu_source
   when: ansible_facts["distribution"] == "Ubuntu"
 
 - name: Set apt pin priority for NYCU Ubuntu mirror
@@ -43,6 +44,7 @@
       Package: *
       Pin: origin "{{ apt_cacher_ng_host if apt_cacher_ng_enabled else 'ubuntu.cs.nycu.edu.tw' }}"
       Pin-Priority: 501
+  register: apt_nycu_mirror_ubuntu_pin
   when: ansible_facts["distribution"] == "Ubuntu"
 
 - name: Set NYCU mirror for Debian
@@ -54,6 +56,7 @@
     content: |
       deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] {{ apt_https_repo_prefix }}debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }} main non-free-firmware
       deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] {{ apt_https_repo_prefix }}debian.cs.nycu.edu.tw/debian/ {{ ansible_facts["distribution_release"] }}-updates main non-free-firmware
+  register: apt_nycu_mirror_debian_source
   when: ansible_facts["distribution"] == "Debian"
 
 - name: Set apt pin priority for NYCU Debian mirror
@@ -66,8 +69,17 @@
       Package: *
       Pin: origin "{{ apt_cacher_ng_host if apt_cacher_ng_enabled else 'debian.cs.nycu.edu.tw' }}"
       Pin-Priority: 501
+  register: apt_nycu_mirror_debian_pin
   when: ansible_facts["distribution"] == "Debian"
 
+# Only when a file above changed: an unconditional update_cache reports
+# changed on every run. It cannot wait for common_base's cache_valid_time
+# refresh, which skips a cache younger than an hour even if the sources moved.
 - name: Update apt cache after mirror change
   ansible.builtin.apt:
     update_cache: true
+  when: >-
+    apt_nycu_mirror_ubuntu_source is changed or
+    apt_nycu_mirror_ubuntu_pin is changed or
+    apt_nycu_mirror_debian_source is changed or
+    apt_nycu_mirror_debian_pin is changed

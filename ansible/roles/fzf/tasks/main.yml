@@ -12,9 +12,7 @@
 - name: Run fzf setup
   ansible.builtin.command: "{{ setup_user_home }}/.fzf/install --completion --key-bindings --no-update-rc --no-bash --no-fish"
   args:
-    creates:
-      - "{{ setup_user_home }}/.fzf/bin/fzf"
-      - "{{ setup_user_home }}/.fzf.zsh"
+    creates: "{{ setup_user_home }}/.fzf.zsh"
   become: true
   become_user: "{{ setup_user }}"
 

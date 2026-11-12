@@ -18,7 +18,7 @@ usage() {
 Usage: $0 [OPTIONS]
 
 Options:
-  --host <HOST>        Target VM in ansible/inventory/pve_hosts.yml
+  --host <HOST>[,...]  Target VM(s) in ansible/inventory/pve_hosts.yml (comma-separated)
   --profile <name>     Profile to run: wsl | pve | pve-daily
   --inventory <file>   Inventory file (default: inventory/pve_hosts.yml)
   -e <extra_vars>      Extra vars passed to ansible-playbook
@@ -28,6 +28,7 @@ Examples:
   $0                                       # provision local WSL machine
   $0 --host pve-vm-01                      # provision Proxmox VM (base profile)
   $0 --host pve-vm-01 --profile pve-daily  # provision Proxmox VM (daily-use profile)
+  $0 --host pve-vm-01,pve-vm-02            # provision several Proxmox VMs in one run
 EOF
   exit 1
 }
@@ -81,12 +82,14 @@ case "$PROFILE" in
     ;;
   pve)
     [[ -z "$HOST" ]] && { echo "ERROR: --host required for pve profile"; usage; }
-    echo "==> Provisioning Proxmox VM at ${HOST} (base profile) ..."
+    require_hosts_in_group "${INVENTORY}" vm "${HOST}"
+    echo "==> Provisioning Proxmox VM(s) at ${HOST} (base profile) ..."
     ansible-playbook -i "${INVENTORY}" -l "${HOST}" playbooks/vm-pve.yml "${EXTRA_ARGS[@]}"
     ;;
   pve-daily)
     [[ -z "$HOST" ]] && { echo "ERROR: --host required for pve-daily profile"; usage; }
-    echo "==> Provisioning Proxmox VM at ${HOST} (daily-use profile) ..."
+    require_hosts_in_group "${INVENTORY}" vm "${HOST}"
+    echo "==> Provisioning Proxmox VM(s) at ${HOST} (daily-use profile) ..."
     ansible-playbook -i "${INVENTORY}" -l "${HOST}" playbooks/vm-daily-pve.yml "${EXTRA_ARGS[@]}"
     ;;
   *)

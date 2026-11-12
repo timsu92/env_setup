@@ -75,6 +75,38 @@ reexec_with_sudo() {
   fi
 }
 
+# Exit unless every element of the comma-separated host list $3 matches at
+# least one host of group $2 in inventory $1. Elements may be host names or
+# Ansible patterns (e.g. pve-vm-*).
+#
+# `ansible-playbook -l a,b` already provisions several hosts, but an element
+# that matches nothing is dropped with only a [WARNING] and exit 0. That covers
+# both a typo and a host outside the play's group (an LXC passed to setup-vm),
+# so a multi-host run would print "Done." with a machine silently skipped.
+# Checking up front fails before any host has been touched.
+#
+# Call from ansible/ (inventory paths are relative to it).
+require_hosts_in_group() {
+  local inventory="$1" group="$2" host_list="$3"
+  local element listing unmatched=()
+  local -a elements
+
+  IFS=',' read -ra elements <<<"$host_list"
+  for element in "${elements[@]}"; do
+    [[ -z "$element" ]] && continue
+    if ! listing="$(ansible -i "$inventory" "${group}:&${element}" --list-hosts 2>/dev/null)"; then
+      echo "ERROR: could not query inventory ${inventory}" >&2
+      exit 1
+    fi
+    [[ "$listing" == *"hosts (0):"* ]] && unmatched+=("$element")
+  done
+
+  if ((${#unmatched[@]} > 0)); then
+    echo "ERROR: not in group '${group}' of ${inventory}: ${unmatched[*]}" >&2
+    exit 1
+  fi
+}
+
 # Install Ansible locally if ansible-playbook isn't already on PATH. Only
 # for disposable local-model targets (container/devcontainer) — LXC/VM are
 # push model and never need Ansible installed on the target itself.

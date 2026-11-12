@@ -148,6 +148,9 @@ bin/setup-vm --host pve-vm-01
 
 # 4. Full daily-driver setup
 bin/setup-vm --host pve-vm-01 --profile pve-daily
+
+# Several VMs in one run: comma-separated, every name must be in the 'vm' group
+bin/setup-vm --host pve-vm-01,pve-vm-02 --profile pve-daily
 ```
 
 ### Proxmox LXC
@@ -165,6 +168,9 @@ cp ansible/inventory/pve_hosts.yml.example ansible/inventory/pve_hosts.yml
 
 # 2. Provision
 bin/setup-lxc --host pve-lxc-01
+
+# Several LXCs in one run: comma-separated, every name must be in the 'lxc' group
+bin/setup-lxc --host pve-lxc-01,pve-lxc-02
 ```
 
 **Security note** — On LXC, provisioning runs as `root`. Afterwards, any SSH

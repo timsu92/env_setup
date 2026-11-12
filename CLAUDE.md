@@ -32,8 +32,8 @@ cd ansible && ANSIBLE_CONFIG=../ansible.cfg uv run ansible-playbook -i inventory
 # Actually provision — always go through bin/, not ansible-playbook directly,
 # so ANSIBLE_CONFIG and cwd are set correctly (see "ansible.cfg" below)
 bin/setup-vm            # WSL, local
-bin/setup-vm --host <h> [--profile pve|pve-daily]   # Proxmox VM, push over SSH
-bin/setup-lxc --host <ip>                            # Proxmox LXC, push over SSH
+bin/setup-vm --host <h>[,<h>...] [--profile pve|pve-daily]   # Proxmox VM(s), push over SSH
+bin/setup-lxc --host <h>[,<h>...]                     # Proxmox LXC(s), push over SSH
 bin/setup-container      # inside a Docker container, local
 bin/setup-devcontainer   # inside a devcontainer, local
 ```

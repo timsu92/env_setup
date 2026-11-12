@@ -7,18 +7,22 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ANSIBLE_DIR="${REPO_ROOT}/ansible"
 export ANSIBLE_CONFIG="${REPO_ROOT}/ansible.cfg"
 
+# shellcheck source=../utils/common.sh
+source "${REPO_ROOT}/utils/common.sh"
+
 usage() {
   cat <<EOF
-Usage: $0 --host <IP> [OPTIONS]
+Usage: $0 --host <HOST>[,...] [OPTIONS]
 
 Options:
-  --host <HOST>        Target LXC in ansible/inventory/pve_hosts.yml (required)
+  --host <HOST>[,...]  Target LXC(s) in ansible/inventory/pve_hosts.yml, comma-separated (required)
   --inventory <file>   Inventory file (default: inventory/pve_hosts.yml)
   -e <extra_vars>      Extra vars passed to ansible-playbook
   -h, --help           Show this help
 
-Example:
+Examples:
   $0 --host pve-lxc-01
+  $0 --host pve-lxc-01,pve-lxc-02
 EOF
   exit 1
 }
@@ -40,6 +44,7 @@ done
 [[ -z "$HOST" ]] && { echo "ERROR: --host is required"; usage; }
 
 cd "${ANSIBLE_DIR}"
-echo "==> Provisioning Proxmox LXC at ${HOST} ..."
+require_hosts_in_group "${INVENTORY}" lxc "${HOST}"
+echo "==> Provisioning Proxmox LXC(s) at ${HOST} ..."
 ansible-playbook -i "${INVENTORY}" -l "${HOST}" playbooks/lxc-pve.yml "${EXTRA_ARGS[@]}"
 echo "==> Done."

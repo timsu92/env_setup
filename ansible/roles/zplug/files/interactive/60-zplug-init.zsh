@@ -11,9 +11,9 @@ if [[ -n "${ZPLUG_SKIP_PROMPT:-}" ]]; then
   # During Ansible deployment, skip hook-build: the timeout watcher it spawns
   # gets SIGHUP'd when the script session closes, leaving job.lock permanently.
   # Vim plugin installation is handled by the dedicated Ansible task instead.
-  zplug 'timsu92/vimrc', use:'dummy.file'
+  zplug 'timsu92/vimrc', use:'dummy.file', at:'main'
 else
-  zplug 'timsu92/vimrc', use:'dummy.file', hook-build:'zsh $ZPLUG_REPOS/timsu92/vimrc/install.sh >/dev/null'
+  zplug 'timsu92/vimrc', use:'dummy.file', at:'main', hook-build:'zsh $ZPLUG_REPOS/timsu92/vimrc/install.sh >/dev/null'
 fi
 zplug 'timsu92/ee65b1285ae128ba91d88ce972c91a95',   from:gist, as:command, use:'mosh-ssh-bridge.bash'
 zplug 'timsu92/ba3c31cd48d5a384cf5844a1329779c1',   from:gist, as:command, use:'rs'

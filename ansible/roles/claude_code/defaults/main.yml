@@ -44,7 +44,7 @@ claude_code_hung_yi_lee_skill_refspec: 50aa2823cee651ecd9fbfb56cb66455bb8e3a7b3
 # sonarqube-cli. The official install.sh always installs "stable" and cannot be
 # pinned, so the role downloads the release binary itself and verifies it with
 # the .sha256 published next to it. Only the two glibc builds exist upstream.
-claude_code_sonarqube_cli_version: 1.8.0.5274
+claude_code_sonarqube_cli_version: 1.12.0.17622
 claude_code_sonarqube_cli_dir: "{{ setup_user_home }}/.local/share/sonarqube-cli/bin"
 claude_code_sonarqube_cli_platforms:
   x86_64: linux-x86-64

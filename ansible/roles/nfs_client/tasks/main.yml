@@ -17,10 +17,11 @@
   ansible.builtin.file:
     path: "{{ item.dest }}"
     state: directory
-    owner: root
-    group: root
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
     mode: "0755"
   loop: "{{ nfs_client_mounts }}"
+  when: item.dest not in (ansible_facts['mounts'] | map(attribute='mount'))
 
 - name: Configure NFS mounts in /etc/fstab
   ansible.posix.mount:

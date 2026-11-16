@@ -75,11 +75,14 @@ printf 'usage KEY1 50 %s 20 %s 97 99 120 3\n' $((NOW + 9000)) $((NOW + 90000)) >
 : > "$T/accounts"
 
 # ---- SessionStart ----
+# One line for the user (systemMessage) on the mode the hook runs in: tmux, screen or disabled.
+# This hook's claude stand-in has no multiplexer in its environment, so the plain case is disabled.
+NOTICE_OFF='{"systemMessage":"ideal-compact: disabled (not in tmux or screen)"}'
 for src in startup resume clear; do
   set_state phase=armed suppress=1 skip=1 ledger=x dirty=1 armed_key=K
   send SessionStart --arg source "$src"
   st_all "ss-$src" "phase=standby suppress=0 skip=0 ledger= dirty=1"
-  no_stdout "ss-$src-quiet"
+  ck "ss-$src-notice" "rc=0 out=$NOTICE_OFF" "rc=$RC out=$(cat "$T/out")"
 done
 set_state phase=standby pending_inject=cancel ledger_done=3
 send SessionStart --arg source resume
@@ -87,7 +90,26 @@ st_all "ss-pending-cleared" "phase=standby pending_inject= ledger_done=0"
 set_state phase=armed suppress=1 skip=1 ledger=x dirty=1
 send SessionStart --arg source compact
 st_all "ss-compact-unchanged" "phase=armed suppress=1 skip=1 ledger=x dirty=1"
+notice() { ck "$1" "rc=0 out=$2" "rc=$RC out=$(cat "$T/out")"; }
 set_state phase=standby
+TERM_PROGRAM=vscode send SessionStart --arg source startup
+notice "ss-notice-vscode" '{"systemMessage":"ideal-compact: disabled (VS Code terminal)"}'
+TMUX="$T/sock,1,0" TMUX_PANE=%3 send SessionStart --arg source startup
+notice "ss-notice-tmux" '{"systemMessage":"ideal-compact: tmux mode"}'
+TMUX="$T/sock,1,0" TMUX_PANE=%3 TERM_PROGRAM=tmux send SessionStart --arg source resume
+notice "ss-notice-tmux-term-program" '{"systemMessage":"ideal-compact: tmux mode"}'
+STY="$$.x" WINDOW=0 send SessionStart --arg source clear
+notice "ss-notice-screen" '{"systemMessage":"ideal-compact: screen mode"}'
+# a multiplexer's variables that do not belong to this claude count as no backend
+STY="1.x" WINDOW=0 TERM_PROGRAM=vscode send SessionStart --arg source startup
+notice "ss-notice-foreign-screen" '{"systemMessage":"ideal-compact: disabled (VS Code terminal)"}'
+# compact is not a new session: no line; a headless claude (-p / --print) has no one to read it
+TMUX="$T/sock,1,0" TMUX_PANE=%3 send SessionStart --arg source compact
+no_stdout "ss-notice-compact-quiet"
+bash -c 'sleep 3600; :' claude -p 'fix it' & HP=$!; sleep 0.2
+KILLS+=("$HP" "$(pgrep -P "$HP")")   # the sleep under it too, or it outlives the test
+IC_CLAUDE_PID=$HP TMUX="$T/sock,1,0" TMUX_PANE=%3 send SessionStart --arg source startup
+no_stdout "ss-notice-headless-quiet"
 send SessionStart --arg source startup
 [ -e "$SDIR/ideal-compact-state" ] && st_all "ss-clean-standby" "phase=standby dirty=0" || pass "ss-clean-standby" "no state"
 

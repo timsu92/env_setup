@@ -2,9 +2,10 @@
 # session or account. Sets TESTS_DIR and ISO (a fresh temp dir the test removes
 # in its own EXIT trap), points every state/config location into ISO, puts
 # tests/fakes first on PATH and aborts unless tmux, screen and cswap resolve
-# there. IC_CLAUDE_PID is the test shell itself; a test that needs another
-# process overrides it after sourcing.
-unset TMUX TMUX_PANE STY WINDOW CLAUDECODE
+# there. TERM_PROGRAM is cleared too, so a run from a VS Code terminal does not leak into the
+# hook's mode line. IC_CLAUDE_PID is the test shell itself; a test that needs another process
+# overrides it after sourcing.
+unset TMUX TMUX_PANE STY WINDOW CLAUDECODE TERM_PROGRAM
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ISO="$(mktemp -d)"
 mkdir -p "$ISO/tmp" "$ISO/home" "$ISO/claude" "$ISO/xdg" "$ISO/cswap" "$ISO/hints"

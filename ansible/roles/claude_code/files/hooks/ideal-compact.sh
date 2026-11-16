@@ -5,7 +5,7 @@
 # SessionStart and UserPromptSubmit.
 # It never blocks Claude Code: exit 0 on every path (never 2; PostCompact
 # exits 1 when cancelled by SIGTERM/SIGHUP), and nothing on stdout except
-# PostToolUse's additionalContext JSON.
+# PostToolUse's additionalContext JSON and SessionStart's one-line systemMessage.
 set -u
 
 # Relative to this script (~/.claude/hooks/), so a moved ~/.claude keeps working.
@@ -142,10 +142,29 @@ __ttl_step() {
   __unlock
 }
 
+# __session_notice: SessionStart's systemMessage, one line for the user on the
+# mode this session runs in: tmux or screen (the hook can type /compact into
+# it), or disabled. Nothing for a headless claude, which has no one to read it.
+__session_notice() {
+  local pid mode
+  pid="$(__proc_claude_pid)"
+  if [ -n "$pid" ] && __proc_headless "$pid"; then return 0; fi
+  case "$(__mux_backend)" in
+    tmux*) mode='tmux mode' ;;
+    screen*) mode='screen mode' ;;
+    *)
+      # The claude launcher leaves a VS Code terminal unwrapped on purpose
+      if [ "${TERM_PROGRAM:-}" = vscode ]; then mode='disabled (VS Code terminal)'
+      else mode='disabled (not in tmux or screen)'; fi ;;
+  esac
+  printf '{"systemMessage":"ideal-compact: %s"}\n' "$mode"
+}
+
 # New session (not the one /compact restarts): nothing of an old flow applies.
 # dirty stays, it counts activity that already happened.
 __on_session_start() {
   case "$(__field source)" in startup|resume|clear) ;; *) return 0 ;; esac
+  __session_notice
   __lock "$LOCK" || return 0
   __state_read "$SDIR"
   if [ "$IC_phase" != standby ] || [ "$IC_skip" != 0 ] || [ "$IC_suppress" != 0 ] || [ -n "$IC_ledger" ] \

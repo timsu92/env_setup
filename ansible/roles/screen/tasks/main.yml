@@ -39,4 +39,9 @@
       truecolor on
       {% endif %}
 
+      # Forward mouse reports untouched. Given the outer terminal's kmous prefix (xterm: ESC [ <), screen
+      # rewrites it to ESC [ M but keeps the SGR coordinates, so a program that enables mouse tracking reads
+      # the rest of every report as typed text. Seen on 4.9 and 5.0.2; dropping kmous (Km@) fixes both.
+      termcapinfo * Km@
+
       startup_message off

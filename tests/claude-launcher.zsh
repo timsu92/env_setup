@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
-# Tests the `claude` launcher function (65-claude-screen.zsh) with a stub screen
-# and a stub claude on PATH, so nothing reaches a real session.
+# Tests the `claude` launcher: the alias from 65-claude-screen.zsh and the claude-screen script it
+# points at, with a stub screen and a stub claude on PATH, so nothing reaches a real session.
 # ---- isolation header: a test must never reach the real session or account ----
 unset TMUX TMUX_PANE STY WINDOW CLAUDECODE CLAUDE_LAUNCHER_ASSUME_TTY
 TESTS_DIR="${0:A:h}"
@@ -21,6 +21,7 @@ STUB
 cat > "$ISO/stub/screen" <<'STUB'
 #!/bin/sh
 [ "$1" = --version ] && { printf '%s\n' "${STUB_VERSION-Screen version 4.09.01 (GNU) 20-Aug-23}"; exit 0; }
+[ "$1" = -r ] && printf '%s' "$$" > "$STUB_STATE.rpid"
 { printf 'screen'; for a in "$@"; do printf ' <%s>' "$a"; done; printf '\n'; } >> "$FAKE_LOG"
 prev=''
 for a in "$@"; do
@@ -40,11 +41,13 @@ exit 0
 STUB
 chmod +x "$ISO/stub/real/claude-real" "$ISO/stub/screen"
 ln -s "$ISO/stub/real/claude-real" "$ISO/stub/claude"
-export PATH="$ISO/stub:$TESTS_DIR/fakes:$PATH"
+FILES_DIR="${TESTS_DIR:h}/ansible/roles/claude_code/files"
+export PATH="$ISO/stub:$TESTS_DIR/fakes:$FILES_DIR:$PATH"
 for c in tmux screen cswap claude; do
   p="$(command -v $c)"
   [[ "$p" == "$TESTS_DIR"/fakes/* || "$p" == "$ISO"/stub/* ]] || { echo "ISOLATION: '$c' resolves to '${p:-nothing}'" >&2; exit 2; }
 done
+[[ "$(command -v claude-screen)" == "$FILES_DIR/claude-screen" ]] || { echo "ISOLATION: claude-screen is not the repo script" >&2; exit 2; }
 # ---- end isolation header ----
 trap 'rm -rf "$ISO"' EXIT
 zmodload zsh/datetime
@@ -55,6 +58,13 @@ source "$snippet" || { echo "FAIL cannot source $snippet"; exit 1; }
 pass=0; fail=0
 ok()  { echo "PASS $1"; pass=$((pass + 1)); }
 bad() { echo "FAIL $1${2:+: $2}"; fail=$((fail + 1)); }
+
+# the snippet only defines an alias (no function: a stopped job inside a function leaves a stray
+# subshell behind and confuses `fg`), and only when the script it points at is on PATH
+[[ "${aliases[claude]}" == claude-screen ]] && ok "claude is an alias for claude-screen" || bad "alias" "got '${aliases[claude]}'"
+(( ! $+functions[claude] )) && ok "claude is not a function" || bad "claude function exists"
+( unalias claude; PATH="$ISO/stub"; source "$snippet"; [[ -z "${aliases[claude]}" ]] ) \
+  && ok "no claude-screen on PATH: no alias, plain claude stays" || bad "alias without script"
 reset() { : > "$FAKE_LOG"; rm -f "$STUB_STATE.name" "$STUB_STATE.ls" "$STUB_STATE.env"; unset STUB_LS_AFTER; }
 senv() { cat "$STUB_STATE.env" 2>/dev/null; }
 log() { cat "$FAKE_LOG"; }
@@ -114,24 +124,29 @@ t0=$EPOCHREALTIME; STUB_LS_AFTER=99999 CLAUDE_LAUNCHER_ASSUME_TTY=1 claude >/dev
 el=$(( t1 - t0 ))
 (( el < 4 && el >= 1.5 )) && [[ "$(log | grep -c '<-r>')" == 1 ]] && ok "gives up polling after about 2 s" || bad "poll timeout" "elapsed $el; $(log | tr '\n' '|')"
 
-# no leaked names, options untouched
-reset
-print -l ${(k)parameters} | sort > "$ISO/params.before"; setopt > "$ISO/opts.before"
-CLAUDE_LAUNCHER_ASSUME_TTY=1 claude hi >/dev/null
-print -l ${(k)parameters} | sort > "$ISO/params.after"; setopt > "$ISO/opts.after"
-cmp -s "$ISO/params.before" "$ISO/params.after" && ok "no variables leaked" || bad "leaked variables" "$(diff "$ISO/params.before" "$ISO/params.after" | tr '\n' ' ')"
-cmp -s "$ISO/opts.before" "$ISO/opts.after" && ok "shell options unchanged" || bad "options changed"
+# the attach runs in the launcher's own process (exec), so the job zsh sees stopped by Ctrl+Z is
+# screen itself. A launcher that kept running next to screen would be a second process again.
+reset; rm -f "$STUB_STATE.rpid"
+CLAUDE_LAUNCHER_ASSUME_TTY=1 claude >/dev/null &
+launcher_pid=$!
+wait $launcher_pid
+[[ -r "$STUB_STATE.rpid" && "$(<"$STUB_STATE.rpid")" == "$launcher_pid" ]] \
+  && ok "screen -r runs in the launcher's own process (exec)" \
+  || bad "exec" "launcher $launcher_pid, screen -r pid '$(cat "$STUB_STATE.rpid" 2>/dev/null)'"
 
-# odd user options do not break argv handling
+# odd shell options set by the user's ~/.zshenv do not break argv handling or the version check
+# (screen 5 + COLORTERM: with ksh_arrays match[1] would pick the wrong element and drop COLORTERM)
 reset
-setopt ksh_arrays sh_word_split no_glob
-CLAUDE_LAUNCHER_ASSUME_TTY=1 claude "a b" '*' >/dev/null
-unsetopt ksh_arrays sh_word_split no_glob
-log | grep -qF "<-dmS> <$(cat "$STUB_STATE.name")> <$claude_path> <a b> <*>" && ok "ksh_arrays/sh_word_split/no_glob" || bad "odd options" "$(log | tr '\n' '|')"
+print 'setopt ksh_arrays sh_word_split no_glob' > "$HOME/.zshenv"
+STUB_VERSION='Screen version 5.0.1 (build on 2025-05-12 15:49:34)' COLORTERM=truecolor CLAUDE_LAUNCHER_ASSUME_TTY=1 claude "a b" '*' >/dev/null
+rm -f "$HOME/.zshenv"
+log | grep -qF "<-dmS> <$(cat "$STUB_STATE.name")> <$claude_path> <a b> <*>" && [[ "$(senv)" == "1|truecolor" ]] \
+  && ok "ksh_arrays/sh_word_split/no_glob from ~/.zshenv" || bad "odd options" "env '$(senv)'; $(log | tr '\n' '|')"
 
 # no screen on PATH: falls back to running claude directly
 reset
 mkdir -p "$ISO/nostub"; ln -s "$ISO/stub/claude" "$ISO/nostub/claude"
+ln -s "$FILES_DIR/claude-screen" "$ISO/nostub/claude-screen"; ln -s "$(command -v zsh)" "$ISO/nostub/zsh"
 ( PATH="$ISO/nostub"; CLAUDE_LAUNCHER_ASSUME_TTY=1 claude hi )
 direct "no screen installed: direct" hi
 

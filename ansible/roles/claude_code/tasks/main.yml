@@ -34,6 +34,9 @@
     group: "{{ setup_user }}"
     mode: "0644"
 
+- name: Install claude launcher
+  ansible.builtin.include_tasks: launcher.yml
+
 # Also helps initialize ~/.claude/settings.json
 - name: Install marketplaces and plugins
   ansible.builtin.include_tasks: plugins.yml

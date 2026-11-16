@@ -1,0 +1,17 @@
+---
+# ~/.local/bin already exists here: this role installs Claude Code into it first (main.yml).
+- name: Install claude launcher script
+  ansible.builtin.copy:
+    src: claude-screen
+    dest: "{{ setup_user_home }}/.local/bin/claude-screen"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+
+- name: Deploy claude launcher zsh snippet
+  ansible.builtin.copy:
+    src: interactive/65-claude-screen.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/interactive/65-claude-screen.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

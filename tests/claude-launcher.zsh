@@ -2,7 +2,7 @@
 # Tests the `claude` launcher: the alias from 65-claude-screen.zsh and the claude-screen script it
 # points at, with a stub screen and a stub claude on PATH, so nothing reaches a real session.
 # ---- isolation header: a test must never reach the real session or account ----
-unset TMUX TMUX_PANE STY WINDOW CLAUDECODE CLAUDE_LAUNCHER_ASSUME_TTY
+unset TMUX TMUX_PANE STY WINDOW CLAUDECODE CLAUDE_LAUNCHER_ASSUME_TTY TERM_PROGRAM
 TESTS_DIR="${0:A:h}"
 ISO="$(mktemp -d)"
 mkdir -p "$ISO/home" "$ISO/stub/real"
@@ -86,6 +86,11 @@ reset; CLAUDE_LAUNCHER_ASSUME_TTY=1 claude mcp list; direct "mcp list: direct" m
 reset; CLAUDE_LAUNCHER_ASSUME_TTY=1 claude --model opus mcp list; direct "--model opus mcp list: direct" --model opus mcp list
 reset; CLAUDE_LAUNCHER_ASSUME_TTY=1 claude update; direct "update: direct" update
 reset; claude hi </dev/null; direct "non-tty stdin: direct" hi
+# a VS Code terminal: the integration there needs claude to know it runs in VS Code, and a multiplexer
+# hides TERM_PROGRAM, so claude runs plainly and the ideal-compact hook has no backend (it says so)
+reset; TERM_PROGRAM=vscode CLAUDE_LAUNCHER_ASSUME_TTY=1 claude hi; direct "VS Code terminal: direct" hi
+reset; TERM_PROGRAM=iTerm.app CLAUDE_LAUNCHER_ASSUME_TTY=1 claude >/dev/null
+[[ "$(log | grep -c '^screen <-e> <^\\q> <-dmS>')" == 1 ]] && ok "another terminal program: still wrapped in screen" || bad "other TERM_PROGRAM" "$(log | tr '\n' '|')"
 reset; claude hi </dev/null >/dev/null; direct "non-tty stdout: direct" hi
 
 # interactive

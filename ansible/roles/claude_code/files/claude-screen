@@ -13,8 +13,11 @@
 # Ending in `exec screen -r` makes the job zsh sees stopped screen itself.
 emulate -R zsh
 
-# Already inside a multiplexer, or not a terminal session: nothing to wrap.
-if [[ -n $TMUX || -n $STY ]] \
+# Already inside a multiplexer, or not a terminal session: nothing to wrap. Also not in a VS Code
+# terminal: claude keys VS Code-specific behaviour (and, wrongly for screen 4, 24-bit colour) off
+# TERM_PROGRAM=vscode, which a multiplexer replaces, so there it runs plainly. The ideal-compact
+# hook then finds no tmux/screen and says at session start that it is disabled.
+if [[ -n $TMUX || -n $STY || $TERM_PROGRAM == vscode ]] \
   || [[ -z $CLAUDE_LAUNCHER_ASSUME_TTY && ! ( -t 0 && -t 1 ) ]]; then
   exec claude "$@"
 fi

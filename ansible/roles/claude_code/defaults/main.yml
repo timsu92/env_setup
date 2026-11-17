@@ -8,6 +8,8 @@ claude_code_marketplaces:
     url: https://github.com/anthropics/claude-plugins-official.git
   - name: anthropic-agent-skills
     url: https://github.com/anthropics/skills.git
+  - name: openai-codex
+    url: https://github.com/openai/codex-plugin-cc.git
 
 # "<plugin>@<marketplace>" strings, passed as-is to `claude plugin install`.
 claude_code_plugins:
@@ -28,6 +30,7 @@ claude_code_plugins:
   - sonarqube@claude-plugins-official
   - mattpocock-skills
   - gopls-lsp@claude-plugins-official
+  - codex@openai-codex
 
 claude_code_dir: "{{ setup_user_home }}/.claude"
 claude_code_hook_dir: "{{ claude_code_dir }}/hooks"
@@ -75,3 +78,6 @@ claude_code_sonarqube_mcp_java_supported: >-
   {{ ansible_facts['distribution'] == 'Ubuntu'
      or (ansible_facts['distribution'] == 'Debian' and ansible_facts['distribution_major_version'] | int >= 13) }}
 claude_code_sonarqube_mcp_wrapper: "{{ setup_user_home }}/.local/bin/sonarqube-mcp"
+
+# Codex CLI. Bump by checking `npm view @openai/codex version`.
+claude_code_codex_version: 0.169.0

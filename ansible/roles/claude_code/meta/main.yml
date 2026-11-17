@@ -4,6 +4,6 @@ dependencies:
   - role: git  # marketplaces, plugins
   - role: uv  # claude-swap, hung-yi-lee-skill, pyright-lsp
   - role: zsh_config_dirs  # claude-swap completion
-  - role: node  # drawio-mcp
+  - role: node  # drawio-mcp, openai-codex
   - role: screen  # claude launcher runs interactive sessions inside screen
   - role: go  # gopls-lsp

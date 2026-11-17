@@ -1,0 +1,41 @@
+---
+# What `/codex:setup` of the codex plugin does for you: make sure the `codex`
+# CLI is installed. `codex login` is interactive (ChatGPT account or API key),
+# so it is left to the user.
+# nvm is not on PATH in a non-interactive shell, so source it first (same as
+# roles/node/tasks/main.yml).
+- name: Get installed Codex CLI version
+  ansible.builtin.shell:
+    cmd: >
+      . "{{ setup_user_home }}/.nvm/nvm.sh" &&
+      codex --version
+  register: claude_code_codex_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+    NVM_DIR: "{{ setup_user_home }}/.nvm"
+
+- name: Install Codex CLI
+  ansible.builtin.shell:
+    cmd: >
+      . "{{ setup_user_home }}/.nvm/nvm.sh" &&
+      npm install -g @openai/codex@{{ claude_code_codex_version }}
+  when: claude_code_codex_version not in (claude_code_codex_installed.stdout | default(''))
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+    NVM_DIR: "{{ setup_user_home }}/.nvm"
+  changed_when: true
+
+- name: Deploy aptu update script for codex
+  ansible.builtin.copy:
+    src: codex.update.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/update/codex.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

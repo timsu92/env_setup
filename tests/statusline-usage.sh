@@ -252,25 +252,6 @@ EOF2
   S_R5=$((E5+100)) S_R7=$((E7+100)) render $mode 41 51 running "$T/h-ok.json"
   hcheck "hint: neither matches, file untouched" "$([ "$(cat "$HF")" = "$b" ] && [ "$(stat -c %Y "$HF")" = "$(date -d 2020-01-01 +%s)" ] && echo 1)" "'$(cat "$HF")' $(stat -c %y "$HF")"
 
-  # temporary observation: how far Claude Code's reset is from cswap's, on screen and in a log
-  LOG="$HD/hint-log-$HE-personal"
-  rm -rf "$HD"
-  render $mode 41 51 running "$T/h-ok.json"
-  hcheck "obs: both windows 0s shown" "$(case "$TXT" in *"Δ5h:0s Δ7d:0s"*) echo 1;; esac)" "$(printf '%s' "$TXT" | sed -n 2p)"
-  hcheck "obs: log line has raw values and decision" "$(tail -n1 "$LOG" 2>/dev/null | grep -q "stdin5=$E5 cswap5=$E5 diff5=0 m5=1 stdin7=$E7 cswap7=$E7 diff7=0 m7=1" && echo 1)" "'$(tail -n1 "$LOG" 2>&1)'"
-  S_R5=$((E5+1)) render $mode 41 51 running "$T/h-ok.json"
-  hcheck "obs: +1s shown, still a match" "$(case "$TXT" in *"Δ5h:+1s Δ7d:0s"*) echo 1;; esac)" "$(printf '%s' "$TXT" | sed -n 2p)"
-  S_R5=$((E5-2)) S_R7=$((E7+100)) render $mode 41 51 running "$T/h-ok.json"
-  hcheck "obs: mismatch flagged" "$(case "$TXT" in *"Δ5h:-2s Δ7d:+100s✗"*) echo 1;; esac)" "$(printf '%s' "$TXT" | sed -n 2p)"
-  hcheck "obs: log records the mismatch" "$(tail -n1 "$LOG" | grep -q 'diff7=100 m7=0' && echo 1)" "'$(tail -n1 "$LOG")'"
-  for i in $(seq 1 22); do render $mode 41 51 running "$T/h-ok.json"; done
-  hcheck "obs: log capped at 20 lines" "$([ "$(wc -l < "$LOG")" = 20 ] && echo 1)" "lines=$(wc -l < "$LOG")"
-  rm -rf "$HD"
-  render $mode 41 51 idle "$T/h-ok.json"
-  hcheck "obs: idle shows nothing and logs nothing" "$(case "$TXT" in *"Δ5h"*) ;; *) [ ! -e "$LOG" ] && echo 1;; esac)" "txt/log present"
-  render $mode 41 51 running "$T/h-noemail.json"
-  hcheck "obs: account without key shows nothing" "$(case "$TXT" in *"Δ5h"*) ;; *) echo 1;; esac)" "shown"
-
   # another session of the same account, older reading: same window keeps the higher pct
   mkdir -p "$HD"; printf '98 %s 99 %s\n' "$E5" "$E7" > "$HF"
   render $mode 96 50 running "$T/h-ok.json"

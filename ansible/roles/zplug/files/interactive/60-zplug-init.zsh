@@ -17,6 +17,7 @@ else
 fi
 zplug 'timsu92/ee65b1285ae128ba91d88ce972c91a95',   from:gist, as:command, use:'mosh-ssh-bridge.bash'
 zplug 'timsu92/ba3c31cd48d5a384cf5844a1329779c1',   from:gist, as:command, use:'rs'
+zplug 'wbingli/zsh-claudecode-completion'
 
 # If ZPLUG_SKIP_PROMPT is set (by Ansible), skip the prompt and install directly.
 # Otherwise, prompt the user interactively (normal login behavior).

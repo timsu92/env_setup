@@ -60,15 +60,38 @@ play() {
 }
 recap() { grep -oE 'changed=[0-9]+ .*failed=[0-9]+' <<<"$1"; }
 same_file() { cmp -s <(printf '%s' "$1") "$C"; }
+# Whether either task that writes config.toml reported "changed". The recap's
+# total can't tell, other tasks in codex.yml (the aptu script) change too.
+config_changed() {
+  awk '/^TASK /{t=/(Add|Append) CLAUDE\.md to Codex/} t && /^changed:/{f=1} END{print f?"yes":"no"}' <<<"$1"
+}
 
 # case <label> <starting config.toml, empty for none> <expected file, default: unchanged> [error text]
 case_() {
-  local label="$1" start="$2" want="${3:-$2}" error="${4:-}" out1 out2
+  local label="$1" start="$2" want="${3:-$2}" error="${4:-}" out0 out1 out2 would
   rm -rf /home/tim/.codex
   if [[ -n "$start" ]]; then
     mkdir -p /home/tim/.codex && printf '%s' "$start" > "$C"
     chown -R tim:tim /home/tim/.codex && chmod 644 "$C"
   fi
+
+  # --check first: same verdict as the real run, the file untouched, and the
+  # writing task reports a change exactly when the real run will make one.
+  out0="$(play --check)"
+  if [[ -n "$error" ]]; then
+    grep -qF "$error" <<<"$out0" && pass "$label" "--check fails too" || bad "$label" "--check fails too" "$(recap "$out0")"
+  else
+    [[ "$(recap "$out0")" == *failed=0 ]] && pass "$label" "--check succeeds" || bad "$label" "--check succeeds" "$(recap "$out0")"
+    [[ "$want" != "$start" ]] && would=yes || would=no
+    [[ "$(config_changed "$out0")" == "$would" ]] && pass "$label" "--check reports a change: $would" \
+      || bad "$label" "--check reports a change: $would" "$(config_changed "$out0")"
+  fi
+  if [[ -n "$start" ]]; then
+    same_file "$start" && pass "$label" "--check leaves config.toml alone" || bad "$label" "--check leaves config.toml alone" "$(cat "$C")"
+  else
+    [[ ! -e "$C" ]] && pass "$label" "--check creates no config.toml" || bad "$label" "--check creates no config.toml" "$(cat "$C")"
+  fi
+
   out1="$(play)"; out2="$(play)"
   if [[ -n "$error" ]]; then
     if grep -qF "$error" <<<"$out1" && [[ "$(recap "$out1")" == *failed=1 ]]; then
@@ -107,13 +130,5 @@ case_ "same key also inside a table" \
 case_ "already lists CLAUDE.md" "$L = [\"CLAUDE.md\", \"A.md\"]"$'\n'
 [[ "$(stat -c %a "$C")" == 644 ]] && pass "already lists CLAUDE.md" "mode left at 0644" || bad "already lists CLAUDE.md" "mode left at 0644" "$(stat -c %a "$C")"
 case_ "multi-line list" "$L = ["$'\n  "A.md",\n]\n' "" 'Add "CLAUDE.md" to it by hand'
-
-# --check must report the change without making it, and the "must change" guard
-# must not mistake a dry run for a step that changed nothing.
-start="$L = [\"A.md\"]"$'\n'
-printf '%s' "$start" > "$C"
-out="$(play --check)"
-[[ "$(recap "$out")" == *failed=0 ]] && pass "--check" "dry run succeeds" || bad "--check" "dry run succeeds" "$(recap "$out")"
-same_file "$start" && pass "--check" "config.toml untouched" || bad "--check" "config.toml untouched" "$(cat "$C")"
 
 exit $fail

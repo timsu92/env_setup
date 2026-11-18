@@ -32,6 +32,55 @@
     NVM_DIR: "{{ setup_user_home }}/.nvm"
   changed_when: true
 
+# Codex sandboxes every shell command with /usr/bin/bwrap. Where unprivileged
+# user namespaces are restricted (Ubuntu >= 24.04), bwrap can't set the sandbox
+# up and every command fails. AppArmor's bwrap-userns-restrict profile lets bwrap
+# create the namespace but strips capabilities from everything it runs, so bwrap
+# can't be used to get around the restriction. Ubuntu 24.04 ships it disabled in
+# apparmor-profiles; from 25.10 the apparmor package enables it itself, as a
+# conffile in /etc/apparmor.d. It attaches to /usr/bin/bwrap only, hence the
+# bubblewrap package: without it Codex falls back to its bundled bwrap and the
+# profile never applies.
+# Containers read the host's sysctl but can't load profiles, so they're skipped.
+- name: Check whether unprivileged user namespaces are restricted
+  ansible.builtin.slurp:
+    src: /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+  register: claude_code_codex_userns_restrict
+  failed_when: false
+
+- name: Let the Codex sandbox use bwrap under the user namespace restriction
+  when:
+    - (claude_code_codex_userns_restrict.content | default('') | b64decode | trim) == '1'
+    - ansible_facts['virtualization_type'] not in ['docker', 'container', 'containerd', 'lxc', 'podman']
+  block:
+    - name: Install bubblewrap and the AppArmor extra profiles
+      ansible.builtin.apt:
+        name:
+          - apparmor
+          - apparmor-profiles
+          - bubblewrap
+
+    # Only 24.04 has it here. Later releases already enable it, and copying over
+    # their conffile would make apt ask about it on every upgrade. Under --check
+    # apparmor-profiles isn't really installed yet, so this is absent too.
+    - name: Look for the disabled bwrap-userns-restrict extra profile
+      ansible.builtin.stat:
+        path: /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+      register: claude_code_codex_bwrap_extra_profile
+
+    # Copied rather than linked: this is how Ubuntu enables an extra profile,
+    # and a later apparmor-profiles update reaches /etc on the next run.
+    - name: Enable the bwrap-userns-restrict AppArmor profile
+      when: claude_code_codex_bwrap_extra_profile.stat.exists
+      ansible.builtin.copy:
+        src: /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+        dest: /etc/apparmor.d/bwrap-userns-restrict
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Load the bwrap-userns-restrict AppArmor profile
+
 - name: Deploy aptu update script for codex
   ansible.builtin.copy:
     src: codex.update.zsh

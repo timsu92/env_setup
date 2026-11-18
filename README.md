@@ -97,7 +97,7 @@ Roles implement individual capabilities. Each role encapsulates everything neede
 | `fzf` | fzf fuzzy finder |
 | `github_cli` | GitHub CLI (gh) |
 | `htop` | htop process viewer |
-| `claude_code` | Claude Code + plugins, skills, hooks, MCP servers and the Codex CLI (for the `codex` plugin), plus the AppArmor profile Codex's sandbox needs on Ubuntu >= 24.04 |
+| `claude_code` | Claude Code + plugins, skills, hooks, MCP servers and the Codex CLI (for the `codex` plugin), plus the AppArmor profile Codex's sandbox needs on Ubuntu >= 24.04 and the config that lets Codex read `CLAUDE.md` |
 
 ---
 

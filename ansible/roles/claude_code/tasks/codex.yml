@@ -156,6 +156,10 @@
           {{ claude_code_codex_table_header
           if (claude_code_codex_config.content | b64decode is search(claude_code_codex_table_header))
           else omit }}
+      register: claude_code_codex_fallback_append
+      # This only runs when CLAUDE.md is missing, so it must change the file.
+      # replace reports ok when its pattern matches nothing; fail loudly instead.
+      failed_when: claude_code_codex_fallback_append is not changed
 
 - name: Deploy aptu update script for codex
   ansible.builtin.copy:

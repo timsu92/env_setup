@@ -83,20 +83,26 @@
 
 # Codex reads a repo's instructions from AGENTS.md, and the repos here only have
 # CLAUDE.md, so a Codex review would never see their rules. Codex also writes
-# to config.toml itself, so only the key's presence is checked and an existing
-# value is left alone. It goes at the top: a TOML key appended at the end would
-# land inside whatever table comes last.
+# to config.toml itself, so the file is only touched when CLAUDE.md is missing
+# from the top-level list, and only that list changes. Top level means before
+# the first [table] header: a key after one belongs to that table, which is
+# also why a new key goes at the top rather than the end.
 - name: Read the Codex config
   ansible.builtin.slurp:
     src: "{{ setup_user_home }}/.codex/config.toml"
   register: claude_code_codex_config
   failed_when: false
 
+- name: Find the top-level fallback list in the Codex config
+  ansible.builtin.set_fact:
+    claude_code_codex_fallback_line: >-
+      {{ claude_code_codex_config.content | default('') | b64decode
+      | regex_replace('(?ms)^\[.*', '')
+      | regex_search('(?m)^[ \t]*project_doc_fallback_filenames[ \t]*=.*$')
+      | default('', true) }}
+
 - name: Let Codex read CLAUDE.md where a repo has no AGENTS.md
-  when: >-
-    not (claude_code_codex_config.content | default('') | b64decode
-    | regex_replace('(?ms)^\[.*', '')
-    is search('(?m)^\s*project_doc_fallback_filenames\s*='))
+  when: claude_code_codex_fallback_line == ''
   block:
     - name: Create the Codex config directory
       ansible.builtin.file:
@@ -115,6 +121,41 @@
         owner: "{{ setup_user }}"
         group: "{{ setup_user }}"
         mode: "0600"
+
+- name: Add CLAUDE.md to the existing fallback list
+  when:
+    - claude_code_codex_fallback_line != ''
+    - "'CLAUDE.md' not in claude_code_codex_fallback_line"
+  vars:
+    claude_code_codex_fallback_parts: >-
+      {{ claude_code_codex_fallback_line
+      | regex_search('^([^=]*=\s*\[)([^\]]*)(\].*)$', '\1', '\2', '\3') | default([], true) }}
+    claude_code_codex_fallback_items: >-
+      {{ (claude_code_codex_fallback_parts[1] | default('')) | trim | regex_replace(',$', '') | trim }}
+    claude_code_codex_table_header: '\n\['
+  block:
+    # A list spread over several lines can't be edited safely with a regex.
+    - name: Check that the fallback list fits on one line
+      ansible.builtin.assert:
+        that: claude_code_codex_fallback_parts | length == 3
+        fail_msg: >-
+          {{ setup_user_home }}/.codex/config.toml sets project_doc_fallback_filenames
+          in a form this role can't edit ({{ claude_code_codex_fallback_line }}).
+          Add "CLAUDE.md" to it by hand.
+
+    - name: Append CLAUDE.md to Codex's fallback instruction files
+      ansible.builtin.replace:
+        path: "{{ setup_user_home }}/.codex/config.toml"
+        regexp: "^{{ claude_code_codex_fallback_line | regex_escape }}$"
+        replace: >-
+          {{ claude_code_codex_fallback_parts[0] }}{{ claude_code_codex_fallback_items
+          ~ (', ' if claude_code_codex_fallback_items else '') }}"CLAUDE.md"{{ claude_code_codex_fallback_parts[2] }}
+        # Stop at the first table header (^ wouldn't match line starts here). With
+        # no table, before must be left out: if it matches nothing, nothing changes.
+        before: >-
+          {{ claude_code_codex_table_header
+          if (claude_code_codex_config.content | b64decode is search(claude_code_codex_table_header))
+          else omit }}
 
 - name: Deploy aptu update script for codex
   ansible.builtin.copy:

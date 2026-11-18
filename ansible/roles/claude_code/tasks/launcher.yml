@@ -15,3 +15,11 @@
     owner: "{{ setup_user }}"
     group: "{{ setup_user }}"
     mode: "0644"
+
+- name: Deploy claude launcher completion snippet
+  ansible.builtin.copy:
+    src: interactive/97-claude-screen-completion.zsh
+    dest: "{{ setup_user_home }}/.config/zsh/interactive/97-claude-screen-completion.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

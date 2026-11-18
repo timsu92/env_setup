@@ -32,6 +32,47 @@
     NVM_DIR: "{{ setup_user_home }}/.nvm"
   changed_when: true
 
+# Codex sandboxes every shell command with /usr/bin/bwrap. Where unprivileged
+# user namespaces are restricted (Ubuntu >= 24.04), bwrap can't set the sandbox
+# up and every command fails. AppArmor's bwrap-userns-restrict profile (shipped,
+# disabled, in apparmor-profiles) lets bwrap create the namespace but strips
+# capabilities from everything it runs, so bwrap can't be used to get around the
+# restriction. It attaches to /usr/bin/bwrap only, hence the bubblewrap package:
+# without it Codex falls back to its bundled bwrap and the profile never applies.
+# Containers read the host's sysctl but can't load profiles, so they're skipped.
+- name: Check whether unprivileged user namespaces are restricted
+  ansible.builtin.slurp:
+    src: /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+  register: claude_code_codex_userns_restrict
+  failed_when: false
+
+- name: Let the Codex sandbox use bwrap under the user namespace restriction
+  when:
+    - (claude_code_codex_userns_restrict.content | default('') | b64decode | trim) == '1'
+    - ansible_facts['virtualization_type'] not in ['docker', 'container', 'containerd', 'lxc', 'podman']
+  block:
+    - name: Install bubblewrap and the AppArmor extra profiles
+      ansible.builtin.apt:
+        name:
+          - apparmor
+          - apparmor-profiles
+          - bubblewrap
+      register: claude_code_codex_bwrap_packages
+
+    # Copied rather than linked: this is how Ubuntu enables an extra profile,
+    # and a later apparmor-profiles update reaches /etc on the next run.
+    # Under --check the package isn't really installed, so there's no source yet.
+    - name: Enable the bwrap-userns-restrict AppArmor profile
+      when: not (ansible_check_mode and claude_code_codex_bwrap_packages is changed)
+      ansible.builtin.copy:
+        src: /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+        dest: /etc/apparmor.d/bwrap-userns-restrict
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Load the bwrap-userns-restrict AppArmor profile
+
 - name: Deploy aptu update script for codex
   ansible.builtin.copy:
     src: codex.update.zsh

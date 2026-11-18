@@ -81,6 +81,41 @@
         mode: "0644"
       notify: Load the bwrap-userns-restrict AppArmor profile
 
+# Codex reads a repo's instructions from AGENTS.md, and the repos here only have
+# CLAUDE.md, so a Codex review would never see their rules. Codex also writes
+# to config.toml itself, so only the key's presence is checked and an existing
+# value is left alone. It goes at the top: a TOML key appended at the end would
+# land inside whatever table comes last.
+- name: Read the Codex config
+  ansible.builtin.slurp:
+    src: "{{ setup_user_home }}/.codex/config.toml"
+  register: claude_code_codex_config
+  failed_when: false
+
+- name: Let Codex read CLAUDE.md where a repo has no AGENTS.md
+  when: >-
+    not (claude_code_codex_config.content | default('') | b64decode
+    | regex_replace('(?ms)^\[.*', '')
+    is search('(?m)^\s*project_doc_fallback_filenames\s*='))
+  block:
+    - name: Create the Codex config directory
+      ansible.builtin.file:
+        path: "{{ setup_user_home }}/.codex"
+        state: directory
+        owner: "{{ setup_user }}"
+        group: "{{ setup_user }}"
+        mode: "0700"  # it holds auth.json
+
+    - name: Add CLAUDE.md to Codex's fallback instruction files
+      ansible.builtin.lineinfile:
+        path: "{{ setup_user_home }}/.codex/config.toml"
+        line: 'project_doc_fallback_filenames = ["CLAUDE.md"]'
+        insertbefore: BOF
+        create: true
+        owner: "{{ setup_user }}"
+        group: "{{ setup_user }}"
+        mode: "0600"
+
 - name: Deploy aptu update script for codex
   ansible.builtin.copy:
     src: codex.update.zsh

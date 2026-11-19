@@ -4,6 +4,54 @@
 # only touch ~/.claude/settings.json and ~/.claude/plugins/*.json, never
 # ~/.claude.json's onboarding/auth state. So this can run unconditionally,
 # with no dependency on `claude auth login` having happened yet.
+
+# Claude Code runs git with prompts off, so a private repo only works with a
+# credential the helper already stores (`gh auth login`, then the helper the
+# github_cli role configures). This probe runs git the same way.
+# The git module has no ls-remote.
+- name: Check access to private Claude Code plugin marketplaces  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: "git ls-remote --exit-code {{ item.url }} HEAD"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    GIT_TERMINAL_PROMPT: "0"
+    GCM_INTERACTIVE: never
+  loop: "{{ claude_code_marketplaces | selectattr('private', 'defined') | selectattr('private') }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: claude_code_marketplace_access
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Skip private marketplaces git can't reach yet
+  ansible.builtin.set_fact:
+    claude_code_marketplaces_skipped: >-
+      {{ claude_code_marketplace_access.results | rejectattr('rc', 'equalto', 0)
+         | map(attribute='item.name') | list }}
+
+- name: Say which marketplaces were skipped
+  ansible.builtin.debug:
+    msg: >-
+      Skipped the {{ item }} marketplace and its plugins: git can't reach it
+      with the stored credentials. Run `gh auth login`, then run this role again.
+  loop: "{{ claude_code_marketplaces_skipped }}"
+
+# `marketplace add` on a marketplace that's already there rewrites its
+# extraKnownMarketplaces entry and drops the `autoUpdate` set below, so only
+# the missing ones are added.
+- name: List the Claude Code plugin marketplaces already added
+  ansible.builtin.command:
+    cmd: "~/.local/bin/claude plugin marketplace list --json"
+  become: true
+  become_user: "{{ setup_user }}"
+  register: claude_code_marketplace_list
+  changed_when: false
+  # Under --check on a fresh machine, Claude Code isn't installed yet.
+  failed_when: claude_code_marketplace_list.rc != 0 and not ansible_check_mode
+  check_mode: false
+
 - name: Add Claude Code plugin marketplaces
   ansible.builtin.command:
     cmd: "~/.local/bin/claude plugin marketplace add {{ item.url }}"
@@ -12,6 +60,9 @@
   loop: "{{ claude_code_marketplaces }}"
   loop_control:
     label: "{{ item.name }}"
+  when:
+    - item.name not in claude_code_marketplaces_skipped
+    - item.name not in (claude_code_marketplace_list.stdout | default('[]', true) | from_json | map(attribute='name'))
   register: claude_code_marketplace_add
   changed_when: "'Successfully added marketplace' in claude_code_marketplace_add.stdout"
 
@@ -21,5 +72,39 @@
   become: true
   become_user: "{{ setup_user }}"
   loop: "{{ claude_code_plugins }}"
+  when: (item.split('@') | last) not in claude_code_marketplaces_skipped
   register: claude_code_plugin_install
   changed_when: "'Successfully installed plugin' in claude_code_plugin_install.stdout"
+
+# `marketplace add` has no flag for it: auto-update is the `autoUpdate` key of
+# the marketplace's extraKnownMarketplaces entry, which `add` itself writes.
+# Only entries that already exist are touched, so a skipped marketplace never
+# gets an entry without a source.
+- name: Read Claude Code settings
+  ansible.builtin.slurp:
+    src: "{{ claude_code_dir }}/settings.json"
+  register: claude_code_settings_file
+  # Under --check on a fresh machine, nothing has written it yet.
+  failed_when: "'content' not in claude_code_settings_file and not ansible_check_mode"
+
+- name: Turn on auto-update for the marketplaces that ask for it
+  vars:
+    claude_code_settings: "{{ claude_code_settings_file.content | b64decode | from_json }}"
+    claude_code_auto_update_names: >-
+      {{ claude_code_marketplaces | selectattr('auto_update', 'defined') | selectattr('auto_update')
+         | map(attribute='name')
+         | select('in', claude_code_settings.extraKnownMarketplaces | default({}))
+         | list }}
+    claude_code_settings_wanted: >-
+      {{ claude_code_settings | combine(
+           {'extraKnownMarketplaces': dict(claude_code_auto_update_names | product([{'autoUpdate': true}]))},
+           recursive=true) }}
+  ansible.builtin.copy:
+    content: "{{ claude_code_settings_wanted | to_nice_json(indent=2, sort_keys=false, ensure_ascii=false) }}\n"
+    dest: "{{ claude_code_dir }}/settings.json"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0600"
+  when:
+    - "'content' in claude_code_settings_file"
+    - claude_code_settings_wanted != claude_code_settings

@@ -43,10 +43,14 @@
 # extraKnownMarketplaces entry and drops the `autoUpdate` set below, so only
 # the missing ones are added. One already added from another URL (the repo
 # moved) is removed first, which also uninstalls its plugins; the install
-# task below puts them back.
+# task below puts them back. These commands run in the user's home, so no
+# project's marketplace declarations are listed or removed. `remove` is left
+# unscoped: with `--scope user` it drops only the declaration and keeps the
+# old source's plugins installed.
 - name: List the Claude Code plugin marketplaces already added
   ansible.builtin.command:
     cmd: "~/.local/bin/claude plugin marketplace list --json"
+    chdir: "{{ setup_user_home }}"
   become: true
   become_user: "{{ setup_user }}"
   register: claude_code_marketplace_list
@@ -61,11 +65,12 @@
   ansible.builtin.set_fact:
     claude_code_marketplaces_added: >-
       {{ dict(claude_code_marketplace_listed | map(attribute='name')
-              | zip(claude_code_marketplace_listed | map(attribute='url', default=''))) }}
+              | zip(claude_code_marketplace_listed | map(attribute='url') | map('default', '', true))) }}
 
 - name: Remove Claude Code plugin marketplaces added from another URL
   ansible.builtin.command:
     cmd: "~/.local/bin/claude plugin marketplace remove {{ item.name }}"
+    chdir: "{{ setup_user_home }}"
   become: true
   become_user: "{{ setup_user }}"
   loop: "{{ claude_code_marketplaces }}"
@@ -80,6 +85,7 @@
 - name: Add Claude Code plugin marketplaces
   ansible.builtin.command:
     cmd: "~/.local/bin/claude plugin marketplace add {{ item.url }}"
+    chdir: "{{ setup_user_home }}"
   become: true
   become_user: "{{ setup_user }}"
   loop: "{{ claude_code_marketplaces }}"
@@ -94,6 +100,7 @@
 - name: Install Claude Code plugins
   ansible.builtin.command:
     cmd: "~/.local/bin/claude plugin install {{ item }}"
+    chdir: "{{ setup_user_home }}"
   become: true
   become_user: "{{ setup_user }}"
   loop: "{{ claude_code_plugins }}"

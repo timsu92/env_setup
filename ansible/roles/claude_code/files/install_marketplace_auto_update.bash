@@ -28,44 +28,47 @@ SETTINGS="$CLAUDE_DIR/settings.json"
 # Nothing has added a marketplace yet, so there is no entry to update.
 [ -s "$SETTINGS" ] || exit 10
 
+# Temp files of the merge and the commit, removed however the script exits.
+__tmp=''
+__staged=''
+trap 'rm -f "$__tmp" "$__staged"' EXIT
+
 # Replaces $SETTINGS with the merged file $1, keeping the old one as the
 # single backup $SETTINGS.bak with the same mode, because both can hold
 # credentials. The new content is renamed over the file a symlinked
 # settings.json points to, so the write is atomic and the symlink stays.
 __commit() {
-  local target staged
+  local target
   target="$(readlink -f "$SETTINGS")"
-  staged="$(mktemp "$target.XXXXXX")"
-  cat "$1" > "$staged"
-  rm -f "$1"
-  chmod --reference="$target" "$staged"
-  cp -p "$SETTINGS" "$SETTINGS.bak"
-  mv "$staged" "$target"
+  __staged="$(mktemp "$target.XXXXXX")"
+  cat "$1" > "$__staged"
+  chmod --reference="$target" "$__staged"
+  # --remove-destination: an old backup with a read-only mode is replaced too.
+  cp -p --remove-destination "$SETTINGS" "$SETTINGS.bak"
+  mv "$__staged" "$target"
 }
 
 __merge_with_jq() {
-  local tmp
-  tmp="$(mktemp)"
+  __tmp="$(mktemp)"
   jq '
     reduce $ARGS.positional[] as $name (.;
       if (.extraKnownMarketplaces[$name] | type) == "object"
       then .extraKnownMarketplaces[$name].autoUpdate = true
       else . end)
-  ' "$SETTINGS" --args "$@" > "$tmp" || { rm -f "$tmp"; return 1; }
+  ' "$SETTINGS" --args "$@" > "$__tmp"
   # `==` on parsed values ignores formatting and object key order.
-  if jq -e -n --slurpfile a "$SETTINGS" --slurpfile b "$tmp" '$a == $b' >/dev/null; then
-    rm -f "$tmp"
+  if jq -e -n --slurpfile a "$SETTINGS" --slurpfile b "$__tmp" '$a == $b' >/dev/null; then
     return 10
   fi
-  __commit "$tmp"
+  __commit "$__tmp"
 }
 
 # The python script exits 10 without writing OUT_PATH when nothing changed.
 __merge_with_python() {
-  local py="$1" tmp rc=0
+  local py="$1" rc=0
   shift
-  tmp="$(mktemp)"
-  SETTINGS_PATH="$SETTINGS" OUT_PATH="$tmp" "$py" - "$@" <<'PYEOF' || rc=$?
+  __tmp="$(mktemp)"
+  SETTINGS_PATH="$SETTINGS" OUT_PATH="$__tmp" "$py" - "$@" <<'PYEOF' || rc=$?
 import copy, json, os, sys
 
 with open(os.environ['SETTINGS_PATH'], 'r', encoding='utf-8') as f:
@@ -85,11 +88,8 @@ with open(os.environ['OUT_PATH'], 'w', encoding='utf-8') as f:
     json.dump(d, f, indent=2, ensure_ascii=False)
     f.write('\n')
 PYEOF
-  if [ "$rc" -ne 0 ]; then
-    rm -f "$tmp"
-    return "$rc"
-  fi
-  __commit "$tmp"
+  [ "$rc" -eq 0 ] || return "$rc"
+  __commit "$__tmp"
 }
 
 if command -v jq >/dev/null 2>&1; then

@@ -538,10 +538,10 @@ for last in other same none; do
   case "$last" in other) dl="$LED2P" ;; same) dl="$LEDP" ;; none) dl='' ;; esac
   mkdir -p "$(dirname "$RHIST")"
   printf '2\t%s\t1\tKEY1\t40\t%s\t20\t%s\t0\t-\t-\t1\t40\t%s\t1\t20\t%s\n' "$LEDP" $R5 $R7 $R5 $R7 > "$RHIST"
-  ledger 1 2; set_state phase=standby dirty=0 done_ledger="$dl"
+  ledger 1 2; set_state phase=standby dirty=0 last_record_ledger="$dl"
   edit_led
-  ck "ptu-switch-$last" "$([ "$last" = other ] && echo - || echo 10) $LEDP 0" \
-    "$(hlast "$LEDP" 10) $(st done_ledger) $(st dirty)"
+  ck "ptu-switch-$last" "$([ "$last" = other ] && echo - || echo 10) 0 $LEDP 0" \
+    "$(hlast "$LEDP" 10) $(hlast "$LEDP" 9) $(st last_record_ledger) $(st dirty)"
 done
 
 # TTL-expired stopped (suppress copied from armed_*), then a completion with budget 2

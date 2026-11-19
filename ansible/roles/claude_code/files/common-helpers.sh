@@ -206,7 +206,7 @@ __project_dir() {
 # changing what standby/armed/stopped/skip mean breaks that: see the hwap
 # design's 交會點.
 
-__IC_STATE_KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger ledger_done done_ledger armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
+__IC_STATE_KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger ledger_done last_record_ledger armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
 __IC_STATE_NUMERIC=" phase_at skip suppress suppress_resets dirty ledger_done armed_resets inputbox_fail "
 
 # Sets every IC_<key> (defaults for anything missing or malformed). Parsed
@@ -214,7 +214,7 @@ __IC_STATE_NUMERIC=" phase_at skip suppress suppress_resets dirty ledger_done ar
 __state_read() {
   local __k __line __v
   IC_phase=standby IC_phase_at=0 IC_skip=0 IC_suppress=0 IC_suppress_key='' IC_suppress_win=''
-  IC_suppress_resets=0 IC_dirty=0 IC_ledger='' IC_ledger_done=0 IC_done_ledger='' IC_armed_key='' IC_armed_win='' IC_armed_resets=0
+  IC_suppress_resets=0 IC_dirty=0 IC_ledger='' IC_ledger_done=0 IC_last_record_ledger='' IC_armed_key='' IC_armed_win='' IC_armed_resets=0
   IC_cheap_obs='' IC_inputbox_fail=0 IC_pending_inject=''
   [ -n "${1:-}" ] && [ -r "$1/ideal-compact-state" ] || return 0
   while IFS= read -r __line || [ -n "$__line" ]; do
@@ -370,20 +370,21 @@ __history_latest() {
   IC_LEDGER="${2:-}" awk -F'\t' '$2 == ENVIRON["IC_LEDGER"] { l = $0 } END { if (l != "") print l }' "$1"
 }
 
-# __history_record <hist> <ledger> <done> <current_line> <dirty>: appends
-# one line
+# __history_record <hist> <ledger> <done> <current_line> <dirty> [<switched>]:
+# appends one line
 #   ts ledger done key p5 r5 p7 r7 dirty c5 c7 b5done b5pct b5r b7done b7pct b7r
 # and keeps only the newest IDEAL_COMPACT_HISTORY_PER_ACCOUNT lines of that
-# key. <current_line> is the helper's `current` line. A <dirty> above 0
-# rebases both windows: the user spoke or a compact ran since the ledger's
-# last entry, or the session switched to this ledger from another. Prints `skipped`
-# (nothing written) when it is not a usage reading with a known key, else
-# `counted` when a window got a per-task consumption, else `baseline`.
+# key. <current_line> is the helper's `current` line. A <dirty> above 0 (the
+# user spoke or a compact ran) or a <switched> of 1 (the session's previous
+# entry was for another ledger) rebases both windows; only <dirty> is stored.
+# Prints `skipped` (nothing written) when it is not a usage reading with a
+# known key, else `counted` when a window got a per-task consumption, else
+# `baseline`.
 # c5/c7 are '-' when the entry yields no number. b* is the window's baseline
 # snapshot this entry carries: the entry itself after a rebase, the previous
 # entry's snapshot when the delta is 0.
 __history_record() {
-  local __hist="$1" __ledger="$2" __done="$3" __cur="$4" __dirty="${5:-0}"
+  local __hist="$1" __ledger="$2" __done="$3" __cur="$4" __dirty="${5:-0}" __switched="${6:-0}"
   local __tag __key __p5 __r5 __p7 __r7 __thr5 __thr7 __buf __tol __rest
   local __prev __out __status __line __tmp='' __tmp2=''
   read -r __tag __key __p5 __r5 __p7 __r7 __thr5 __thr7 __buf __tol __rest <<< "$__cur"
@@ -394,7 +395,7 @@ __history_record() {
   __lock "$(dirname "$__hist")/ideal-compact-history.lock" || return 1
   __prev="$(__history_latest "$__hist" "$__ledger")"
   __out="$(IC_PREV="$__prev" IC_LEDGER="$__ledger" awk -v ts="$(date +%s)" -v done="$__done" -v key="$__key" \
-    -v p5="$__p5" -v r5="$__r5" -v p7="$__p7" -v r7="$__r7" -v dirty="$__dirty" -v tol="$__tol" '
+    -v p5="$__p5" -v r5="$__r5" -v p7="$__p7" -v r7="$__r7" -v dirty="$__dirty" -v switched="$__switched" -v tol="$__tol" '
     # Sets OC (consumption or "-") and returns 1 when the window is rebased
     # onto this entry, 0 when the previous baseline is carried.
     function calc(pct, r, bd, bp, br,    d) {
@@ -410,7 +411,7 @@ __history_record() {
     BEGIN {
       OFS = "\t"
       n = split(ENVIRON["IC_PREV"], P, "\t")
-      all = (n == 0 || done <= P[3] + 0 || key != P[4] || dirty + 0 > 0)
+      all = (n == 0 || done <= P[3] + 0 || key != P[4] || dirty + 0 > 0 || switched + 0 > 0)
       rb5 = calc(p5, r5, P[12] + 0, P[13] + 0, P[14] + 0); c5 = OC
       rb7 = calc(p7, r7, P[15] + 0, P[16] + 0, P[17] + 0); c7 = OC
       print ((c5 != "-" || c7 != "-") ? "counted" : "baseline")

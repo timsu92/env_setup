@@ -457,12 +457,12 @@ __on_post_tool_use() {
     # ticket resumed after another one ran): the usage since this ledger's own
     # last entry includes the other ticket's work, so this entry is a baseline.
     sw=0
-    [ -n "$IC_done_ledger" ] && [ "$IC_done_ledger" != "$ledger" ] && sw=1
-    res="$(__history_record "$hist" "$ledger" "$done" "$CUR" "$(( d0 + sw ))")"
+    [ -n "$IC_last_record_ledger" ] && [ "$IC_last_record_ledger" != "$ledger" ] && sw=1
+    res="$(__history_record "$hist" "$ledger" "$done" "$CUR" "$d0" "$sw")"
     if __lock "$LOCK"; then
       __state_read "$SDIR"
       # Only what this record carried: a prompt meanwhile stays counted.
-      case "$res" in baseline|counted) IC_dirty=$(( IC_dirty > d0 ? IC_dirty - d0 : 0 )) IC_done_ledger="$ledger" ;; esac
+      case "$res" in baseline|counted) IC_dirty=$(( IC_dirty > d0 ? IC_dirty - d0 : 0 )) IC_last_record_ledger="$ledger" ;; esac
       [ "$IC_ledger" = "$ledger" ] && IC_ledger_done="$done"
       __state_write "$SDIR"
       __unlock

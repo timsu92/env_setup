@@ -530,6 +530,20 @@ for d in 0 1; do
   ck "ptu-dirty-$d" "$d $([ "$d" = 0 ] && echo 10 || echo -) 0" "$(hlast "$LEDP" 9) $(hlast "$LEDP" 10) $(st dirty)"
 done
 
+# switching tickets: when this session's last recorded completion was in another
+# ledger, the completion is a baseline, so the usage of the other ticket's tasks
+# done in between is not charged to this one. Same ledger (or none yet): counted.
+LED2P="$RP/.superpowers/sdd/ws2/progress.md"
+for last in other same none; do
+  case "$last" in other) dl="$LED2P" ;; same) dl="$LEDP" ;; none) dl='' ;; esac
+  mkdir -p "$(dirname "$RHIST")"
+  printf '2\t%s\t1\tKEY1\t40\t%s\t20\t%s\t0\t-\t-\t1\t40\t%s\t1\t20\t%s\n' "$LEDP" $R5 $R7 $R5 $R7 > "$RHIST"
+  ledger 1 2; set_state phase=standby dirty=0 done_ledger="$dl"
+  edit_led
+  ck "ptu-switch-$last" "$([ "$last" = other ] && echo - || echo 10) $LEDP 0" \
+    "$(hlast "$LEDP" 10) $(st done_ledger) $(st dirty)"
+done
+
 # TTL-expired stopped (suppress copied from armed_*), then a completion with budget 2
 seed 20 1; ledger 1 2
 set_state phase=stopped phase_at=$((NOW - 901)) armed_key=KEY1 armed_win=5h armed_resets=$R5

@@ -206,7 +206,7 @@ __project_dir() {
 # changing what standby/armed/stopped/skip mean breaks that: see the hwap
 # design's 交會點.
 
-__IC_STATE_KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger ledger_done armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
+__IC_STATE_KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger ledger_done done_ledger armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
 __IC_STATE_NUMERIC=" phase_at skip suppress suppress_resets dirty ledger_done armed_resets inputbox_fail "
 
 # Sets every IC_<key> (defaults for anything missing or malformed). Parsed
@@ -214,7 +214,7 @@ __IC_STATE_NUMERIC=" phase_at skip suppress suppress_resets dirty ledger_done ar
 __state_read() {
   local __k __line __v
   IC_phase=standby IC_phase_at=0 IC_skip=0 IC_suppress=0 IC_suppress_key='' IC_suppress_win=''
-  IC_suppress_resets=0 IC_dirty=0 IC_ledger='' IC_ledger_done=0 IC_armed_key='' IC_armed_win='' IC_armed_resets=0
+  IC_suppress_resets=0 IC_dirty=0 IC_ledger='' IC_ledger_done=0 IC_done_ledger='' IC_armed_key='' IC_armed_win='' IC_armed_resets=0
   IC_cheap_obs='' IC_inputbox_fail=0 IC_pending_inject=''
   [ -n "${1:-}" ] && [ -r "$1/ideal-compact-state" ] || return 0
   while IFS= read -r __line || [ -n "$__line" ]; do
@@ -374,7 +374,9 @@ __history_latest() {
 # one line
 #   ts ledger done key p5 r5 p7 r7 dirty c5 c7 b5done b5pct b5r b7done b7pct b7r
 # and keeps only the newest IDEAL_COMPACT_HISTORY_PER_ACCOUNT lines of that
-# key. <current_line> is the helper's `current` line. Prints `skipped`
+# key. <current_line> is the helper's `current` line. A <dirty> above 0
+# rebases both windows: the user spoke or a compact ran since the ledger's
+# last entry, or the session switched to this ledger from another. Prints `skipped`
 # (nothing written) when it is not a usage reading with a known key, else
 # `counted` when a window got a per-task consumption, else `baseline`.
 # c5/c7 are '-' when the entry yields no number. b* is the window's baseline

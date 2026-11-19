@@ -16,26 +16,31 @@
 # printed, because it can hold credentials.
 #
 # Exit codes: 0 = settings.json changed, 10 = already correct (no change
-# needed, or no settings.json yet), anything else = failure.
+# needed, no marketplace named, or no settings.json yet), anything else =
+# failure.
 set -euo pipefail
 
-if [ "$#" -lt 1 ]; then
-  echo "Usage: $0 <marketplace>..." >&2
-  exit 2
-fi
+# Nothing to turn on.
+[ "$#" -gt 0 ] || exit 10
 
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 SETTINGS="$CLAUDE_DIR/settings.json"
 # Nothing has added a marketplace yet, so there is no entry to update.
-[ -e "$SETTINGS" ] || exit 10
+[ -s "$SETTINGS" ] || exit 10
 
 # Replaces $SETTINGS with the merged file $1, keeping the old one as the
-# single backup $SETTINGS.bak. `cat >` keeps a symlinked settings.json a
-# symlink, and keeps its mode.
+# single backup $SETTINGS.bak with the same mode, because both can hold
+# credentials. The new content is renamed over the file a symlinked
+# settings.json points to, so the write is atomic and the symlink stays.
 __commit() {
-  cp "$SETTINGS" "$SETTINGS.bak"
-  cat "$1" > "$SETTINGS"
+  local target staged
+  target="$(readlink -f "$SETTINGS")"
+  staged="$(mktemp "$target.XXXXXX")"
+  cat "$1" > "$staged"
   rm -f "$1"
+  chmod --reference="$target" "$staged"
+  cp -p "$SETTINGS" "$SETTINGS.bak"
+  mv "$staged" "$target"
 }
 
 __merge_with_jq() {

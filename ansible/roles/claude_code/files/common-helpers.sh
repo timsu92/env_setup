@@ -19,6 +19,16 @@ IDEAL_COMPACT_COMPACT_TEXT='使用者目前不在場，不知道上次查看之�
 IDEAL_COMPACT_CANCEL_TEXT='用量已經恢復，不需要停下了。請忽略先前的暫停要求，繼續正常工作，不用寫 [[STOP_FOR_COMPACT]]。'
 IDEAL_COMPACT_CONTINUE_TEXT='繼續'
 
+# ---- hwap's compact-before-switch flow (hooks/high-watermark-auto-pause.sh) ----
+# A stopping phase older than this means the queued /compact never ran.
+HWAP_STOPPING_TTL_SEC=120
+# HWAP_STOP_TEXT asks for no [[STOP_FOR_COMPACT]] marker on purpose (meeting
+# point 4 with ideal-compact): a Stop without it keeps ideal-compact's armed
+# as armed, and hwap's compact then moves it to standby at PreCompact.
+HWAP_STOP_TEXT='帳號用量已到上限，系統已排定在這一輪結束時壓縮對話並切換帳號。這個工具呼叫或這則訊息處理完就立刻停下，不要再呼叫任何工具，也不要開始新的工作，用一句話說明目前做到哪裡就結束這一輪。背景的 subagent 與 shell 可以繼續跑，不用等它們結束。compact 之後系統會叫你繼續。'
+HWAP_COMPACT_TEXT='這次 compact 是因為帳號用量到上限，工作被中途打斷。摘要請保留正在進行的工作做到哪一步、下一步要做什麼、還在背景執行的 subagent 與 shell，以及每一個還在等使用者回答的問題。compact 之後依摘要接著做。'
+HWAP_BLOCK_REASON='帳號用量已到上限，系統先壓縮對話並切換帳號，完成後會自動送出這則 prompt。'
+
 # Next to this file (~/.claude/), so a moved ~/.claude keeps working. Callers
 # and tests may override it after sourcing.
 __HWAP_HELPER="$(dirname "${BASH_SOURCE[0]}")/hwap-helper.sh"
@@ -54,10 +64,12 @@ __clear_hold_until() {
 }
 
 __gate() {
-  # Usage: __gate [abort_fn]. Returns 0 when the active account is usable, 3
-  # when the helper failed (the caller decides what that means; the message is
-  # already printed), 4 when abort_fn returned non-zero (it is called once per
-  # loop iteration, right before sleeping).
+  # Usage: __gate [abort_fn] [defer]. Returns 0 when the active account is
+  # usable, 3 when the helper failed (the caller decides what that means; the
+  # message is already printed), 4 when abort_fn returned non-zero (it is
+  # called once per loop iteration, right before sleeping), 5 when defer is 1
+  # and the helper named an account to switch to: nothing is switched (hwap
+  # compacts first, then its PostCompact asks the helper again).
   # Blocks (never denies) until the active account is usable. Re-asks the
   # helper fresh every iteration (capped at 2 minutes between checks) rather
   # than trusting one static estimate, so a disabled/enabled account, a newly
@@ -75,7 +87,7 @@ __gate() {
   # the caller fires at once instead of after the sleep finishes. Its pid goes
   # in __SLEEP_PID, the same variable the caller's own sleeps use, so the trap
   # kills whichever sleep is running.
-  local abort_fn="${1:-}" hold_until=0 reset_at=0 switch_tried=0
+  local abort_fn="${1:-}" defer="${2:-}" hold_until=0 reset_at=0 switch_tried=0
   __clear_hold_until
   while :; do
     local result now wait_s cswap target
@@ -99,6 +111,10 @@ __gate() {
         # helper only names it, so the switch happens here. The next
         # iteration confirms it took effect (it then reports "ok").
         target="${result#switch }"
+        if [ "$defer" = 1 ]; then
+          __clear_hold_until
+          return 5
+        fi
         if [ "$switch_tried" -eq 1 ]; then
           echo "high-watermark-auto-pause: switching to account $target did not take effect; retrying in 30s" >&2
           if [ -n "$abort_fn" ] && ! "$abort_fn"; then __clear_hold_until; return 4; fi
@@ -184,6 +200,11 @@ __project_dir() {
 # <session dir>/ideal-compact-state holds key=value lines, read into IC_<key>.
 # Writers hold __lock around read -> change -> write; readers (the
 # statusline) take no lock because every write is a temp file plus mv.
+# hwap (hooks/high-watermark-auto-pause.sh) reads this phase under this same
+# lock to decide whether it may start its own compact (only in standby, armed
+# or stopped) and, from armed or stopped, sets skip=1. Renaming a phase or
+# changing what standby/armed/stopped/skip mean breaks that: see the hwap
+# design's 交會點.
 
 __IC_STATE_KEYS="phase phase_at skip suppress suppress_key suppress_win suppress_resets dirty ledger ledger_done armed_key armed_win armed_resets cheap_obs inputbox_fail pending_inject"
 __IC_STATE_NUMERIC=" phase_at skip suppress suppress_resets dirty ledger_done armed_resets inputbox_fail "
@@ -546,6 +567,27 @@ __proc_claude_pid() {
   return 0
 }
 
+# __proc_claude_alive: true while the claude process (__proc_claude_pid) exists
+# and is not a zombie. A hook that waits a long time stops once it is false
+# (ideal-compact's and hwap's PostCompact waits both use it).
+__proc_claude_alive() {
+  local __pid __s
+  __pid="$(__proc_claude_pid)"
+  [ -n "$__pid" ] && kill -0 "$__pid" 2>/dev/null || return 1
+  { read -r __s < "/proc/$__pid/stat"; } 2>/dev/null || return 1
+  __s="${__s##*) }"
+  [ "${__s%% *}" != Z ]
+}
+
+# __is_handback <prompt>: true for a prompt Claude Code submits itself, a
+# background agent's hand-back or a background shell's completion notice,
+# rather than the user speaking. ideal-compact and hwap share it, so they
+# agree on which prompts are the user's (hwap design's 交會點 5).
+__is_handback() {
+  case "${1:-}" in '<agent-message '*|'<task-notification>'*) return 0 ;; esac
+  return 1
+}
+
 # __proc_hosts <pid> <claude pid>: true when <pid> (> 1) is <claude pid> or
 # one of its ancestors.
 __proc_hosts() {
@@ -631,9 +673,10 @@ __mux_backend() {
 # character such as 一/丁 has the same low byte as ─, so a short or
 # indented run of them is draft text, not a rule. Prints "<box lines>
 # <0-based line of the first one> <1 if text>", or nothing when there is
-# no such box. Byte-based (LC_ALL=C).
+# no such box. With a third argument `text`, prints the box's text instead
+# (prompt prefix and every space removed). Byte-based (LC_ALL=C).
 __mux_box_scan() {
-  IC_P="$1" IC_R="$2" LC_ALL=C awk '
+  IC_P="$1" IC_R="$2" IC_M="${3:-}" LC_ALL=C awk '
     function isrule(s,    t, n) { t = s; sub(/ +$/, "", t); n = 0
       while (index(t, R) == 1) { t = substr(t, length(R) + 1); n++ }
       return t == "" && n >= 8 }
@@ -648,10 +691,24 @@ __mux_box_scan() {
         text = substr(L[i], length(P) + 1)
         for (k = i + 1; k < j; k++) text = text L[k]
         gsub(/ /, "", text)
-        n = j - i; row = i - 1; has = (text != ""); found = 1
+        n = j - i; row = i - 1; has = (text != ""); btext = text; found = 1
       }
-      if (found) printf "%d %d %d", n, row, has
+      if (!found) exit
+      if (ENVIRON["IC_M"] == "text") printf "%s", btext
+      else printf "%d %d %d", n, row, has
     }'
+}
+
+# __mux_box_text <tmux socket> <pane>: the input box's text with every space
+# removed (wrapping and continuation indent only add spaces), for comparing
+# with a known text. tmux only: screen's hardcopy keeps one byte per
+# character, so its text cannot be compared. Fails when there is no box.
+__mux_box_text() {
+  local __scr __t
+  __scr="$(tmux -S "$1" capture-pane -p -t "$2" 2>/dev/null)" || return 1
+  __t="$(printf '%s\n' "$__scr" | __mux_box_scan $'\xe2\x9d\xaf\xc2\xa0' $'\xe2\x94\x80' text)"
+  [ -n "$__t" ] || return 1
+  printf '%s' "$__t"
 }
 
 # __mux_inputbox_state <backend words...>: empty, placeholder, draft or unsure.
@@ -726,6 +783,16 @@ __mux_send() {
       screen -S "$2" -p "$3" -X stuff "${4//\\/\\\\}" >/dev/null 2>&1 || return
       screen -S "$2" -p "$3" -X stuff $'\r' >/dev/null 2>&1
       ;;
+    *) return 1 ;;
+  esac
+}
+
+# __mux_cr <backend words...>: sends only a CR, which submits what is already
+# in the input box. Returns the backend's rc.
+__mux_cr() {
+  case "${1:-}" in
+    tmux) tmux -S "$2" send-keys -l -t "$3" $'\r' >/dev/null 2>&1 ;;
+    screen) screen -S "$2" -p "$3" -X stuff $'\r' >/dev/null 2>&1 ;;
     *) return 1 ;;
   esac
 }

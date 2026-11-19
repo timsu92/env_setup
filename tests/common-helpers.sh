@@ -93,6 +93,33 @@ d="$(awk -v a="$s" -v b="$e" 'BEGIN{printf "%.1f", b-a}')"
 [ "$rc" = 0 ] && awk -v d="$d" 'BEGIN{exit !(d<=1.0)}' && pass gate-sigterm "TERM during a 300 s wait ended it in ${d}s" || bad gate-sigterm "rc=$rc after ${d}s" ""
 [ -n "$spid" ] && kill "$spid" 2>/dev/null
 
+# ---- __gate defer (hwap's compact-before-switch) ----
+: > "$FAKE_LOG"
+seq_set "switch 4"
+out="$(bash -c '. "$1"; __HWAP_HELPER="$2"; __gate "" 1; echo "rc=$?"' _ "$T/common-helpers.sh" "$T/hwap-helper.sh" 2>&1)"
+[ "$out" = "rc=5" ] && ! grep -q '^cswap switch' "$FAKE_LOG" \
+  && pass gate-defer "switch with defer -> rc 5, nothing switched" || bad gate-defer "rc=5" "$out $(cat "$FAKE_LOG")"
+seq_set "switch 4"
+out="$(bash -c '. "$1"; __HWAP_HELPER="$2"; __gate; echo "rc=$?"' _ "$T/common-helpers.sh" "$T/hwap-helper.sh" 2>&1)"
+[ "$out" = "rc=0" ] && grep -qx 'cswap switch 4' "$FAKE_LOG" \
+  && pass gate-no-defer "switch without defer -> switched as before" || bad gate-no-defer "rc=0" "$out $(cat "$FAKE_LOG")"
+
+# ---- __is_handback, __mux_box_text, __mux_cr ----
+hb() { bash -c '. "$1"; __is_handback "$2" && echo yes || echo no' _ "$T/common-helpers.sh" "$1"; }
+[ "$(hb '<agent-message from="a">x</agent-message>')/$(hb '<task-notification>x')/$(hb 'fix <agent-message ')/$(hb '')" = "yes/yes/no/no" ] \
+  && pass is-handback "hand-back and shell notice only, at the start" || bad is-handback "yes/yes/no/no" ""
+RULE="$(printf '─%.0s' 1 2 3 4 5 6 7 8 9 10)"
+printf 'old\n%s\n❯\xc2\xa0fix the  bug\n  in main.c\n%s\nstatus\n' "$RULE" "$RULE" > "$T/scr"
+txt="$(FAKE_SCREEN="$T/scr" bash -c '. "$1"; __mux_box_text S %1' _ "$T/common-helpers.sh")"
+[ "$txt" = "fixthebuginmain.c" ] && pass box-text "box text without prompt and spaces" || bad box-text "fixthebuginmain.c" "$txt"
+: > "$T/scr"
+FAKE_SCREEN="$T/scr" bash -c '. "$1"; __mux_box_text S %1' _ "$T/common-helpers.sh" >/dev/null \
+  && bad box-text-none "fails" "succeeded" || pass box-text-none "no box -> fails"
+: > "$FAKE_LOG"
+bash -c '. "$1"; __mux_cr tmux S %1; __mux_cr screen 9.x 0; __mux_cr none; echo "rc=$?"' _ "$T/common-helpers.sh" > "$T/out"
+[ "$(cat "$FAKE_LOG")" = "tmux -S S send-keys -l -t %1 "$'\r'$'\n'"screen -S 9.x -p 0 -X stuff "$'\r' ] && grep -qx 'rc=1' "$T/out" \
+  && pass mux-cr "only a CR, per backend; no backend -> 1" || bad mux-cr "CR" "$(cat "$FAKE_LOG")"
+
 # ---- the real gate hook, sourcing the library ----
 PRE='{"hook_event_name":"PreToolUse","session_id":"s1"}'
 seq_set "error:x"

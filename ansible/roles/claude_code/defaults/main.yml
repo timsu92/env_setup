@@ -3,6 +3,13 @@
 # under setup_user, so the git@github.com shorthand form used by
 # `claude plugin marketplace add owner/repo` can fail there even when the
 # target repo is a public one.
+# private: probe with `git ls-remote` first and skip the marketplace and its
+#   plugins when the stored git credentials can't reach it (no `gh auth login`
+#   yet), instead of failing the role.
+# auto_update: turn on background auto-update, which is off by default for
+#   third-party marketplaces.
+# claude-plugins-official must come before timsu92: problem-router depends on
+# plugins from it, and they don't install when it isn't added yet.
 claude_code_marketplaces:
   - name: claude-plugins-official
     url: https://github.com/anthropics/claude-plugins-official.git
@@ -10,6 +17,11 @@ claude_code_marketplaces:
     url: https://github.com/anthropics/skills.git
   - name: openai-codex
     url: https://github.com/openai/codex-plugin-cc.git
+    auto_update: true
+  - name: timsu92
+    url: https://github.com/timsu92/agent-skills.git
+    private: true
+    auto_update: true
 
 # "<plugin>@<marketplace>" strings, passed as-is to `claude plugin install`.
 claude_code_plugins:
@@ -28,9 +40,11 @@ claude_code_plugins:
   - clangd-lsp@claude-plugins-official
   - claude-code-setup@claude-plugins-official
   - sonarqube@claude-plugins-official
-  - mattpocock-skills
+  - mattpocock-skills@claude-plugins-official
   - gopls-lsp@claude-plugins-official
   - codex@openai-codex
+  - problem-router@timsu92
+  - doc-formats@timsu92
 
 claude_code_dir: "{{ setup_user_home }}/.claude"
 claude_code_hook_dir: "{{ claude_code_dir }}/hooks"

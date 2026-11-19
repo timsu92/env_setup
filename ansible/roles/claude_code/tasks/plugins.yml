@@ -4,22 +4,122 @@
 # only touch ~/.claude/settings.json and ~/.claude/plugins/*.json, never
 # ~/.claude.json's onboarding/auth state. So this can run unconditionally,
 # with no dependency on `claude auth login` having happened yet.
-- name: Add Claude Code plugin marketplaces
+
+# Claude Code runs git with prompts off, so a private repo only works with a
+# credential the helper already stores (`gh auth login`, then the helper the
+# github_cli role configures). This probe runs git the same way.
+# The git module has no ls-remote.
+- name: Check access to private Claude Code plugin marketplaces  # noqa: command-instead-of-module
   ansible.builtin.command:
-    cmd: "~/.local/bin/claude plugin marketplace add {{ item.url }}"
+    cmd: "git ls-remote --exit-code {{ item.url }} HEAD"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    GIT_TERMINAL_PROMPT: "0"
+    GCM_INTERACTIVE: never
+  loop: "{{ claude_code_marketplaces | selectattr('private', 'defined') | selectattr('private') }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: claude_code_marketplace_access
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Skip private marketplaces git can't reach yet
+  ansible.builtin.set_fact:
+    claude_code_marketplaces_skipped: >-
+      {{ claude_code_marketplace_access.results | rejectattr('rc', 'equalto', 0)
+         | map(attribute='item.name') | list }}
+
+- name: Say which marketplaces were skipped
+  ansible.builtin.debug:
+    msg: >-
+      Skipped the {{ item }} marketplace and its plugins: `git ls-remote` can't
+      reach it, usually because no credential is stored for it yet. Run
+      `gh auth login`, then run this role again.
+  loop: "{{ claude_code_marketplaces_skipped }}"
+
+# `marketplace add` on a marketplace that's already there rewrites its
+# extraKnownMarketplaces entry and drops the `autoUpdate` set below, so only
+# the missing ones are added. One already added from another URL (the repo
+# moved) is removed first, which also uninstalls its plugins; the install
+# task below puts them back. These commands run in the user's home, so no
+# project's marketplace declarations are listed or removed. `remove` is left
+# unscoped: with `--scope user` it drops only the declaration and keeps the
+# old source's plugins installed.
+- name: List the Claude Code plugin marketplaces already added
+  ansible.builtin.command:
+    cmd: "~/.local/bin/claude plugin marketplace list --json"
+    chdir: "{{ setup_user_home }}"
+  become: true
+  become_user: "{{ setup_user }}"
+  register: claude_code_marketplace_list
+  changed_when: false
+  # Under --check on a fresh machine, Claude Code isn't installed yet.
+  failed_when: claude_code_marketplace_list.rc != 0 and not ansible_check_mode
+  check_mode: false
+
+- name: Note the URL each added Claude Code plugin marketplace came from
+  vars:
+    claude_code_marketplace_listed: "{{ claude_code_marketplace_list.stdout | default('[]', true) | from_json }}"
+  ansible.builtin.set_fact:
+    claude_code_marketplaces_added: >-
+      {{ dict(claude_code_marketplace_listed | map(attribute='name')
+              | zip(claude_code_marketplace_listed | map(attribute='url') | map('default', '', true))) }}
+
+- name: Remove Claude Code plugin marketplaces added from another URL
+  ansible.builtin.command:
+    cmd: "~/.local/bin/claude plugin marketplace remove {{ item.name }}"
+    chdir: "{{ setup_user_home }}"
   become: true
   become_user: "{{ setup_user }}"
   loop: "{{ claude_code_marketplaces }}"
   loop_control:
     label: "{{ item.name }}"
+  when:
+    - item.name not in claude_code_marketplaces_skipped
+    - item.name in claude_code_marketplaces_added
+    - claude_code_marketplaces_added[item.name] != item.url
+  changed_when: true  # the `when` already means there is something to remove
+
+- name: Add Claude Code plugin marketplaces
+  ansible.builtin.command:
+    cmd: "~/.local/bin/claude plugin marketplace add {{ item.url }}"
+    chdir: "{{ setup_user_home }}"
+  become: true
+  become_user: "{{ setup_user }}"
+  loop: "{{ claude_code_marketplaces }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - item.name not in claude_code_marketplaces_skipped
+    - claude_code_marketplaces_added[item.name] | default('') != item.url
   register: claude_code_marketplace_add
   changed_when: "'Successfully added marketplace' in claude_code_marketplace_add.stdout"
 
 - name: Install Claude Code plugins
   ansible.builtin.command:
     cmd: "~/.local/bin/claude plugin install {{ item }}"
+    chdir: "{{ setup_user_home }}"
   become: true
   become_user: "{{ setup_user }}"
   loop: "{{ claude_code_plugins }}"
+  when: (item.split('@') | last) not in claude_code_marketplaces_skipped
   register: claude_code_plugin_install
   changed_when: "'Successfully installed plugin' in claude_code_plugin_install.stdout"
+
+# Only entries that `marketplace add` wrote are touched, so a skipped
+# marketplace never gets an entry without a source.
+- name: Turn on auto-update for the marketplaces that ask for it
+  ansible.builtin.script:
+    cmd: >-
+      install_marketplace_auto_update.bash
+      {{ claude_code_marketplaces | selectattr('auto_update', 'defined') | selectattr('auto_update')
+         | map(attribute='name') | reject('in', claude_code_marketplaces_skipped) | join(' ') }}
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    CLAUDE_CONFIG_DIR: "{{ claude_code_dir }}"
+  register: claude_code_marketplace_auto_update
+  changed_when: claude_code_marketplace_auto_update.rc == 0
+  failed_when: claude_code_marketplace_auto_update.rc not in [0, 10]

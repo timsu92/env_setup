@@ -394,7 +394,7 @@ __inject() {
 }
 
 __on_post_tool_use() {
-  local sub=0 pend='' ledger hist='' pdir done latest record=0 completion=0 d0 res
+  local sub=0 pend='' ledger hist='' pdir done latest record=0 completion=0 d0 res sw
   local seen changed=0 acc budget n bwin backend key r5 r7 text='' kind=''
   [ -n "$(__field agent_id)" ] && sub=1
   __state_read "$SDIR"
@@ -453,11 +453,16 @@ __on_post_tool_use() {
     __get_cur
     __state_read "$SDIR"
     d0="$IC_dirty"
-    res="$(__history_record "$hist" "$ledger" "$done" "$CUR" "$d0")"
+    # This session's last recorded completion was in another ledger (a paused
+    # ticket resumed after another one ran): the usage since this ledger's own
+    # last entry includes the other ticket's work, so this entry is a baseline.
+    sw=0
+    [ -n "$IC_last_record_ledger" ] && [ "$IC_last_record_ledger" != "$ledger" ] && sw=1
+    res="$(__history_record "$hist" "$ledger" "$done" "$CUR" "$d0" "$sw")"
     if __lock "$LOCK"; then
       __state_read "$SDIR"
       # Only what this record carried: a prompt meanwhile stays counted.
-      case "$res" in baseline|counted) IC_dirty=$(( IC_dirty > d0 ? IC_dirty - d0 : 0 )) ;; esac
+      case "$res" in baseline|counted) IC_dirty=$(( IC_dirty > d0 ? IC_dirty - d0 : 0 )) IC_last_record_ledger="$ledger" ;; esac
       [ "$IC_ledger" = "$ledger" ] && IC_ledger_done="$done"
       __state_write "$SDIR"
       __unlock

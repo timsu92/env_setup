@@ -20,12 +20,15 @@
     mode: "0755"
 
 # 691200 s is ~8 days: safely past the 7-day weekly-limit worst case plus the
-# gate's own resume-time buffer.
+# gate's own resume-time buffer. PostCompact waits like the gate (it switches
+# accounts after the compact-before-switch flow's /compact); PostToolUse,
+# PreCompact and SessionStart drive that flow's state.
 - name: Register high-watermark-auto-pause hooks in settings.json
   ansible.builtin.script:
     cmd: >-
       install_hooks.bash {{ claude_code_hook_dir }}/high-watermark-auto-pause.sh
-      PreToolUse:691200 UserPromptSubmit:691200 Stop
+      PreToolUse:691200 UserPromptSubmit:691200 Stop PostToolUse PreCompact
+      PostCompact:691200 SessionStart
   become: true
   become_user: "{{ setup_user }}"
   register: claude_code_hooks_install

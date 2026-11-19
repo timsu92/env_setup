@@ -40,7 +40,7 @@ claude_code_plugins:
   - clangd-lsp@claude-plugins-official
   - claude-code-setup@claude-plugins-official
   - sonarqube@claude-plugins-official
-  - mattpocock-skills
+  - mattpocock-skills@claude-plugins-official
   - gopls-lsp@claude-plugins-official
   - codex@openai-codex
   - problem-router@timsu92

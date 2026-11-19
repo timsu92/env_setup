@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Claude Code hook for the checkpoint-compact flow: pause at a task boundary,
 # /compact through the terminal multiplexer, switch account, send 繼續.
+# hwap (high-watermark-auto-pause.sh) runs a separate compact-before-switch
+# flow with its own state file; it reads this flow's phase and may set skip.
+# Where the two meet is listed in docs/superpowers/specs/
+# 2026-11-19-hwap-compact-before-switch-design.md (與 ideal-compact 的交會點).
 # Registered on PostToolUse, Stop, Notification, PreCompact, PostCompact,
 # SessionStart and UserPromptSubmit.
 # It never blocks Claude Code: exit 0 on every path (never 2; PostCompact
@@ -181,7 +185,7 @@ __on_prompt() {
   prompt="$(__field prompt)"
   # A background agent's hand-back or a background shell's completion notice
   # is not the user speaking.
-  case "$prompt" in '<agent-message '*|'<task-notification>'*) return 0 ;; esac
+  __is_handback "$prompt" && return 0
   read -r first _ <<< "$prompt"
   if [ "$first" = /ideal-compact-skip ] || [[ "$prompt" == *'<!-- ideal-compact:skip -->'* ]]; then
     kind=skip
@@ -190,6 +194,10 @@ __on_prompt() {
   elif [ "$prompt" = "$IDEAL_COMPACT_CONTINUE_TEXT" ]; then
     kind=continue
   fi
+  # hwap sends the same 繼續 (and resubmits a prompt it blocked) after its own
+  # compact, by which time this flow is in standby: there both count as an
+  # ordinary prompt, which only bumps dirty. hwap relies on that, so a change
+  # that makes a standby prompt do more must check hwap's flow too.
   __lock "$LOCK" || return 0
   __state_read "$SDIR"
   IC_dirty=$(( IC_dirty + 1 ))
@@ -230,7 +238,11 @@ __on_precompact() {
   seen="$IC_phase"
   __state_write "$SDIR"
   __unlock
-  # Any other compaction while the flow is active is not ours.
+  # Any other compaction while the flow is active is not ours. hwap's compact
+  # (hooks/high-watermark-auto-pause.sh, started only while this flow is in
+  # standby, armed or stopped) lands here: from armed or stopped it is taken
+  # over like a user's /compact, so this flow's PostCompact does nothing and
+  # hwap alone switches and resumes. hwap depends on this branch.
   if [ "$moved" = 0 ] && [ "$seen" != standby ]; then
     __ic_takeover nonstandby || true
   fi
@@ -535,6 +547,8 @@ __trim() {
 # The agent stopped. Its last message ends with the marker and nothing runs
 # in the background (both lists present and empty): armed -> stopped, a
 # repeated one refreshes stopped. Anything else sends stopped back to armed.
+# hwap's stop request asks for no marker, so a Stop it causes keeps armed as
+# armed until hwap's compact reaches __on_precompact.
 __on_stop() {
   local last quiet=0 ok=0
   last="$(__field last_assistant_message | awk 'NF { l = $0 } END { print l }')"
@@ -595,6 +609,8 @@ __on_notification() {
   # A check that answered empty/placeholder resets inputbox_fail in this write
   # whatever the re-read finds.
   IC_inputbox_fail=0
+  # hwap sets skip=1 under this lock when it takes this flow over (meeting
+  # point 1), so this re-read is what keeps both from sending keys.
   if [ "$IC_phase" != stopped ] || [ "$IC_skip" != 0 ]; then
     __state_write "$SDIR"
     __unlock
@@ -638,14 +654,9 @@ __on_signal() {
 # user or another hook took over) or the claude process is gone or a zombie.
 # Reads without the lock (every write is atomic). Also __gate's abort_fn.
 __ic_wait_abort() {
-  local pid s
   __state_read "$SDIR"
   [ "$IC_phase" = waiting ] || return 1
-  pid="$(__proc_claude_pid)"
-  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
-  { read -r s < "/proc/$pid/stat"; } 2>/dev/null || return 1
-  s="${s##*) }"
-  [ "${s%% *}" != Z ]
+  __proc_claude_alive
 }
 
 # __ic_sleep <seconds>: an interruptible sleep (see the section comment).

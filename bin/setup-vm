@@ -21,14 +21,17 @@ Options:
   --host <HOST>[,...]  Target VM(s) in ansible/inventory/pve_hosts.yml (comma-separated)
   --profile <name>     Profile to run: wsl | pve | pve-daily
   --inventory <file>   Inventory file (default: inventory/pve_hosts.yml)
-  -e <extra_vars>      Extra vars passed to ansible-playbook
   -h, --help           Show this help
+
+Any other option is passed to ansible-playbook as-is.
 
 Examples:
   $0                                       # provision local WSL machine
   $0 --host pve-vm-01                      # provision Proxmox VM (base profile)
   $0 --host pve-vm-01 --profile pve-daily  # provision Proxmox VM (daily-use profile)
   $0 --host pve-vm-01,pve-vm-02            # provision several Proxmox VMs in one run
+  $0 --host pve-vm-01 --check --diff       # dry run
+  $0 --host pve-vm-01 -e var=value -vv
 EOF
   exit 1
 }
@@ -43,9 +46,8 @@ while [[ $# -gt 0 ]]; do
     --host)      HOST="$2"; shift 2 ;;
     --profile)   PROFILE="$2"; shift 2 ;;
     --inventory) INVENTORY="$2"; shift 2 ;;
-    -e)          EXTRA_ARGS+=(-e "$2"); shift 2 ;;
     -h|--help)   usage ;;
-    *) echo "Unknown option: $1"; usage ;;
+    *)           EXTRA_ARGS+=("$1"); shift ;;
   esac
 done
 

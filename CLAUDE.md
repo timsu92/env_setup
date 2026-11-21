@@ -25,9 +25,11 @@ uv run ansible-lint
 cd ansible && ANSIBLE_CONFIG=../ansible.cfg uv run ansible-playbook --syntax-check -i inventory/local.yml playbooks/vm-daily-wsl.yml
 
 # Dry run against a real target (shows what would change, no actual changes).
-# bin/setup-* wrappers only pass through `-e`, not arbitrary flags, so invoke
-# ansible-playbook directly for --check:
-cd ansible && ANSIBLE_CONFIG=../ansible.cfg uv run ansible-playbook -i inventory/pve_hosts.yml -l pve-vm-01 playbooks/vm-daily-pve.yml --check --diff
+# bin/setup-* forward any option they don't recognise to ansible-playbook as-is,
+# so --check/--diff/--tags/-v need no special flag. The local-model scripts (WSL,
+# container, devcontainer) still run their pre-ansible steps for real under
+# --check: creating local.yml, installing ansible, generating the locale.
+bin/setup-vm --host pve-vm-01 --profile pve-daily --check --diff
 
 # Actually provision — always go through bin/, not ansible-playbook directly,
 # so ANSIBLE_CONFIG and cwd are set correctly (see "ansible.cfg" below)
@@ -39,6 +41,8 @@ bin/setup-devcontainer   # inside a devcontainer, local
 ```
 
 There is no CI, and most roles have no tests — their correctness is validated via `ansible-lint`, `--syntax-check`, and `--check --diff` dry runs against a real or throwaway target. The exception is `claude_code`'s shell scripts (hooks, `install_hooks.bash`, `common-helpers.sh`, `hwap-helper.sh`, `statusline.sh`, the `claude` launcher): after changing any of them, run `bash tests/run` from the repo root. It puts fakes for `tmux`/`screen`/`cswap` from `tests/fakes/` first on `PATH` and refuses to run if a real one would be reached, so it never touches the real session or account. The `tests/` location is temporary. After changing how `claude_code`'s `codex.yml` edits `~/.codex/config.toml`, also run `bash tests/roles/claude_code/codex-config.sh`: it needs Docker, takes a few minutes, and isn't part of `tests/run`.
+
+After changing the option parsing of `bin/setup-vm` or `bin/setup-lxc`, verify it against an inventory that holds only a fake host (keep it in the scratchpad, outside the repo), passing `--inventory <path>` and `--syntax-check` as the forwarded flag. Nothing connects to a host, and the real `pve_hosts.yml` is never read.
 
 ### Verifying a role: run it in Docker, never on the host
 

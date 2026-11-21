@@ -17,12 +17,15 @@ Usage: $0 --host <HOST>[,...] [OPTIONS]
 Options:
   --host <HOST>[,...]  Target LXC(s) in ansible/inventory/pve_hosts.yml, comma-separated (required)
   --inventory <file>   Inventory file (default: inventory/pve_hosts.yml)
-  -e <extra_vars>      Extra vars passed to ansible-playbook
   -h, --help           Show this help
+
+Any other option is passed to ansible-playbook as-is.
 
 Examples:
   $0 --host pve-lxc-01
   $0 --host pve-lxc-01,pve-lxc-02
+  $0 --host pve-lxc-01 --check --diff   # dry run
+  $0 --host pve-lxc-01 -e var=value -vv
 EOF
   exit 1
 }
@@ -35,9 +38,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --host)      HOST="$2"; shift 2 ;;
     --inventory) INVENTORY="$2"; shift 2 ;;
-    -e)          EXTRA_ARGS+=(-e "$2"); shift 2 ;;
     -h|--help)   usage ;;
-    *) echo "Unknown option: $1"; usage ;;
+    *)           EXTRA_ARGS+=("$1"); shift ;;
   esac
 done
 

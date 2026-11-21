@@ -25,9 +25,11 @@ uv run ansible-lint
 cd ansible && ANSIBLE_CONFIG=../ansible.cfg uv run ansible-playbook --syntax-check -i inventory/local.yml playbooks/vm-daily-wsl.yml
 
 # Dry run against a real target (shows what would change, no actual changes).
-# bin/setup-* wrappers only pass through `-e`, not arbitrary flags, so invoke
-# ansible-playbook directly for --check:
-cd ansible && ANSIBLE_CONFIG=../ansible.cfg uv run ansible-playbook -i inventory/pve_hosts.yml -l pve-vm-01 playbooks/vm-daily-pve.yml --check --diff
+# bin/setup-* forward any option they don't recognise to ansible-playbook as-is,
+# so --check/--diff/--tags/-v need no special flag. The local-model scripts (WSL,
+# container, devcontainer) still run their pre-ansible steps for real under
+# --check: creating local.yml, installing ansible, generating the locale.
+bin/setup-vm --host pve-vm-01 --profile pve-daily --check --diff
 
 # Actually provision — always go through bin/, not ansible-playbook directly,
 # so ANSIBLE_CONFIG and cwd are set correctly (see "ansible.cfg" below)

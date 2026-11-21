@@ -42,6 +42,8 @@ bin/setup-devcontainer   # inside a devcontainer, local
 
 There is no CI, and most roles have no tests — their correctness is validated via `ansible-lint`, `--syntax-check`, and `--check --diff` dry runs against a real or throwaway target. The exception is `claude_code`'s shell scripts (hooks, `install_hooks.bash`, `common-helpers.sh`, `hwap-helper.sh`, `statusline.sh`, the `claude` launcher): after changing any of them, run `bash tests/run` from the repo root. It puts fakes for `tmux`/`screen`/`cswap` from `tests/fakes/` first on `PATH` and refuses to run if a real one would be reached, so it never touches the real session or account. The `tests/` location is temporary. After changing how `claude_code`'s `codex.yml` edits `~/.codex/config.toml`, also run `bash tests/roles/claude_code/codex-config.sh`: it needs Docker, takes a few minutes, and isn't part of `tests/run`.
 
+After changing the option parsing of `bin/setup-vm` or `bin/setup-lxc`, verify it against an inventory that holds only a fake host (keep it in the scratchpad, outside the repo), passing `--inventory <path>` and `--syntax-check` as the forwarded flag. Nothing connects to a host, and the real `pve_hosts.yml` is never read.
+
 ### Verifying a role: run it in Docker, never on the host
 
 Whenever a real (non-`--check`) run is needed — to confirm a role installs, or that a second run reports `changed=0` — do it in a throwaway container with the repo mounted read-only. Running it on the host installs into the developer's real `$HOME` and can edit their dotfiles. Write a one-role playbook with `setup_user`/`setup_user_home` set, put it and the script below outside the repo (e.g. the scratchpad), then run the playbook **twice** and compare the recaps:

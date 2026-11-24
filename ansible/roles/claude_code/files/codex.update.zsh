@@ -13,7 +13,7 @@ codex_latest="$(npm view @openai/codex version 2>/dev/null)"
 [[ $codex_current != "$codex_latest" ]] || return 0
 
 print -r -- "codex 有可用的更新：${codex_current} -> ${codex_latest}"
-echo -n "是否執行 npm install -g？[y/N] "
+echo -n "是否執行 npm install -g \"@openai/codex@${codex_latest}\"？[y/N] "
 if read -q; then
   echo
   npm install -g "@openai/codex@${codex_latest}" || return $?

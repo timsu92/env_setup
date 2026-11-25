@@ -1,0 +1,81 @@
+{
+  "schema": 2,
+  "selection": "neural",
+  "punctuation": false,
+  "document_context": true,
+  "mixed_input": true,
+  "english_autocomplete": false,
+  "left_shift": true,
+  "esc_clear": true,
+  "space_selects": false,
+  "candidate_cursor": "after",
+  "advance_after_select": true,
+  "candidate_layout": "vertical",
+  "emoji_shortcut": "off",
+  "emoji_equals_first": true,
+  "keyboard_layout": "standard",
+  "selection_keys": "1234567890",
+  "toggle_key": "both",
+  "shift_tap_ms": 300,
+  "mode_memory": "native",
+  "start_mode": "zhuyin",
+  "output_simplified": false,
+  "simplified_hotkey": false,
+  "ctrl_punctuation": true,
+  "shift_symbol_halfwidth": true,
+  "all_symbols_halfwidth": true,
+  "cjk_latin_space": true,
+  "zhuyin_error_hint": true,
+  "personal_learning": true,
+  "caps_lock_english": true,
+  "toneless": false,
+  "input_profile": {
+    "active": "legacy",
+    "items": [
+      {
+        "id": "legacy",
+        "name": "我的原有設定",
+        "builtin": false,
+        "source": "legacy",
+        "version": 1,
+        "values": {
+          "advance-after-select": "on",
+          "candidate-cursor": "after",
+          "candidate-layout": "vertical",
+          "caps-lock-english": "on",
+          "ctrl-punctuation": "on",
+          "emoji-equals-first": "on",
+          "emoji-shortcut": "off",
+          "english-autocomplete": "off",
+          "esc-clear": "on",
+          "mixed-input": "on",
+          "selection-keys": "1234567890",
+          "space-selects": "off",
+          "toggle-key": "both",
+          "toneless": "off"
+        },
+        "rules": {
+          "caps_letter": "platform",
+          "candidate_navigation": "0c",
+          "shift_delete": "0c",
+          "up": "0c",
+          "candidate_tab": "length",
+          "candidate_page_size": 10,
+          "version": 1,
+          "punctuation": "0c",
+          "shift_space": "disabled",
+          "tab": "0c",
+          "candidate_space": "page",
+          "candidate_enter": "select",
+          "shift_letter": "inline"
+        }
+      }
+    ]
+  },
+  "fuzzy": {
+    "c-ch": "auto",
+    "en-eng": "auto",
+    "s-sh": "auto",
+    "z-zh": "auto"
+  }
+}

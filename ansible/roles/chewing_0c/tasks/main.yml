@@ -80,36 +80,53 @@
   changed_when: false
   when: chewing_0c_in_supported_env and chewing_0c_needs_install
 
-# argv instead of cmd: selection-keys may contain ";", which a shell would split on.
-# No -apply here: the engine only reads settings when it starts, and -apply makes it restart,
-# which is only worth doing when something actually changed (see the next task).
-- name: Deploy 0c settings
-  ansible.builtin.command:
-    argv: "{{ [setup_user_home ~ '/.local/bin/0c-update', 'set'] + chewing_0c_set_args + ['-json'] }}"
-  register: chewing_0c_set
-  become: true
-  become_user: "{{ setup_user }}"
-  environment:
-    HOME: "{{ setup_user_home }}"
-  # `set` rewrites user.json every time, so "changed" has to come from the from/to it reports
-  changed_when: >-
-    (chewing_0c_set.stdout | from_json).changes | map(attribute='from') | list
-    != (chewing_0c_set.stdout | from_json).changes | map(attribute='to') | list
-  when: chewing_0c_in_supported_env and chewing_0c_settings | length > 0
+# 0c keeps all its settings in this one file (Linux: ~/.local/share/0c/settings.json), so it is
+# deployed as a whole instead of through `0c-update set`.
+- name: Create 0c settings directory
+  ansible.builtin.file:
+    path: "{{ setup_user_home }}/.local/share/0c"
+    state: directory
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+  when: chewing_0c_in_supported_env
 
-# Setting the same values again changes nothing on disk, it only asks the running engine to hand
-# over once it is not composing, so the next keystroke starts it with the new settings.
-# The engine not running (container, no systemd --user) is a normal outcome, not a failure.
+# 0c rewrites settings.json whenever `0c-update set` or its settings GUI saves, filling in every
+# missing field (e.g. shift_tap_ms, personal_learning, input_profile) in its own key order. So
+# files/settings.json is kept in exactly that normalized form: anything less would be rewritten by
+# the next task and then be "changed" again on every run. To update it, let 0c write it (change a
+# setting, then copy ~/.local/share/0c/settings.json) rather than editing by hand.
+# This replaces the whole file: changes made in the settings GUI are overwritten by the next run.
+# It only holds settings. Learned words live in vocab.json, which this does not touch.
+- name: Deploy 0c settings.json
+  ansible.builtin.copy:
+    src: settings.json
+    dest: "{{ setup_user_home }}/.local/share/0c/settings.json"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0600"
+  register: chewing_0c_settings_file
+  when: chewing_0c_in_supported_env
+
+# The running engine reads settings only when it starts. "Changing" one setting to the value it
+# already has makes 0c hand the engine over once it is not composing (-apply), without altering
+# the file. The engine not running (container, no systemd --user) is a normal outcome, not a failure.
 - name: Apply 0c settings to the running engine
   ansible.builtin.command:
-    argv: "{{ [setup_user_home ~ '/.local/bin/0c-update', 'set'] + chewing_0c_set_args + ['-apply', '-json'] }}"
+    argv:
+      - "{{ setup_user_home }}/.local/bin/0c-update"
+      - set
+      - selection
+      - "{{ (lookup('ansible.builtin.file', 'settings.json') | from_json)['selection'] }}"
+      - -apply
+      - -json
   register: chewing_0c_apply
   become: true
   become_user: "{{ setup_user }}"
   environment:
     HOME: "{{ setup_user_home }}"
   changed_when: "(chewing_0c_apply.stdout | from_json).apply.state == 'applied'"
-  when: chewing_0c_in_supported_env and chewing_0c_set is changed
+  when: chewing_0c_in_supported_env and chewing_0c_settings_file is changed
 
 - name: Warn that 0c settings were saved but not applied
   ansible.builtin.debug:

@@ -97,3 +97,11 @@
     path: "{{ skillspector_registry_file }}"
     state: absent
   when: not (skillspector_registry_enabled | bool)
+
+- name: Deploy aptu update script for SkillSpector
+  ansible.builtin.template:
+    src: skillspector.update.zsh.j2
+    dest: "{{ setup_user_home }}/.config/zsh/update/skillspector.update.zsh"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"

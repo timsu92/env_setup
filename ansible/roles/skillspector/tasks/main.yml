@@ -1,0 +1,64 @@
+---
+# SkillSpector, installed with `uv tool install` from a pinned git tag.
+- name: Check the SkillSpector provider is supported
+  ansible.builtin.assert:
+    that: skillspector_llm_provider in ['openai_compatible', 'claude_cli']
+    fail_msg: "skillspector_llm_provider must be openai_compatible or claude_cli, got '{{ skillspector_llm_provider }}'"
+    quiet: true
+
+- name: Check the SkillSpector version is a vX.Y.Z tag
+  ansible.builtin.assert:
+    that: skillspector_version is match('^v[0-9]+\.[0-9]+\.[0-9]+$')
+    fail_msg: "skillspector_version must look like v1.2.3 (the tag, with the leading v), got '{{ skillspector_version }}'"
+    quiet: true
+
+- name: Find uv's tool directory
+  ansible.builtin.command:
+    cmd: "{{ skillspector_uv }} tool dir"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+  register: skillspector_uv_tool_dir
+  changed_when: false
+  check_mode: false
+
+# Decide whether to install from the installed version, as roles/go does.
+# `uv tool list` prints one `skillspector vX.Y.Z` line per tool.
+- name: Get the installed SkillSpector version
+  ansible.builtin.command:
+    cmd: "{{ skillspector_uv }} tool list"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+  register: skillspector_uv_list
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Install SkillSpector {{ skillspector_version }}
+  ansible.builtin.command:
+    argv:
+      - "{{ skillspector_uv }}"
+      - tool
+      - install
+      - --python
+      - "{{ skillspector_python }}"
+      - "skillspector @ git+{{ skillspector_repo_url }}@{{ skillspector_version }}"
+  become: true
+  become_user: "{{ setup_user }}"
+  environment:
+    HOME: "{{ setup_user_home }}"
+    UV_TOOL_BIN_DIR: "{{ skillspector_bin_dir }}"
+  when:
+    - not ansible_check_mode
+    - (skillspector_uv_list.stdout_lines | default([])) | select('equalto', 'skillspector ' ~ skillspector_version) | list | length == 0
+  changed_when: true
+
+# uv recreates this link on every `uv tool install`. Nothing uses it, and a second
+# `skillspector` that skips the wrapper's settings is only a way to run it by mistake.
+- name: Remove the executable link uv created for SkillSpector
+  ansible.builtin.file:
+    path: "{{ skillspector_bin_dir }}/skillspector"
+    state: absent

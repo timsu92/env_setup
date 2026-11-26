@@ -1,0 +1,17 @@
+---
+# Derived values. They live in vars/, not defaults/, so an inventory cannot override them by accident.
+
+# Whether the wrapper exports any LLM setting at all. claude_cli needs no endpoint. For
+# openai_compatible the base URL, model and API key must all be set, otherwise SkillSpector would
+# get half a configuration, so the wrapper exports nothing and a plain scan fails loudly.
+skillspector_llm_configured: >-
+  {{ skillspector_llm_provider == 'claude_cli' or
+     ((skillspector_llm_base_url | string | length > 0) and
+      (skillspector_llm_model | string | length > 0) and
+      (skillspector_llm_api_key | string | length > 0)) }}
+
+# Whether the model registry file is written and exported.
+skillspector_registry_enabled: >-
+  {{ skillspector_llm_configured | bool and
+     (skillspector_llm_model_registry | length > 0) and
+     (skillspector_llm_model | string | length > 0) }}

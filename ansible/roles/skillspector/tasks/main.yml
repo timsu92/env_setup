@@ -62,3 +62,38 @@
   ansible.builtin.file:
     path: "{{ skillspector_bin_dir }}/skillspector"
     state: absent
+
+# ~/.local/bin already exists: the uv role installs uv there.
+- name: Create the SkillSpector data directory
+  ansible.builtin.file:
+    path: "{{ skillspector_registry_file | dirname }}"
+    state: directory
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0755"
+
+# The wrapper may hold the API key, so it is 0700 and its content stays out of the output and --diff.
+- name: Deploy the SkillSpector wrapper
+  ansible.builtin.template:
+    src: skillspector.j2
+    dest: "{{ skillspector_wrapper }}"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0700"
+  no_log: true
+
+- name: Deploy the SkillSpector model registry
+  ansible.builtin.template:
+    src: model_registry.yaml.j2
+    dest: "{{ skillspector_registry_file }}"
+    owner: "{{ setup_user }}"
+    group: "{{ setup_user }}"
+    mode: "0644"
+  when: skillspector_registry_enabled | bool
+
+# A registry left behind by an earlier run would no longer be exported, but would mislead whoever finds it.
+- name: Remove the SkillSpector model registry when none is configured
+  ansible.builtin.file:
+    path: "{{ skillspector_registry_file }}"
+    state: absent
+  when: not (skillspector_registry_enabled | bool)

@@ -1,0 +1,5 @@
+# Managed by Ansible (role: skillspector). Edit skillspector_llm_model_registry in the inventory.
+# SkillSpector reads this through SKILLSPECTOR_MODEL_REGISTRY, which replaces its bundled registry.
+models:
+  {{ skillspector_llm_model | to_json }}:
+{{ skillspector_llm_model_registry | to_nice_yaml(indent=2) | trim | indent(4, first=True) }}

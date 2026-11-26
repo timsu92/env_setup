@@ -1,0 +1,27 @@
+#!/bin/sh
+# Managed by Ansible (role: skillspector). Edit the inventory, not this file: the next
+# playbook run rewrites it. The LLM settings below are exported for the process started by
+# the exec at the end only, so they never reach your shell or its other children.
+{% if skillspector_llm_provider == 'openai_compatible' %}
+{% if skillspector_llm_base_url and skillspector_llm_model and skillspector_llm_api_key %}
+export SKILLSPECTOR_PROVIDER=openai_compatible
+export SKILLSPECTOR_COMPAT_BASE_URL={{ skillspector_llm_base_url | string | quote }}
+export SKILLSPECTOR_COMPAT_API_KEY={{ skillspector_llm_api_key | string | quote }}
+export SKILLSPECTOR_MODEL={{ skillspector_llm_model | string | quote }}
+{% endif %}
+{% else %}
+export SKILLSPECTOR_PROVIDER=claude_cli
+{% if skillspector_llm_model %}
+export SKILLSPECTOR_MODEL={{ skillspector_llm_model | string | quote }}
+{% endif %}
+{% endif %}
+{% if skillspector_llm_max_concurrency | string | length > 0 %}
+export SKILLSPECTOR_MAX_LLM_CONCURRENCY={{ skillspector_llm_max_concurrency | string | quote }}
+{% endif %}
+{% if skillspector_llm_reasoning_effort | string | length > 0 %}
+export SKILLSPECTOR_REASONING_EFFORT={{ skillspector_llm_reasoning_effort | string | quote }}
+{% endif %}
+{% if skillspector_registry_enabled | bool %}
+export SKILLSPECTOR_MODEL_REGISTRY={{ skillspector_registry_file | quote }}
+{% endif %}
+exec {{ (skillspector_uv_tool_dir.stdout ~ '/skillspector/bin/skillspector') | quote }} "$@"

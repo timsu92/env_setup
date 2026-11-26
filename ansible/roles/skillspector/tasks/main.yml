@@ -12,6 +12,8 @@
     fail_msg: "skillspector_version must look like v1.2.3 (the tag, with the leading v), got '{{ skillspector_version }}'"
     quiet: true
 
+# Under --check on a fresh host the uv role has not installed uv yet, so this fails there and
+# only there: a real run must still stop when uv does not answer.
 - name: Find uv's tool directory
   ansible.builtin.command:
     cmd: "{{ skillspector_uv }} tool dir"
@@ -21,6 +23,7 @@
     HOME: "{{ setup_user_home }}"
   register: skillspector_uv_tool_dir
   changed_when: false
+  failed_when: skillspector_uv_tool_dir.rc != 0 and not ansible_check_mode
   check_mode: false
 
 # Decide whether to install from the installed version, as roles/go does.

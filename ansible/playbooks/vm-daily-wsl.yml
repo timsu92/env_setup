@@ -27,6 +27,7 @@
     - role: xpra
     - role: wsl_my_documents
     - role: claude_code
+    - role: skillspector
     - role: fzf
     - role: htop
     - role: copy_fail_fix

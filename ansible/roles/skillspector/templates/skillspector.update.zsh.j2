@@ -1,0 +1,32 @@
+# SkillSpector is installed with `uv tool install ... @<pinned tag>` (see skillspector_version).
+# uv cannot move a tag-pinned tool to a newer tag (`uv tool upgrade` says "Nothing to upgrade"),
+# so ask the upstream repo for its latest release tag and confirm before installing it.
+# This only updates the local installation: the Ansible role pins the version, so a later
+# playbook run puts the pinned one back.
+command -v uv >/dev/null 2>&1 || return 0
+
+local skillspector_current skillspector_latest skillspector_rc
+skillspector_current="$(uv tool list 2>/dev/null | awk '$1 == "skillspector" {print $2}')"
+[[ -n $skillspector_current ]] || return 0
+# Newest plain vX.Y.Z tag: --refs drops the peeled ^{} entries, and pre-releases such as
+# v2.14.0-rc1 do not match the pattern.
+skillspector_latest="$(git ls-remote --tags --sort=-v:refname --refs {{ skillspector_repo_url | quote }} 'v*' 2>/dev/null \
+  | awk '{sub("refs/tags/", "", $2)} $2 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ {print $2; exit}')"
+[[ -n $skillspector_latest ]] || return 0
+[[ $skillspector_current != "$skillspector_latest" ]] || return 0
+
+print -r -- "skillspector 有可用的更新：${skillspector_current} -> ${skillspector_latest}"
+echo -n "是否執行 uv tool install？[y/N] "
+if read -q; then
+  echo
+  # The same bin directory as the role: otherwise uv links `skillspector` into ~/.local/bin,
+  # finds the wrapper there and refuses to continue.
+  UV_TOOL_BIN_DIR={{ skillspector_bin_dir | quote }} uv tool install --python {{ skillspector_python | quote }} \
+    "skillspector @ git+{{ skillspector_repo_url }}@${skillspector_latest}"
+  skillspector_rc=$?
+  # uv recreates the executable link on every install; the wrapper does not use it.
+  rm -f -- {{ (skillspector_bin_dir ~ '/skillspector') | quote }}
+  return $skillspector_rc
+else
+  echo
+fi

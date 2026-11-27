@@ -1,0 +1,51 @@
+---
+# SkillSpector (NVIDIA) scans agent skills for risky patterns before you install them.
+# https://github.com/NVIDIA/skillspector
+
+# Pinned release tag, installed with `uv tool install ...@<tag>` (there is no PyPI release yet).
+# To bump it, change this and re-run bin/setup-*. It must be the `vX.Y.Z` tag whose package
+# version is X.Y.Z: the role compares it with the version `uv tool list` prints, so any other
+# spelling would reinstall on every run.
+skillspector_version: v2.13.7
+skillspector_python: "3.13"
+skillspector_repo_url: https://github.com/NVIDIA/skillspector.git
+skillspector_uv: "{{ setup_user_home }}/.local/bin/uv"
+
+# uv always links a tool's executable into a bin directory. It is pointed at a private
+# directory (UV_TOOL_BIN_DIR) so it never collides with the wrapper, and the link is removed
+# after every install because the wrapper runs the tool's own venv binary instead.
+skillspector_bin_dir: "{{ setup_user_home }}/.local/share/skillspector/bin"
+
+# What you run: a generated sh script that exports the LLM settings below only for the scan
+# process, then execs the real binary. It may contain a token, hence mode 0700.
+skillspector_wrapper: "{{ setup_user_home }}/.local/bin/skillspector"
+skillspector_registry_file: "{{ setup_user_home }}/.local/share/skillspector/model_registry.yaml"
+
+# LLM analysis. Set these in ansible/inventory/pve_hosts.yml (VM, LXC) or
+# ansible/inventory/local.yml (WSL, devcontainer), see the matching .example file.
+# When they are not set, the CLI and the wrapper are still installed, just without LLM settings.
+#
+# openai_compatible: any OpenAI-compatible endpoint, needs the three variables below.
+# claude_cli: the local `claude` login (uses the subscription quota), needs none of them
+#   except an optional skillspector_llm_model.
+skillspector_llm_provider: openai_compatible
+# Up to /v1 (the client appends /chat/completions). -> SKILLSPECTOR_COMPAT_BASE_URL
+skillspector_llm_base_url: ""
+# -> SKILLSPECTOR_MODEL
+skillspector_llm_model: ""
+# -> SKILLSPECTOR_COMPAT_API_KEY
+skillspector_llm_api_key: ""
+
+# -> SKILLSPECTOR_MAX_LLM_CONCURRENCY. SkillSpector defaults to 10 parallel requests, which
+# is more than some endpoints allow per user; requests that get a 429 are silently dropped.
+skillspector_llm_max_concurrency: ""
+# -> SKILLSPECTOR_REASONING_EFFORT, passed to the endpoint as is. Valid values depend on the
+# endpoint (For example, Qwen accepts none, low, medium, xhigh and answers 400 to anything else).
+# Higher effort makes the model think longer, and thinking counts toward the output limit.
+skillspector_llm_reasoning_effort: ""
+
+# Token budget of the model, as an entry of SkillSpector's model registry, for models it does
+# not know (it then assumes a 128000-token context and 32000 output tokens). When not empty
+# together with skillspector_llm_model, it is written to skillspector_registry_file and
+# exported as SKILLSPECTOR_MODEL_REGISTRY. Keys: context_length, max_output_tokens, ...
+skillspector_llm_model_registry: {}

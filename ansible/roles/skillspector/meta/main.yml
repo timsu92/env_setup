@@ -1,4 +1,0 @@
----
-dependencies:
-  - role: uv  # uv tool install
-  - role: git  # uv installs skillspector from a git+https:// URL

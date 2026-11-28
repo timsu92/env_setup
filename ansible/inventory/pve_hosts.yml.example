@@ -26,23 +26,6 @@ all:
           # writes it to ~/.config/zsh/non-interactive/15-sonarqube-cli.zsh; when unset,
           # an empty stub is deployed for you to fill in by hand. Must be a *user* token.
           # claude_code_sonarqube_token: "<user-token>"
-          # SkillSpector LLM settings (used by skillspector role); optional. Without them the CLI and
-          # its wrapper are still installed, but `skillspector scan` then needs --no-llm. When set,
-          # Ansible writes them into the wrapper ~/.local/bin/skillspector (mode 0700), which exports
-          # them only for the skillspector process, so they never reach the shell's environment.
-          # Run `chmod 600` on this file once it holds a token.
-          # skillspector_llm_base_url: "https://<host>/v1"  # up to /v1, not .../chat/completions
-          # skillspector_llm_model: "<model-id>"
-          # skillspector_llm_api_key: "<token>"
-          # skillspector_llm_max_concurrency: 8  # stay within what the endpoint allows per user
-          # skillspector_llm_reasoning_effort: low  # valid values depend on the endpoint
-          # Token budget of a model SkillSpector does not know (it assumes 128000 / 32000 otherwise):
-          # skillspector_llm_model_registry:
-          #   context_length: 65536
-          #   max_output_tokens: 16384
-          # To use the local `claude` login instead (counts against the subscription quota, needs
-          # no token or base URL; skillspector_llm_model is optional):
-          # skillspector_llm_provider: claude_cli
     lxc:
       hosts:
         pve-lxc-01:
@@ -58,7 +41,3 @@ all:
           # writes it to ~/.config/zsh/non-interactive/15-sonarqube-cli.zsh; when unset,
           # an empty stub is deployed for you to fill in by hand. Must be a *user* token.
           # claude_code_sonarqube_token: "<user-token>"
-          # SkillSpector LLM settings: same variables as for pve-vm-01 above (skillspector_llm_*).
-          # skillspector_llm_base_url: "https://<host>/v1"
-          # skillspector_llm_model: "<model-id>"
-          # skillspector_llm_api_key: "<token>"

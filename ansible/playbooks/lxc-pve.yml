@@ -35,7 +35,6 @@
     - role: tmux
     - role: sshd
     - role: claude_code
-    - role: skillspector
     - role: fzf
     - role: htop
     - role: screen

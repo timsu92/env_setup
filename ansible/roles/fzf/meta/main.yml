@@ -3,4 +3,3 @@ dependencies:
   - role: curl_or_wget
   - role: zsh
   - role: git
-

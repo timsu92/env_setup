@@ -5,12 +5,12 @@
     repo: https://github.com/junegunn/fzf.git
     dest: "{{ setup_user_home }}/.fzf"
     depth: 1
-    version: v0.71.0
+    version: v0.75.0
   become: true
   become_user: "{{ setup_user }}"
 
 - name: Run fzf setup
-  ansible.builtin.command: "{{ setup_user_home }}/.fzf/install --completion --key-bindings --no-update-rc --no-bash --no-fish"
+  ansible.builtin.command: "{{ setup_user_home }}/.fzf/install --completion --key-bindings --no-update-rc --no-bash --no-fish --no-nushell"
   args:
     creates: "{{ setup_user_home }}/.fzf.zsh"
   become: true

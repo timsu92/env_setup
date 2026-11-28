@@ -14,5 +14,5 @@ _aptu_update_git_repo "$_fzf_dir" "fzf" tag
 
 if [[ -n "$_fzf_before" && "$(git -C "$_fzf_dir" rev-parse --short HEAD 2>/dev/null)" != "$_fzf_before" ]]; then
   echo "fzf 已更新，重新執行 install..."
-  "${_fzf_dir}/install" --completion --key-bindings --no-update-rc --no-bash --no-fish
+  "${_fzf_dir}/install" --completion --key-bindings --no-update-rc --no-bash --no-fish --no-nushell
 fi

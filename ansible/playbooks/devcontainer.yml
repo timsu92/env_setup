@@ -23,6 +23,7 @@
     - role: github_cli
     - role: gitlab_cli
     - role: claude_code
+    - role: skillspector
     - role: fzf
     - role: htop
     - role: screen

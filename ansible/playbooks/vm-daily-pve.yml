@@ -19,4 +19,5 @@
     - role: bun
     - role: uv
     - role: chewing_0c
+    - role: skillspector
     - role: apt_reboot_if_required
